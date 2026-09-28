@@ -283,6 +283,21 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
   useEffect(() => {
     if (!goodsReceipt || serialSeededForRef.current === goodsReceiptId) return;
+    const saved = goodsReceipt.serialRangesByLineId ?? {};
+    if (Object.keys(saved).length) {
+      setSerialDrafts(prev => {
+        const next = { ...prev };
+        const byItem = Object.values(saved);
+        for (const line of goodsReceipt.lineItems) {
+          if (!line.id || next[line.id]?.startNumber) continue;
+          const row = saved[line.id]
+            || byItem.find(item => item.itemId && item.itemId === line.itemId);
+          if (!row) continue;
+          next[line.id] = { startNumber: row.startNumber, endNumber: row.endNumber };
+        }
+        return next;
+      });
+    }
     const poNumber = String(goodsReceipt.purchaseOrderNumber || goodsReceipt.referenceNumber || '').trim();
     serialSeededForRef.current = goodsReceiptId;
     if (!poNumber) return;
@@ -714,6 +729,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       const serialRanges = collectSerialRangeInputs();
       if (!alreadyReceived || zohoStillDraft || serialRanges.length) {
         const result = await markGoodsReceiptReceived(goodsReceiptId, receivedAtIso, serialRanges);
+        if (serialRanges.length && result.serialAllotment?.skipped) {
+          throw new Error('Serial numbers were not saved on this bill.');
+        }
         nextStatus = result.status;
         nextReceivedDate = result.receivedDate;
         nextOpsReceivedAt = result.opsReceivedAt;
@@ -771,12 +789,17 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     setSaveError('');
     setSaveOk('');
     try {
-      await markGoodsReceiptReceived(
+      const serialRanges = collectSerialRangeInputs();
+      const result = await markGoodsReceiptReceived(
         goodsReceiptId,
         goodsReceipt.opsReceivedAt,
-        collectSerialRangeInputs(),
+        serialRanges,
       );
-      setSaveOk('Serial numbers saved');
+      if (serialRanges.length && result.serialAllotment?.skipped) {
+        throw new Error('Serial numbers were not saved on this bill.');
+      }
+      const updated = Number(result.serialAllotment?.updated) || 0;
+      setSaveOk(updated ? 'Serial numbers updated' : 'Serial numbers saved');
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
     } finally {
@@ -1331,6 +1354,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
               {saveOk}
             </p>
           ) : null}
+          <p className="text-muted text-sm mb-0">
+            Bill stays received. Enter the serial range, then save.
+          </p>
           <div className="goods-receipt-detail__actions-btns">
             <button
               type="button"

@@ -332,6 +332,55 @@ export async function assertSerialRangeNeverUsed(row) {
   return { serials: serials.length };
 }
 
+/** Drop in-stock serials that left a range. Throws if any of them is invoiced, used, or allotted. */
+export async function deleteUnusedSerialList(serials) {
+  const list = (Array.isArray(serials) ? serials : []).map(str).filter(Boolean);
+  if (!list.length) return { deleted: 0 };
+  const db = getFirestore();
+  const used = [];
+  const snaps = [];
+  for (let i = 0; i < list.length; i += 100) {
+    const slice = list.slice(i, i + 100);
+    const ids = slice.map(unitId).filter(Boolean);
+    if (!ids.length) continue;
+    const unitRefs = ids.map(id => db.collection(SERIAL_UNITS).doc(id));
+    const allocRefs = ids.map(id => db.collection(NON_GATC_ALLOCATIONS).doc(id));
+    const [unitSnaps, allocSnaps] = await Promise.all([
+      db.getAll(...unitRefs),
+      db.getAll(...allocRefs),
+    ]);
+    for (let j = 0; j < ids.length; j += 1) {
+      snaps.push(unitSnaps[j]);
+      const status = str(unitSnaps[j].data()?.status);
+      if (status === SERIAL_UNIT_INVOICED || status === SERIAL_UNIT_USED || allocSnaps[j].exists) {
+        used.push(slice[j] || ids[j]);
+      }
+    }
+  }
+  if (used.length) {
+    const sample = used.slice(0, 8).join(', ');
+    throw new Error(
+      `Cannot change this range: ${used.length} serial${used.length === 1 ? '' : 's'} already used (${sample}${used.length > 8 ? '…' : ''}).`,
+    );
+  }
+  let deleted = 0;
+  let batch = db.batch();
+  let count = 0;
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    batch.delete(snap.ref);
+    count += 1;
+    deleted += 1;
+    if (count >= WRITE_CHUNK) {
+      await batch.commit();
+      batch = db.batch();
+      count = 0;
+    }
+  }
+  if (count) await batch.commit();
+  return { deleted };
+}
+
 export async function deleteUnusedSerialUnitsForRange(row) {
   await assertSerialRangeNeverUsed(row);
   const serials = expandSerialRange({

@@ -25,6 +25,10 @@ import {
 } from './catalogSiteInventory/data';
 import { applyYesStoreInboundDeltas } from './yesStore/data';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
+import {
+  parsePurchaseOrderSerialRanges,
+  type PurchaseOrderSerialRangesByLineId,
+} from './purchaseOrderSerials';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -135,6 +139,7 @@ export interface AdminGoodsReceiptDetail {
   lineItems: DealerInvoiceLineItem[];
   /** Ops receive check — keyed by Zoho line item id. */
   receiveCheck: GoodsReceiptReceiveCheck | null;
+  serialRangesByLineId: PurchaseOrderSerialRangesByLineId;
 }
 
 export type GoodsReceiptReceiveLocation = {
@@ -874,6 +879,7 @@ export function mapAdminGoodsReceiptDetail(
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
     receiveCheck: mapReceiveCheck(data.receiveCheck),
+    serialRangesByLineId: parsePurchaseOrderSerialRanges(data.serialRangesByLineId),
   };
 }
 
@@ -1531,6 +1537,12 @@ export type MarkGoodsReceiptReceivedResult = {
   opsReceivedAt: string | null;
   opsReceivedByUid: string | null;
   opsReceivedByName: string | null;
+  serialAllotment?: {
+    applied?: number;
+    updated?: number;
+    pushed?: number;
+    skipped?: string | null;
+  } | null;
 };
 
 export async function markGoodsReceiptReceived(
