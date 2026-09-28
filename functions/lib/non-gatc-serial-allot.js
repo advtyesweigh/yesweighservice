@@ -413,10 +413,18 @@ function uniqueSerialPool(serials) {
 }
 
 export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_GATC_SERIES) {
-  const dedicated = productHasDedicatedAllotment(allotments, filter, series);
+  const rows = Array.isArray(allotments) ? allotments : [];
+  const dedicated = productHasDedicatedAllotment(rows, filter, series);
   const out = [];
-  for (const row of Array.isArray(allotments) ? allotments : []) {
+  const seenRows = new Set();
+  for (const row of rows) {
     if (!allotmentInPickerPool(row, filter, dedicated, series)) continue;
+    seenRows.add(row);
+    out.push(...expandAllotmentRange(row));
+  }
+  // Shared X lots have no SKU. A product's own preallotted range must not hide them.
+  for (const row of rows) {
+    if (seenRows.has(row) || !isSharedXStampingLot(row)) continue;
     out.push(...expandAllotmentRange(row));
   }
   return uniqueSerialPool(out);
@@ -518,7 +526,13 @@ export async function listAvailableNonGatcSerials(maxOrOpts = 2000) {
       serialNumber: serial,
     });
   }
-  return [...unitRows, ...extra].slice(0, limit);
+  const pinned = [];
+  const rest = [];
+  for (const row of [...unitRows, ...extra]) {
+    if (isXSeriesSerial(row.serialNumber)) pinned.push(row);
+    else rest.push(row);
+  }
+  return [...pinned, ...rest].slice(0, Math.max(limit, pinned.length));
 }
 
 async function loadTakenSerialKeys(db, exceptInvoiceId = '') {
