@@ -79,6 +79,7 @@ export async function listUnlinkedIwpGatcCertificates(
     capacityKg?: number | null;
     invoiceId?: string | null;
     invoiceNumber?: string | null;
+    query?: string | null;
   } = 2000,
 ): Promise<UnlinkedIwpGatcCertificate[]> {
   const opts = typeof maxOrOpts === 'number' ? { max: maxOrOpts } : maxOrOpts;
@@ -91,6 +92,7 @@ export async function listUnlinkedIwpGatcCertificates(
       capacityKg?: number;
       invoiceId?: string;
       invoiceNumber?: string;
+      query?: string;
     },
     { rows?: UnlinkedIwpGatcCertificate[] }
   >(
@@ -104,6 +106,7 @@ export async function listUnlinkedIwpGatcCertificates(
   const capacityKg = Number(opts.capacityKg);
   const invoiceId = String(opts.invoiceId ?? '').trim();
   const invoiceNumber = String(opts.invoiceNumber ?? '').trim();
+  const query = String(opts.query ?? '').trim();
   return (await fn({
     max: opts.max,
     ...(productId ? { productId } : {}),
@@ -112,6 +115,7 @@ export async function listUnlinkedIwpGatcCertificates(
     ...(Number.isFinite(capacityKg) ? { capacityKg } : {}),
     ...(invoiceId ? { invoiceId } : {}),
     ...(invoiceNumber ? { invoiceNumber } : {}),
+    ...(query ? { query } : {}),
   })).data.rows ?? [];
 }
 

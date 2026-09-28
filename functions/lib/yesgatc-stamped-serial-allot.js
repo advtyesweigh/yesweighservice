@@ -257,6 +257,36 @@ function publicPoolSerial(serial, seriesLabel, maxLabel) {
   };
 }
 
+function pickerRowBlob(row) {
+  return `${row?.serialNumber ?? ''} ${row?.max ?? ''} ${row?.certificateNumber ?? ''} ${row?.sku ?? ''} ${row?.productName ?? ''}`
+    .toLowerCase();
+}
+
+function isSharedGatcSticker(serial) {
+  return isIwpGatcUnusedSerial(serial) || isXSeriesSerial(serial);
+}
+
+/**
+ * Product serials (YJ and other SKU lots) stay ahead of the shared Y / YZ / X tank.
+ * A search runs on the full pool so a serial past the window still resolves.
+ */
+export function prioritizeUnlinkedGatcRows(sorted, { cap = 2000, query = '' } = {}) {
+  const owned = [];
+  const shared = [];
+  for (const row of sorted) {
+    if (isSharedGatcSticker(row?.serialNumber)) shared.push(row);
+    else owned.push(row);
+  }
+  const needle = str(query).toLowerCase();
+  const ordered = [...owned, ...shared];
+  const pool = needle
+    ? ordered.filter(row => pickerRowBlob(row).includes(needle))
+    : ordered;
+  const limit = Math.min(5000, Math.max(1, Number(cap) || 2000));
+  if (!needle && owned.length >= limit) return owned.slice(0, limit);
+  return pool.slice(0, limit);
+}
+
 function gatcAllotmentSeriesForLine(lineOrKg) {
   const kg = typeof lineOrKg === 'number' || lineOrKg == null
     ? lineOrKg
@@ -290,6 +320,7 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
   const lineKg = opts.capacityKg == null ? null : Number(opts.capacityKg);
   const invoiceId = str(opts.invoiceId);
   const invoiceNumber = str(opts.invoiceNumber);
+  const query = str(opts.query);
   const filter = {
     productId: str(opts.productId || opts.itemId),
     sku: str(opts.sku),
@@ -351,13 +382,7 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
   }
   const sorted = [...certRows, ...extras]
     .sort((a, b) => String(a.serialNumber).localeCompare(String(b.serialNumber), 'en', { numeric: true }));
-  const pinned = sorted.filter(row => (
-    isIwpGatcUnusedSerial(row.serialNumber) || isXSeriesSerial(row.serialNumber)
-  ));
-  const rest = sorted.filter(row => (
-    !isIwpGatcUnusedSerial(row.serialNumber) && !isXSeriesSerial(row.serialNumber)
-  ));
-  return [...pinned, ...rest].slice(0, Math.max(cap, pinned.length));
+  return prioritizeUnlinkedGatcRows(sorted, { cap, query });
 }
 
 async function loadCertificatesById(db, ids) {

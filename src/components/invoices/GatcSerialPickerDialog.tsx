@@ -80,6 +80,7 @@ export function GatcSerialPickerDialog({
   onSave: (ids: string[]) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [serverQuery, setServerQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [rows, setRows] = useState<PickerRow[]>([]);
@@ -114,6 +115,7 @@ export function GatcSerialPickerDialog({
         capacityKg,
         invoiceId,
         invoiceNumber,
+        query: serverQuery,
       }).then(list => list.map(row => ({
         id: row.id,
         serialNumber: row.serialNumber,
@@ -144,7 +146,25 @@ export function GatcSerialPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [capacityKg, invoiceId, invoiceNumber, mode, productId, productName, sku, title]);
+  }, [capacityKg, invoiceId, invoiceNumber, mode, productId, productName, serverQuery, sku, title]);
+
+  useEffect(() => {
+    if (mode !== 'gatc') return undefined;
+    const needle = query.trim();
+    if (needle.length < 4) {
+      if (serverQuery) setServerQuery('');
+      return undefined;
+    }
+    if (loading) return undefined;
+    const localHit = rows.some(row => (
+      `${row.serialNumber} ${row.max ?? ''} ${row.certificateNumber ?? ''} ${row.sku ?? ''} ${row.productName ?? ''}`
+        .toLowerCase()
+        .includes(needle.toLowerCase())
+    ));
+    if (localHit) return undefined;
+    const timer = window.setTimeout(() => setServerQuery(needle), 350);
+    return () => window.clearTimeout(timer);
+  }, [loading, mode, query, rows, serverQuery]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

@@ -7856,6 +7856,7 @@ export const listUnlinkedIwpGatcCertificatesFn = onCall(
       const capacityKg = request.data?.capacityKg == null ? null : Number(request.data.capacityKg);
       const invoiceId = String(request.data?.invoiceId || '').trim();
       const invoiceNumber = String(request.data?.invoiceNumber || '').trim();
+      const query = String(request.data?.query || '').trim();
       return {
         rows: await listUnlinkedIwpGatcCertificates({
           max,
@@ -7865,6 +7866,7 @@ export const listUnlinkedIwpGatcCertificatesFn = onCall(
           capacityKg: Number.isFinite(capacityKg) ? capacityKg : undefined,
           invoiceId: invoiceId || undefined,
           invoiceNumber: invoiceNumber || undefined,
+          query: query || undefined,
         }),
       };
     } catch (err) {
