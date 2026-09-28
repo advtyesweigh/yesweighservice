@@ -96,8 +96,10 @@ import {
   clearUploadedLogisticsVaultPhotos,
   deleteLogisticsVaultPhoto,
   forgetLogisticsPhotoSessionKey,
+  listLatestUnuploadedVaultSession,
   listLogisticsVaultPhotos,
   logisticsPhotoSessionKey,
+  patchLogisticsVaultPhoto,
   putLogisticsVaultPhoto,
   rememberLogisticsPhotoSessionKey,
   type LogisticsVaultPhoto,
@@ -265,6 +267,24 @@ function mergeVaultPhotosIntoDraft(
 
   if (!changed) return prev;
   return { ...prev, boxes: nextBoxes, finalPackagePhoto, finalPackagePhotoStoragePath };
+}
+
+function draftHasCapturedPhotos(draft: LogisticsBookingDraft): boolean {
+  if (draft.finalPackagePhoto?.trim() || draft.finalPackagePhotoStoragePath?.trim()) return true;
+  return draft.boxes.some(box => box.photos.some(photo =>
+    Boolean(photo.url?.trim() || photo.storagePath?.trim()),
+  ));
+}
+
+/** Drop the blank starter box after orphan vault photos rebuild the real boxes. */
+function dropEmptyPlaceholderBoxes(draft: LogisticsBookingDraft): LogisticsBookingDraft {
+  const kept = draft.boxes.filter(box => (
+    box.photos.length > 0
+    || Boolean(box.lengthCm.trim() || box.widthCm.trim() || box.heightCm.trim())
+    || (Number.parseFloat(box.weightKg) || 0) > 0
+  ));
+  if (!kept.length || kept.length === draft.boxes.length) return draft;
+  return { ...draft, boxes: kept };
 }
 
 function sessionKeyForWizard(partnerId: LogisticsPartnerId): string {
@@ -500,6 +520,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [saving, setSaving] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [restoredVaultNote, setRestoredVaultNote] = useState('');
   const [shipFromOpen, setShipFromOpen] = useState(false);
   const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
     cochin: '',
@@ -696,17 +717,41 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     let cancelled = false;
 
     const restore = async () => {
-      const vaultPhotos = await listLogisticsVaultPhotos({
+      let vaultPhotos = await listLogisticsVaultPhotos({
         sessionKey: photoSessionKeyRef.current,
       });
+      let recoveredOrphans = false;
+      if (!vaultPhotos.length && !draftHasCapturedPhotos(draftRef.current)) {
+        const orphans = await listLatestUnuploadedVaultSession();
+        if (!cancelled && orphans.length) {
+          const sessionKey = photoSessionKeyRef.current;
+          await Promise.all(orphans.map(row => patchLogisticsVaultPhoto(row.photoId, {
+            sessionKey,
+            bookingId: null,
+          })));
+          if (cancelled) return;
+          vaultPhotos = orphans.map(row => ({ ...row, sessionKey, bookingId: null }));
+          recoveredOrphans = true;
+        }
+      }
 
       if (!cancelled && vaultPhotos.length) {
         setDraft(prev => {
-          const next = mergeVaultPhotosIntoDraft(prev, vaultPhotos);
+          let next = mergeVaultPhotosIntoDraft(prev, vaultPhotos);
+          if (recoveredOrphans) next = dropEmptyPlaceholderBoxes(next);
           if (next === prev) return prev;
           draftRef.current = next;
           return next;
         });
+        if (recoveredOrphans) {
+          const count = vaultPhotos.filter(photo => photo.kind === 'box').length;
+          setRestoredVaultNote(
+            count > 0
+              ? `Restored ${count} package photo${count === 1 ? '' : 's'} saved on this phone. Fill L × B × H and weight if those fields are empty, then confirm.`
+              : 'Restored package photos saved on this phone. Fill L × B × H and weight if those fields are empty, then confirm.',
+          );
+          setStep('box');
+        }
       }
 
       const paths: string[] = [];
@@ -2709,6 +2754,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   {shippingLabelCount} shipping label{shippingLabelCount === 1 ? '' : 's'}
                 </p>
               )}
+              {restoredVaultNote ? (
+                <p className="book-courier__hint text-sm" role="status">{restoredVaultNote}</p>
+              ) : null}
 
               <div className="book-courier__boxes">
                 {draft.boxes.map((box, index) => (

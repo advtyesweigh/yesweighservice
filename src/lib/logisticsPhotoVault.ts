@@ -109,6 +109,49 @@ async function getAllByIndex(
   }
 }
 
+async function getAllVaultPhotos(): Promise<LogisticsVaultPhoto[]> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readonly');
+    const rows = await requestToPromise(tx.objectStore(STORE).getAll()) as LogisticsVaultPhoto[];
+    db.close();
+    return rows ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Unuploaded captures from a closed wizard. Newest session on this phone only. */
+const UNUPLOADED_VAULT_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+
+export async function listLatestUnuploadedVaultSession(): Promise<LogisticsVaultPhoto[]> {
+  const cutoff = Date.now() - UNUPLOADED_VAULT_MAX_AGE_MS;
+  const rows = (await getAllVaultPhotos()).filter(row => (
+    !row.storagePath?.trim()
+    && row.dataUrl.startsWith('data:')
+    && !row.bookingId
+    && row.createdAt >= cutoff
+  ));
+  if (!rows.length) return [];
+  const bySession = new Map<string, LogisticsVaultPhoto[]>();
+  for (const row of rows) {
+    const key = row.sessionKey.trim() || row.photoId;
+    const list = bySession.get(key) ?? [];
+    list.push(row);
+    bySession.set(key, list);
+  }
+  let best: LogisticsVaultPhoto[] = [];
+  let bestAt = -1;
+  for (const list of bySession.values()) {
+    const latest = list.reduce((max, row) => Math.max(max, row.createdAt), 0);
+    if (latest > bestAt) {
+      bestAt = latest;
+      best = list;
+    }
+  }
+  return best.sort((a, b) => a.createdAt - b.createdAt);
+}
+
 /** Load vault photos for a booking and/or wizard session. */
 export async function listLogisticsVaultPhotos(options: {
   bookingId?: string | null;

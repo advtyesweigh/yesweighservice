@@ -31,6 +31,19 @@ function pinFromText(value) {
   return match?.[1] || null;
 }
 
+/** Delhivery allows one GSTIN per client-warehouse. Same firm GST on a second site throws this. */
+export function isDuplicateDelhiveryWarehouseGstError(message) {
+  return /duplicate\s+gst\s+number/i.test(String(message || ''));
+}
+
+function warehouseErrorMessage(res, json, text) {
+  const message = json?.error?.message
+    || json?.message
+    || (typeof text === 'string' ? text.slice(0, 300) : '')
+    || `Warehouse update failed (${res.status})`;
+  return typeof message === 'string' ? message : JSON.stringify(message);
+}
+
 /** Keep phone visible on LR print (Shipper Copy ignores warehouse phone_number field). */
 function addressWithPhone(address, phone) {
   let text = String(address || '').replace(/\s+/g, ' ').trim();
@@ -97,7 +110,9 @@ export async function updateDelhiveryWarehouseContacts(db, input) {
   const printAddress = addressWithPhone(address, phone);
   const auth = await getValidDelhiveryJwt(db);
   const base = delhiveryLtlBaseUrl(auth.env);
-  const body = {
+  const pinCode = Number.isFinite(pin) ? pin : 683503;
+
+  const buildBody = (includeGst) => ({
     cl_warehouse_name: warehouseName,
     update_dict: {
       ...(nonEmpty(input.city) ? { city: nonEmpty(input.city) } : {}),
@@ -111,43 +126,78 @@ export async function updateDelhiveryWarehouseContacts(db, input) {
         email: 'admin@yesweigh.in',
       },
       billing_details: {
-        gst_number: gstin,
+        ...(includeGst ? { gst_number: gstin } : {}),
         legal_address: {
           same_as_physical_address: true,
-          pin_code: Number.isFinite(pin) ? pin : 683503,
+          pin_code: pinCode,
         },
       },
     },
+  });
+
+  const patchWarehouse = async (includeGst) => {
+    const res = await fetch(`${base}/client-warehouses/update`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${auth.jwt}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildBody(includeGst)),
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // ignore
+    }
+    if (!res.ok || json?.success === false) {
+      const message = warehouseErrorMessage(res, json, text);
+      const error = new Error(message);
+      error.duplicateGst = isDuplicateDelhiveryWarehouseGstError(message);
+      throw error;
+    }
+    return json;
   };
 
-  const res = await fetch(`${base}/client-warehouses/update`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${auth.jwt}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  let json = null;
+  let json;
+  let gstApplied = true;
   try {
-    json = JSON.parse(text);
-  } catch {
-    // ignore
-  }
-  if (!res.ok || json?.success === false) {
-    const message = json?.error?.message
-      || json?.message
-      || text.slice(0, 300)
-      || `Warehouse update failed (${res.status})`;
-    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    json = await patchWarehouse(true);
+  } catch (err) {
+    if (!err?.duplicateGst) throw err;
+    // Firm GSTIN is already on another pickup (e.g. INTERWEIGHING B2B).
+    // Phone/address still sync. Booking must continue so package photos save.
+    console.warn(
+      `Delhivery warehouse "${warehouseName}": GST ${gstin} already registered elsewhere. `
+      + `Updating phone/address only. ${err.message}`,
+    );
+    gstApplied = false;
+    try {
+      json = await patchWarehouse(false);
+    } catch (retryErr) {
+      console.warn(
+        `Delhivery warehouse "${warehouseName}": phone/address sync skipped after duplicate GST. `
+        + `${retryErr?.message || retryErr}`,
+      );
+      return {
+        ok: true,
+        warehouseName,
+        phone,
+        gstin,
+        gstApplied: false,
+        env: auth.env,
+        result: null,
+      };
+    }
   }
   return {
     ok: true,
     warehouseName,
     phone,
     gstin,
+    gstApplied,
     env: auth.env,
     result: json?.data?.result || json?.data || null,
   };
