@@ -953,6 +953,19 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                     name={item.name}
                     sku={item.sku}
                   >
+                    {poLineShowsSerialRange(item) ? (
+                      <PoLineSerialFields
+                        startNumber={serialDrafts[item.id]?.startNumber ?? ''}
+                        endNumber={serialDrafts[item.id]?.endNumber ?? ''}
+                        lineQty={Number(item.quantity ?? 0)}
+                        disabled={saving}
+                        name={item.name}
+                        productId={item.itemId}
+                        onChange={next => {
+                          setSerialDrafts(prev => ({ ...prev, [item.id]: next }));
+                        }}
+                      />
+                    ) : null}
                     <div className="goods-receipt-receive__summary">
                       <label className="goods-receipt-receive__field">
                         <span className="goods-receipt-receive__label">Ordered qty</span>
@@ -1029,20 +1042,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         </button>
                       )}
                     </div>
-
-                    {poLineShowsSerialRange(item) ? (
-                      <PoLineSerialFields
-                        startNumber={serialDrafts[item.id]?.startNumber ?? ''}
-                        endNumber={serialDrafts[item.id]?.endNumber ?? ''}
-                        lineQty={Number(item.quantity ?? 0)}
-                        disabled={saving}
-                        name={item.name}
-                        productId={item.itemId}
-                        onChange={next => {
-                          setSerialDrafts(prev => ({ ...prev, [item.id]: next }));
-                        }}
-                      />
-                    ) : null}
 
                     {showPackageInfo && catalogProduct && expandedPackageIds.has(item.id) && (
                       <div className="goods-receipt-receive__package is-open">

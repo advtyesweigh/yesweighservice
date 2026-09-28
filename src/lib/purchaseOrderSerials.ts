@@ -58,7 +58,18 @@ export function parsePurchaseOrderSerialRanges(raw: unknown): PurchaseOrderSeria
   return out;
 }
 
-export function poLineShowsSerialRange(line: { hsn?: string | null }): boolean {
+function isLabelIndicatorLine(line: { name?: string | null; sku?: string | null }): boolean {
+  const sku = String(line.sku ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (sku === 'LBLIND' || sku.startsWith('LBLIND')) return true;
+  return String(line.name ?? '').toLowerCase().includes('label indicator');
+}
+
+export function poLineShowsSerialRange(line: {
+  hsn?: string | null;
+  name?: string | null;
+  sku?: string | null;
+}): boolean {
+  if (isLabelIndicatorLine(line)) return true;
   const hsn = String(line.hsn ?? '').replace(/\D/g, '');
   if (isSacHsn(line.hsn)) return false;
   if (!hsn) return true;
