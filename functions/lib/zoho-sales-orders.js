@@ -321,6 +321,84 @@ function isAlreadyInvoicedQuantityMessage(message) {
     .test(String(message || ''));
 }
 
+function isInvalidZohoUrlMessage(message) {
+  return /invalid url/i.test(String(message || ''));
+}
+
+function embeddedInvoiceFromSalesOrder(so) {
+  const lists = [so?.invoices, so?.associated_invoices];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    const hit = list.find(row => row?.invoice_id);
+    if (hit) return hit;
+  }
+  if (so?.invoice_id) {
+    return {
+      invoice_id: so.invoice_id,
+      invoice_number: so.invoice_number || null,
+    };
+  }
+  return null;
+}
+
+function linkedInvoiceRecord(row) {
+  if (!row?.invoice_id) return null;
+  return {
+    invoiceId: String(row.invoice_id),
+    invoiceNumber: row.invoice_number ? String(row.invoice_number) : null,
+  };
+}
+
+function salesOrderAlreadyInvoiced(so) {
+  const status = zohoStatusKey(so?.status);
+  const invoiced = zohoStatusKey(so?.invoiced_status || so?.order_status);
+  return status === 'invoiced'
+    || status === 'closed'
+    || invoiced === 'invoiced'
+    || invoiced === 'partially_invoiced'
+    || Boolean(embeddedInvoiceFromSalesOrder(so));
+}
+
+/**
+ * Zoho sometimes omits salesorder.invoices after the invoice was created
+ * outside convert. Match only on salesorder_id or the SO number.
+ */
+async function findInvoiceForSalesOrder(accessToken, orgId, so) {
+  const embedded = linkedInvoiceRecord(embeddedInvoiceFromSalesOrder(so));
+  if (embedded) return embedded;
+  const soId = String(so?.salesorder_id || '').trim();
+  const number = String(so?.salesorder_number || '').trim();
+  const customerId = String(so?.customer_id || '').trim();
+  const queries = [...new Set([
+    number,
+    String(so?.reference_number || '').trim(),
+  ].filter(Boolean))];
+  for (const query of queries) {
+    const customerQuery = customerId ? `&customer_id=${encodeURIComponent(customerId)}` : '';
+    let payload;
+    try {
+      payload = await zohoJson(
+        accessToken,
+        orgId,
+        `/invoices?search_text=${encodeURIComponent(query)}${customerQuery}&per_page=50`,
+      );
+    } catch (err) {
+      console.warn(
+        `Invoice search for SO ${soId || number} (${query}) failed:`,
+        err?.message || err,
+      );
+      continue;
+    }
+    const rows = Array.isArray(payload?.invoices) ? payload.invoices : [];
+    const match = rows.find(inv => soId && String(inv.salesorder_id || '') === soId)
+      || rows.find(inv => number && String(inv.reference_number || '') === number)
+      || rows.find(inv => number && String(inv.invoice_number || '') === number);
+    const linked = linkedInvoiceRecord(match);
+    if (linked) return linked;
+  }
+  return null;
+}
+
 function stripSalesOrderItemIds(lines) {
   return (Array.isArray(lines) ? lines : []).map(({ salesorder_item_id: _id, ...line }) => line);
 }
@@ -469,6 +547,16 @@ function invoiceLineItemsFromSalesOrder(so, { linkServiceLines = true } = {}) {
   }).filter(line => line.item_id && Number(line.quantity) > 0);
 }
 
+async function salesOrderReadyToInvoice(accessToken, orgId, soId) {
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/salesorders/${encodeURIComponent(soId)}`);
+    return salesOrderAlreadyInvoiced(payload?.salesorder)
+      || ['open', 'confirmed'].includes(zohoStatusKey(payload?.salesorder?.status));
+  } catch {
+    return false;
+  }
+}
+
 async function confirmSalesOrderRequest(accessToken, orgId, soId) {
   try {
     await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
@@ -477,6 +565,20 @@ async function confirmSalesOrderRequest(accessToken, orgId, soId) {
     });
   } catch (err) {
     if (isAlreadyConfirmedMessage(err?.message)) return;
+    if (isInvalidZohoUrlMessage(err?.message)) {
+      if (await salesOrderReadyToInvoice(accessToken, orgId, soId)) return;
+      try {
+        await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/open`, {
+          method: 'POST',
+          body: {},
+        });
+        return;
+      } catch (openErr) {
+        if (isAlreadyConfirmedMessage(openErr?.message)) return;
+        if (await salesOrderReadyToInvoice(accessToken, orgId, soId)) return;
+        throw openErr;
+      }
+    }
     if (!isZohoNotAuthorized(err) && !/approv|submit|draft|pending/i.test(String(err?.message || ''))) {
       throw err;
     }
@@ -499,6 +601,10 @@ async function confirmSalesOrderRequest(accessToken, orgId, soId) {
       });
     } catch (retryErr) {
       if (isAlreadyConfirmedMessage(retryErr?.message)) return;
+      if (
+        isInvalidZohoUrlMessage(retryErr?.message)
+        && await salesOrderReadyToInvoice(accessToken, orgId, soId)
+      ) return;
       throw retryErr;
     }
   }
@@ -968,19 +1074,19 @@ export async function getSalesOrderLinkedInvoice(secrets, configuredOrgId, sales
   const so = soPayload?.salesorder;
   if (!so) throw new Error('Could not load sales order from Zoho.');
 
-  const invoices = Array.isArray(so.invoices) ? so.invoices : [];
-  const first = invoices.find(row => row?.invoice_id) || null;
-  if (!first) {
+  const status = so.order_status ? String(so.order_status) : (so.status ? String(so.status) : null);
+  const linked = await findInvoiceForSalesOrder(accessToken, orgId, so);
+  if (!linked) {
     return {
-      status: so.order_status ? String(so.order_status) : (so.status ? String(so.status) : null),
+      status,
       invoiceId: null,
       invoiceNumber: null,
     };
   }
   return {
-    status: so.order_status ? String(so.order_status) : (so.status ? String(so.status) : null),
-    invoiceId: String(first.invoice_id),
-    invoiceNumber: first.invoice_number ? String(first.invoice_number) : null,
+    status,
+    invoiceId: linked.invoiceId,
+    invoiceNumber: linked.invoiceNumber,
   };
 }
 
@@ -1068,14 +1174,13 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     return loaded;
   };
 
-  const linkedInvoiceFromSo = (order) => {
-    const invoices = Array.isArray(order?.invoices) ? order.invoices : [];
-    const first = invoices.find(row => row?.invoice_id) || null;
-    if (!first) return null;
-    return {
-      invoiceId: String(first.invoice_id),
-      invoiceNumber: first.invoice_number ? String(first.invoice_number) : null,
-    };
+  const linkedInvoiceFromSo = (order) => linkedInvoiceRecord(embeddedInvoiceFromSalesOrder(order));
+
+  const resolveExistingInvoice = async (order, { forceSearch = false } = {}) => {
+    const embedded = linkedInvoiceFromSo(order);
+    if (embedded) return embedded;
+    if (!forceSearch && !salesOrderAlreadyInvoiced(order)) return null;
+    return findInvoiceForSalesOrder(accessToken, orgId, order);
   };
 
   const invoiceResult = (inv) => ({
@@ -1171,7 +1276,7 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     return linked;
   };
 
-  const already = linkedInvoiceFromSo(so);
+  const already = await resolveExistingInvoice(so);
   if (already) return patchLinkedInvoice(already);
 
   try {
@@ -1187,7 +1292,7 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   if (!['open', 'confirmed', 'invoiced', 'closed'].includes(status)) {
     await confirmSalesOrderRequest(accessToken, orgId, soId);
     so = await loadSo();
-    const afterConfirm = linkedInvoiceFromSo(so);
+    const afterConfirm = await resolveExistingInvoice(so);
     if (afterConfirm) return patchLinkedInvoice(afterConfirm);
   }
 
@@ -1206,7 +1311,10 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     if (inv?.invoice_id) return patchInvoiceExtras(inv);
   } catch (convertErr) {
     so = await loadSo().catch(() => so);
-    const linked = linkedInvoiceFromSo(so);
+    const linked = await resolveExistingInvoice(so, {
+      forceSearch: isInvalidZohoUrlMessage(convertErr?.message)
+        || isAlreadyInvoicedQuantityMessage(convertErr?.message),
+    });
     if (linked) return patchLinkedInvoice(linked);
     console.warn(
       `Convert SO ${soId} to invoice failed, trying create:`,
@@ -1261,15 +1369,16 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     } catch (err) {
       lastErr = err;
       so = await loadSo().catch(() => so);
-      const linked = linkedInvoiceFromSo(so);
+      const message = String(err?.message || '');
+      const linked = await resolveExistingInvoice(so, {
+        forceSearch: isInvalidZohoUrlMessage(message) || isAlreadyInvoicedQuantityMessage(message),
+      });
       if (linked) return patchLinkedInvoice(linked);
-      const invoiced = String(so?.invoiced_status || '').toLowerCase();
-      if (invoiced === 'invoiced' || invoiced === 'partially_invoiced') {
+      if (salesOrderAlreadyInvoiced(so)) {
         throw new Error(
           'This sales order is already invoiced in Zoho, but YesOne could not read the invoice id. Use Mark as invoiced, or refresh and retry.',
         );
       }
-      const message = String(err?.message || '');
       if (isAlreadyInvoicedQuantityMessage(message) || isZohoNotAuthorized(err)) continue;
       break;
     }

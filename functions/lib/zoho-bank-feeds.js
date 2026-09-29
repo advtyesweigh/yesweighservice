@@ -470,6 +470,93 @@ export async function overlayFeedReservations(feeds) {
   }));
 }
 
+function isBankCategorizeUrlError(err) {
+  const msg = String(err?.message || '');
+  const status = Number(err?.status) || 0;
+  return status === 404
+    || /invalid url|unknown url|not found|already categorized|already been categorized|not an uncategorized/i.test(msg);
+}
+
+function paymentAlreadyRecordedMessage(message) {
+  return /already (been )?(recorded|applied|paid|exists)|duplicate|reference number.*(exist|used)/i.test(
+    String(message || ''),
+  );
+}
+
+function categorizeCustomerPaymentPaths(id, accountId) {
+  const encoded = encodeURIComponent(id);
+  const paths = [
+    `/banktransactions/uncategorized/${encoded}/categorize/customerpayments`,
+    `/banktransactions/uncategorizeds/${encoded}/categorize/customerpayments`,
+    `/banktransactions/${encoded}/categorize/customerpayments`,
+  ];
+  const account = String(accountId || '').trim();
+  if (account) {
+    paths.push(
+      `/bankaccounts/${encodeURIComponent(account)}/uncategorized/${encoded}/categorize/customerpayments`,
+    );
+  }
+  return paths;
+}
+
+/** Kotak partner-bank lines sometimes reject raw JSON and the flat uncategorized URL. */
+async function postBankWrite(accessToken, orgId, path, body) {
+  const attempts = [
+    { apiBase: ZOHO_BOOKS_API_BASE, jsonString: false },
+    { apiBase: ZOHO_BOOKS_API_BASE, jsonString: true },
+    { apiBase: ZOHO_API_BASE, jsonString: false },
+  ];
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try {
+      return await zohoBankJson(accessToken, orgId, path, {
+        method: 'POST',
+        body,
+        apiBase: attempt.apiBase,
+        jsonString: attempt.jsonString,
+      });
+    } catch (err) {
+      lastErr = err;
+      if (!isBankCategorizeUrlError(err)) throw err;
+    }
+  }
+  throw lastErr || new Error('Zoho banking request failed.');
+}
+
+async function loadInvoiceForBankPayment(accessToken, orgId, invoiceId) {
+  const path = `/invoices/${encodeURIComponent(invoiceId)}`;
+  for (const apiBase of [ZOHO_BOOKS_API_BASE, ZOHO_API_BASE]) {
+    try {
+      const payload = await zohoBankJson(accessToken, orgId, path, { apiBase });
+      if (payload?.invoice) return payload.invoice;
+    } catch (err) {
+      if (!isBankCategorizeUrlError(err) && apiBase === ZOHO_API_BASE) return null;
+    }
+  }
+  return null;
+}
+
+function paymentAlreadyOnInvoice(invoice, reference) {
+  if (!invoice || typeof invoice !== 'object') return null;
+  const status = String(invoice.status || '').toLowerCase().replace(/\s+/g, '_');
+  const balance = Number(invoice.balance);
+  const total = Number(invoice.total);
+  const ref = String(reference || '').trim().toLowerCase();
+  const payments = Array.isArray(invoice.payments) ? invoice.payments : [];
+  const matched = ref
+    ? payments.find(row => String(row?.reference_number || '').trim().toLowerCase() === ref)
+    : null;
+  if (matched) {
+    const paid = Number(matched.amount ?? matched.amount_applied);
+    if (Number.isFinite(paid) && paid > 0) return paid;
+    if (Number.isFinite(total) && total > 0) return total;
+  }
+  const settled = status === 'paid'
+    || (Number.isFinite(balance) && balance <= 0.01 && Number.isFinite(total) && total > 0);
+  if (settled) return Number.isFinite(total) && total > 0 ? total : null;
+  return null;
+}
+
 function paymentModeFromFeed(feed) {
   const text = `${feed?.payee || ''} ${feed?.description || ''} ${feed?.referenceNumber || ''}`.toLowerCase();
   if (/\bupi\b/.test(text)) return 'UPI';
@@ -539,19 +626,17 @@ export async function applyReservedKotakFeedToInvoice(secrets, orgId, {
     transactionId,
     String(feed?.importedTransactionId || '').trim(),
   ].filter(Boolean))];
-  const paths = ids.flatMap(id => ([
-    `/banktransactions/uncategorized/${encodeURIComponent(id)}/categorize/customerpayments`,
-    `/banktransactions/uncategorizeds/${encodeURIComponent(id)}/categorize/customerpayments`,
-  ]));
+  const paths = ids.flatMap(id => categorizeCustomerPaymentPaths(id, accountId));
+
+  const postCategorize = async (path, payload) => {
+    await postBankWrite(accessToken, organizationId, path, payload);
+    return { amountApplied: applied, transactionId };
+  };
 
   let lastErr = null;
   for (const path of paths) {
     try {
-      await zohoBankJsonWithFallback(accessToken, organizationId, path, {
-        method: 'POST',
-        body,
-      });
-      return { amountApplied: applied, transactionId };
+      return await postCategorize(path, body);
     } catch (err) {
       lastErr = err;
       const msg = String(err?.message || '');
@@ -559,18 +644,84 @@ export async function applyReservedKotakFeedToInvoice(secrets, orgId, {
         try {
           const withoutMode = { ...body };
           delete withoutMode.payment_mode;
-          await zohoBankJsonWithFallback(accessToken, organizationId, path, {
-            method: 'POST',
-            body: withoutMode,
-          });
-          return { amountApplied: applied, transactionId };
+          return await postCategorize(path, withoutMode);
         } catch (retryErr) {
           lastErr = retryErr;
         }
       }
     }
   }
-  throw new Error(String(lastErr?.message || 'Could not associate the Kotak pay-in with this invoice in Zoho.'));
+
+  // Already an SO + invoice in Zoho: the uncategorized categorize URL often
+  // returns "Invalid URL Passed" because the Kotak line was already matched,
+  // or because this partner-bank id is not on that route. Use the invoice.
+  if (!isBankCategorizeUrlError(lastErr)) {
+    throw new Error(String(lastErr?.message || 'Could not associate the Kotak pay-in with this invoice in Zoho.'));
+  }
+
+  const reference = body.reference_number;
+  let invoice = await loadInvoiceForBankPayment(accessToken, organizationId, invId);
+  const alreadyPaid = paymentAlreadyOnInvoice(invoice, reference);
+  if (alreadyPaid != null) {
+    return { amountApplied: alreadyPaid || applied, transactionId, alreadySettled: true };
+  }
+
+  const balance = Number(invoice?.balance);
+  const amountApplied = Number.isFinite(balance) && balance > 0
+    ? Math.min(applied, balance)
+    : applied;
+  const paymentAmount = Number.isFinite(amount) && amount > 0 ? amount : amountApplied;
+  const paymentBodies = [
+    {
+      ...body,
+      amount: paymentAmount,
+      invoices: [{ invoice_id: invId, amount_applied: amountApplied }],
+    },
+    {
+      ...body,
+      amount: amountApplied,
+      invoices: [{ invoice_id: invId, amount_applied: amountApplied }],
+    },
+  ];
+  let paymentErr = lastErr;
+  for (const paymentBody of paymentBodies) {
+    try {
+      await postBankWrite(accessToken, organizationId, '/customerpayments', paymentBody);
+      return { amountApplied, transactionId };
+    } catch (err) {
+      paymentErr = err;
+      if (/payment_mode|payment mode/i.test(String(err?.message || ''))) {
+        try {
+          const withoutMode = { ...paymentBody };
+          delete withoutMode.payment_mode;
+          await postBankWrite(accessToken, organizationId, '/customerpayments', withoutMode);
+          return { amountApplied, transactionId };
+        } catch (retryErr) {
+          paymentErr = retryErr;
+        }
+      }
+      const msg = String(paymentErr?.message || '');
+      const tryingExcess = Number(paymentBody.amount) > amountApplied + 0.009;
+      if (tryingExcess && /amount|balance|excess|applied/i.test(msg)) continue;
+      if (!isBankCategorizeUrlError(paymentErr) && !paymentAlreadyRecordedMessage(msg)) break;
+    }
+  }
+
+  invoice = await loadInvoiceForBankPayment(accessToken, organizationId, invId);
+  const settledAfter = paymentAlreadyOnInvoice(invoice, reference);
+  if (settledAfter != null || paymentAlreadyRecordedMessage(paymentErr?.message)) {
+    return {
+      amountApplied: settledAfter || amountApplied,
+      transactionId,
+      alreadySettled: true,
+    };
+  }
+
+  throw new Error(String(
+    paymentErr?.message
+    || lastErr?.message
+    || 'Could not associate the Kotak pay-in with this invoice in Zoho.',
+  ));
 }
 
 function money2(value) {
