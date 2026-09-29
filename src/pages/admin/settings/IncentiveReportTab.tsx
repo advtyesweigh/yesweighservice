@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BadgePercent, ChartNoAxesColumnIncreasing, FileText, Upload } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { formatCurrencyWhole } from '../../../lib/catalog';
@@ -19,6 +19,7 @@ import {
   clearIncentiveLineRateOverride,
   fetchIncentiveInvoiceLines,
   incentiveExcludedAdjustTotals,
+  incentiveDateInMonth,
   incentiveForRow,
   incentiveLineAdjustAmounts,
   incentiveLineHasAdjust,
@@ -153,6 +154,18 @@ function lineDraftKey(invoiceId: string, lineKey: string): string {
   return `${invoiceId}|${lineKey}`;
 }
 
+function lineRateCardTotal(line: IncentiveInvoiceLine): number {
+  const qty = Math.max(0, Number(line.adjustQty || line.qty) || 0);
+  if (qty <= 0) return Math.max(0, line.total);
+  if (line.priceAdjust === 'discount' && line.unitDiscount > 0) {
+    return Math.round((line.total + line.unitDiscount * qty) * 100) / 100;
+  }
+  if (line.priceAdjust === 'hike' && line.unitHike > 0) {
+    return Math.max(0, Math.round((line.total - line.unitHike * qty) * 100) / 100);
+  }
+  return line.total;
+}
+
 function defaultApplicableDraft(line: IncentiveInvoiceLine): string {
   const override = line.rateOverride;
   const rate = override?.applicableRate
@@ -271,21 +284,28 @@ export const IncentiveReportTab: React.FC = () => {
   const [targetFocused, setTargetFocused] = useState(false);
   const [targetSaving, setTargetSaving] = useState(false);
   const canEditTarget = canExcludeLines;
+  const loadGen = useRef(0);
 
   const loadMonth = useCallback(async (yearMonth: string) => {
+    const gen = ++loadGen.current;
+    const alive = () => gen === loadGen.current;
     const cacheKey = `incentive-v2:${yearMonth}:${scopeKey}`;
-    const keepOwnKam = (source: IncentiveInvoiceRow[]) => (
-      browseAllKams
+    const inMonth = (source: IncentiveInvoiceRow[]) => {
+      const own = browseAllKams
         ? source
-        : source.filter(row => row.kamId != null && allowedKamIds.has(row.kamId))
-    );
+        : source.filter(row => row.kamId != null && allowedKamIds.has(row.kamId));
+      return own.filter(row => incentiveDateInMonth(row.date, yearMonth));
+    };
     const cached = peekTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey)
       ?? await hydrateTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey);
+    if (!alive()) return;
     if (cached) {
-      setRows(keepOwnKam(cached.rows.map(row => withRateCardIncentive(row))));
+      setRows(inMonth(cached.rows.map(row => withRateCardIncentive(row))));
       setTruncated(cached.truncated);
       setLoading(false);
     } else {
+      setRows([]);
+      setTargetsByKam({});
       setLoading(true);
     }
     setError('');
@@ -295,14 +315,19 @@ export const IncentiveReportTab: React.FC = () => {
     const localExclusions = peekTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? await hydrateTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? [];
+    if (!alive()) return;
     if (localExclusions.length) setExclusions(localExclusions);
+    else setExclusions([]);
     const localOverrides = peekTableCache<IncentiveLineRateOverride[]>(overrideKey)
       ?? await hydrateTableCache<IncentiveLineRateOverride[]>(overrideKey)
       ?? [];
+    if (!alive()) return;
     if (localOverrides.length) setOverrides(localOverrides);
+    else setOverrides([]);
     const cachedTargets = peekTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? await hydrateTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? {};
+    if (!alive()) return;
     if (Object.keys(cachedTargets).length) {
       const scopedTargets = browseAllKams
         ? cachedTargets
@@ -310,41 +335,52 @@ export const IncentiveReportTab: React.FC = () => {
           Object.entries(cachedTargets).filter(([id]) => allowedKamIds.has(id as IncentiveKamId)),
         ) as Partial<Record<IncentiveKamId, number>>;
       setTargetsByKam(scopedTargets);
+    } else if (!cached) {
+      setTargetsByKam({});
     }
     try {
       const [result, monthExclusions, monthOverrides, monthTargets] = await Promise.all([
         listIncentiveInvoices(yearMonth, salespersonIds),
-        listIncentiveLineExclusions(yearMonth).catch(() => [] as IncentiveLineExclusion[]),
-        listIncentiveLineRateOverrides(yearMonth).catch(() => [] as IncentiveLineRateOverride[]),
-        listIncentiveStaffTargets(yearMonth).catch(() => []),
+        listIncentiveLineExclusions(yearMonth).catch(() => null),
+        listIncentiveLineRateOverrides(yearMonth).catch(() => null),
+        listIncentiveStaffTargets(yearMonth).catch(() => null),
       ]);
-      const merged = mergeIncentiveExclusions(localExclusions, monthExclusions);
-      const mergedOverrides = mergeIncentiveRateOverrides(localOverrides, monthOverrides);
-      const nextTargets: Partial<Record<IncentiveKamId, number>> = {};
-      for (const item of monthTargets) {
-        if (browseAllKams || allowedKamIds.has(item.kamId)) nextTargets[item.kamId] = item.target;
-      }
-      const scopedRows = keepOwnKam(result.rows);
+      if (!alive()) return;
+      const merged = monthExclusions
+        ? mergeIncentiveExclusions(localExclusions, monthExclusions)
+        : localExclusions;
+      const mergedOverrides = monthOverrides
+        ? mergeIncentiveRateOverrides(localOverrides, monthOverrides)
+        : localOverrides;
+      const scopedRows = inMonth(result.rows);
       setRows(scopedRows);
       setTruncated(result.truncated);
-      setExclusions(merged);
-      setOverrides(mergedOverrides);
-      setTargetsByKam(nextTargets);
+      if (monthExclusions) setExclusions(merged);
+      if (monthOverrides) setOverrides(mergedOverrides);
       setTableCache(cacheKey, { rows: scopedRows, truncated: result.truncated });
-      setTableCache(exclusionKey, merged);
-      setTableCache(overrideKey, mergedOverrides);
-      setTableCache(targetKey, nextTargets);
+      if (monthExclusions) setTableCache(exclusionKey, merged);
+      if (monthOverrides) setTableCache(overrideKey, mergedOverrides);
+      if (monthTargets) {
+        const nextTargets: Partial<Record<IncentiveKamId, number>> = {};
+        for (const item of monthTargets) {
+          if (browseAllKams || allowedKamIds.has(item.kamId)) nextTargets[item.kamId] = item.target;
+        }
+        setTargetsByKam(nextTargets);
+        setTableCache(targetKey, nextTargets);
+      }
       void persistIncentiveSnapshots(yearMonth, scopedRows);
     } catch (err) {
+      if (!alive()) return;
       if (!cached) {
         setError(err instanceof Error ? err.message : 'Could not load incentive report.');
         setRows([]);
         setTruncated(false);
         setExclusions([]);
         setOverrides([]);
+        setTargetsByKam({});
       }
     } finally {
-      setLoading(false);
+      if (alive()) setLoading(false);
     }
   }, [allowedKamIds, browseAllKams, salespersonIds, scopeKey]);
 
@@ -361,6 +397,7 @@ export const IncentiveReportTab: React.FC = () => {
     setPage(1);
     setExpandedId(null);
     setAdjustFilter('');
+    setLinesByInvoice({});
   }, [month, kam]);
 
   useEffect(() => {
@@ -1012,7 +1049,11 @@ export const IncentiveReportTab: React.FC = () => {
                   const open = expandedId === row.id;
                   const rawLines = linesByInvoice[row.id];
                   const lines = adjustedLinesByInvoice[row.id];
-                  const subtotal = (lines ?? []).reduce((sum, line) => sum + line.total, 0);
+                  const billedSubtotal = (lines ?? []).reduce((sum, line) => sum + line.total, 0);
+                  const rateCardSubtotal = (lines ?? []).reduce(
+                    (sum, line) => sum + lineRateCardTotal(line),
+                    0,
+                  );
                   const lineHikeTotal = (lines ?? []).reduce((sum, line) => (
                     line.priceAdjust === 'hike'
                       ? sum + line.unitHike * (line.adjustQty || line.qty)
@@ -1061,7 +1102,7 @@ export const IncentiveReportTab: React.FC = () => {
                             tone === 'hike' || tone === 'director' ? 'is-director' : '',
                           ].filter(Boolean).join(' ')}>
                             <span className="gatc-report__row-amt-main">
-                              {formatCurrencyWhole(row.sales)}
+                              {formatCurrencyWhole(rateCardSalesForRow(row))}
                             </span>
                             {note ? (
                               <span className="gatc-report__row-amt-note">
@@ -1119,7 +1160,7 @@ export const IncentiveReportTab: React.FC = () => {
                                       {line.qty.toLocaleString('en-IN')}
                                     </span>
                                     <span className="incentive-report__item-total">
-                                      {formatCurrencyWhole(line.total)}
+                                      {formatCurrencyWhole(lineRateCardTotal(line))}
                                     </span>
                                   </div>
                                   <div className="incentive-report__item-meta">
@@ -1257,9 +1298,17 @@ export const IncentiveReportTab: React.FC = () => {
                                 );
                               })}
                               <div className="incentive-report__subtotal">
-                                <span>Sub total</span>
-                                <strong>{formatCurrencyWhole(subtotal)}</strong>
+                                <span>
+                                  {Math.abs(rateCardSubtotal - billedSubtotal) > 0.5 ? 'Rate card' : 'Sub total'}
+                                </span>
+                                <strong>{formatCurrencyWhole(rateCardSubtotal)}</strong>
                               </div>
+                              {Math.abs(rateCardSubtotal - billedSubtotal) > 0.5 ? (
+                                <div className="incentive-report__subtotal is-invoice">
+                                  <span>Invoice</span>
+                                  <strong>{formatCurrencyWhole(billedSubtotal)}</strong>
+                                </div>
+                              ) : null}
                               {lineHikeTotal > 0.005 ? (
                                 <div className="incentive-report__adjust-sum">
                                   Extra {formatCurrencyWhole(lineHikeTotal)}

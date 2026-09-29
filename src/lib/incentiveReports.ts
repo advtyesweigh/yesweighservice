@@ -716,10 +716,23 @@ function invoiceStatusExcluded(status: string | null | undefined): boolean {
 export function incentiveMonthBounds(yearMonth: string): { dateStart: string; dateEnd: string } {
   const [year, month] = yearMonth.split('-').map(Number);
   const lastDay = new Date(year, month, 0).getDate();
+  const day = String(lastDay).padStart(2, '0');
   return {
     dateStart: `${yearMonth}-01`,
-    dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+    // \uf8ff keeps the last calendar day inclusive when `date` is a timestamp.
+    dateEnd: `${yearMonth}-${day}\uf8ff`,
   };
+}
+
+/** True when an invoice date belongs to `YYYY-MM`. Undated rows are out. */
+export function incentiveDateInMonth(
+  date: string | null | undefined,
+  yearMonth: string,
+): boolean {
+  const ym = String(yearMonth ?? '').trim();
+  if (!/^\d{4}-\d{2}$/.test(ym)) return false;
+  const prefix = /^(\d{4}-\d{2})/.exec(String(date ?? '').trim());
+  return Boolean(prefix && prefix[1] === ym);
 }
 
 export function matchIncentiveKam(
@@ -1906,7 +1919,7 @@ export async function listIncentiveInvoices(
         discountedSales: extra?.discountedSales ?? 0,
         hikeAmount: extra?.hikeAmount ?? 0,
       });
-    }).filter(row => row.sales > 0),
+    }).filter(row => row.sales > 0 && incentiveDateInMonth(row.date, yearMonth)),
     truncated,
   };
 }

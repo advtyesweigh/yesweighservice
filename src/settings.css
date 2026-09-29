@@ -1008,6 +1008,17 @@ button.incentive-report__adjust-col:focus-visible {
   color: #4ade80;
 }
 
+.incentive-report__subtotal.is-invoice {
+  border-top: 0;
+  padding-top: 0.08rem;
+}
+
+.incentive-report__subtotal.is-invoice strong {
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
+
 .incentive-report .gatc-report__row-line {
   grid-template-columns: minmax(0, 1fr) auto;
 }

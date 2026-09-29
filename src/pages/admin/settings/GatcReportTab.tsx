@@ -6,7 +6,8 @@ import {
 import { formatCurrencyWhole } from '../../../lib/catalog';
 import {
   fetchGatcInvoiceLineSerials,
-  listGatcReports,
+  gatcReportMonthKey,
+  listGatcReportsInDateRange,
   serialsForGatcLine,
   sumGatcFeeShares,
   sumGatcQtyByWeightBand,
@@ -65,6 +66,15 @@ function buildMonthOptions(fromYm: string, toYm: string): Array<{ value: string;
     }
   }
   return options.reverse();
+}
+
+function monthRange(yearMonth: string): { dateStart: string; dateEnd: string } {
+  const [year, month] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    dateStart: `${yearMonth}-01`,
+    dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+  };
 }
 
 function parseReportDate(value: string | null | undefined): Date | null {
@@ -166,22 +176,29 @@ export const GatcReportTab: React.FC = () => {
   >({});
   const [serialsLoadingId, setSerialsLoadingId] = useState<string | null>(null);
 
-  const loadAll = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
+    const { dateStart, dateEnd } = monthRange(month);
     setLoading(true);
     setError('');
-    try {
-      setRows((await listGatcReports(500)).filter(report => report.hasStamping));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load GATC report.');
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
+    setRows([]);
+    void listGatcReportsInDateRange({ dateStart, dateEnd, maxRows: 2000 })
+      .then(reports => {
+        if (cancelled) return;
+        setRows(reports.filter(report => gatcReportMonthKey(report.invoiceDate) === month));
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Could not load GATC report.');
+        setRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
 
   useEffect(() => {
     setPage(1);
@@ -213,10 +230,7 @@ export const GatcReportTab: React.FC = () => {
   }, [expandedId, rows, serialsByInvoice]);
 
   const monthRows = useMemo(() => {
-    return rows.filter(report => {
-      const invoiceMonth = String(report.invoiceDate || '').slice(0, 7);
-      return !month || invoiceMonth === month;
-    });
+    return rows.filter(report => gatcReportMonthKey(report.invoiceDate) === month);
   }, [rows, month]);
 
   const kamOptions = useMemo(() => {

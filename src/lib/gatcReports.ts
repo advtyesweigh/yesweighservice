@@ -364,6 +364,23 @@ export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> 
   }
 }
 
+/** Calendar day `YYYY-MM-DD`, or '' when the stored date cannot be placed. */
+export function gatcReportDayKey(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  const prefix = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  if (prefix) return prefix[1];
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return '';
+  const date = new Date(parsed);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+export function gatcReportMonthKey(value: string | null | undefined): string {
+  return gatcReportDayKey(value).slice(0, 7);
+}
+
 /**
  * Portal-stamped invoices in a date window (same membership as GATC Billwise).
  * Only reports with hasStamping are returned.
@@ -388,10 +405,8 @@ export async function listGatcReportsInDateRange(options?: {
     const constraints: QueryConstraint[] = [];
     if (dateStart) constraints.push(where(dateField, '>=', dateStart));
     if (dateEnd) {
-      // invoiceDate is YYYY-MM-DD; createdAt is ISO — end-of-day bound for ISO.
-      const endBound = dateField === 'createdAt' && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)
-        ? `${dateEnd}T23:59:59.999Z`
-        : dateEnd;
+      // Date-only end must still include timestamp values on that calendar day.
+      const endBound = /^\d{4}-\d{2}-\d{2}$/.test(dateEnd) ? `${dateEnd}\uf8ff` : dateEnd;
       constraints.push(where(dateField, '<=', endBound));
     }
     constraints.push(orderBy(dateField, 'desc'));
@@ -409,9 +424,9 @@ export async function listGatcReportsInDateRange(options?: {
       const fallback = (await listGatcReports(Math.min(500, maxRows)))
         .filter(report => report.hasStamping);
       return fallback.filter(report => {
-        const day = String(report.invoiceDate || '').slice(0, 10);
+        const day = gatcReportDayKey(report.invoiceDate);
         if (dateStart && day && day < dateStart) return false;
-        if (dateEnd && day && day > dateEnd) return false;
+        if (dateEnd && day && day > dateEnd.slice(0, 10)) return false;
         if ((dateStart || dateEnd) && !day) return false;
         return true;
       });
