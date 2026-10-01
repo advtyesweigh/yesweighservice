@@ -353,9 +353,11 @@ export function DealerTeamRoster({
           dealerId: dealerAccountUid,
           staffDepartment: access.staffDepartment,
           dealerTeams: access.dealerTeams,
-          dealerTier: dealerAccess?.dealerTier ?? 'standard',
-          dealerAccessMode: dealerAccess?.dealerAccessMode ?? 'tier',
-          dealerPermissions: dealerAccess?.dealerPermissions ?? [],
+          dealerTier: dealerAccess?.dealerTier === 'director' ? 'director' : 'standard',
+          dealerAccessMode: dealerAccess?.dealerAccessMode === 'custom' ? 'custom' : 'tier',
+          dealerPermissions: Array.isArray(dealerAccess?.dealerPermissions)
+            ? dealerAccess.dealerPermissions
+            : [],
           createdByUid: user.uid,
           hr: {
             hrDateOfBirth: dob,

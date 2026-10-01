@@ -91,6 +91,21 @@ service firebase.storage {
       return data.dealerId != null ? data.dealerId : data.directorId;
     }
 
+    function isDealerTeamAdmin() {
+      return signedIn()
+        && userExists()
+        && (role() == 'dealer_staff' || role() == 'director_staff')
+        && (
+          userDoc().get('staffDepartment', '') == 'admin'
+          || (
+            userDoc().get('dealerTeams', []) is list
+            && 'admin' in userDoc().get('dealerTeams', [])
+          )
+        )
+        && userDealerId(userDoc()) is string
+        && userDealerId(userDoc()).size() > 0;
+    }
+
     function resolvedDealerIdForUser() {
       let data = userDoc();
       return role() == 'dealer' || role() == 'director'
@@ -272,9 +287,11 @@ service firebase.storage {
         && (
           isOpsUser()
           || (isDealer() && dealerId == request.auth.uid)
+          || (isDealerTeamAdmin() && userDealerId(userDoc()) == dealerId)
         );
       allow delete: if isOpsUser()
-        || (isDealer() && dealerId == request.auth.uid);
+        || (isDealer() && dealerId == request.auth.uid)
+        || (isDealerTeamAdmin() && userDealerId(userDoc()) == dealerId);
     }
 
     function validYesStoreImage() {

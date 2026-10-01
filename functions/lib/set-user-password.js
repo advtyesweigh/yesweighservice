@@ -92,7 +92,19 @@ export async function resetDealerStaffPassword(callerUid, targetUid, password) {
     throw new HttpsError('permission-denied', 'Only team staff passwords can be reset here.');
   }
   const dealerId = String(data.dealerId || data.directorId || '').trim();
-  if (dealerId !== owner) {
+  const callerSnap = await db.doc(`users/${owner}`).get();
+  const caller = callerSnap.exists ? (callerSnap.data() || {}) : {};
+  const callerRole = String(caller.role || '');
+  const callerTeams = Array.isArray(caller.dealerTeams) ? caller.dealerTeams : [];
+  const callerIsAdminStaff = (callerRole === 'dealer_staff' || callerRole === 'director_staff')
+    && (caller.staffDepartment === 'admin' || callerTeams.includes('admin'));
+  const callerDealerId = callerRole === 'dealer' || callerRole === 'director'
+    ? owner
+    : String(caller.dealerId || caller.directorId || '').trim();
+  if (callerRole !== 'dealer' && callerRole !== 'director' && !callerIsAdminStaff) {
+    throw new HttpsError('permission-denied', 'Only the dealer or an admin team member can reset this password.');
+  }
+  if (!dealerId || dealerId !== callerDealerId) {
     throw new HttpsError('permission-denied', 'This staff member is not on your team.');
   }
 

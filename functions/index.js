@@ -4919,7 +4919,7 @@ export const setManagedUserPassword = onCall(
 export const resetDealerStaffPassword = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, new Set(['dealer']));
+    await requireActiveUser(request.auth?.uid, new Set(['dealer', 'director', 'dealer_staff', 'director_staff']));
     const targetUid = String(request.data?.uid ?? '').trim();
     const password = String(request.data?.password ?? '');
     try {

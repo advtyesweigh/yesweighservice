@@ -96,6 +96,31 @@ service cloud.firestore {
       return r == 'dealer_staff' || r == 'director_staff';
     }
 
+    // Dealer-portal Admin staff may manage that dealer's team. Sales and Service cannot.
+    function isDealerTeamAdmin() {
+      return signedIn()
+        && userExists()
+        && isDealerStaffRole(role())
+        && (
+          userDoc().get('staffDepartment', '') == 'admin'
+          || (
+            userDoc().get('dealerTeams', []) is list
+            && 'admin' in userDoc().get('dealerTeams', [])
+          )
+        )
+        && userDealerId(userDoc()) is string
+        && userDealerId(userDoc()).size() > 0;
+    }
+
+    function managesDealerAccount(accountId) {
+      return accountId is string
+        && accountId.size() > 0
+        && (
+          (isDealer() && request.auth.uid == accountId)
+          || (isDealerTeamAdmin() && userDealerId(userDoc()) == accountId)
+        );
+    }
+
     function validLoginIdType(t) {
       return t == 'aadhar' || t == 'phone' || t == 'email' || t == 'username';
     }
@@ -701,9 +726,9 @@ service cloud.firestore {
     }
 
     match /loginIndex/{loginKey} {
-      allow read: if isActiveUser() && (isOpsUser() || isDealer());
+      allow read: if isActiveUser() && (isOpsUser() || isDealer() || isDealerTeamAdmin());
       allow create: if isActiveUser()
-        && (isOpsUser() || isDealer())
+        && (isOpsUser() || isDealer() || isDealerTeamAdmin())
         && request.resource.data.uid is string
         && request.resource.data.role is string
         && request.resource.data.loginIdType is string
@@ -748,9 +773,8 @@ service cloud.firestore {
             && request.resource.data.active == true
             && validAadhar(request.resource.data)
             && validDealerPortalUserWrite(request.resource.data))
-        || (isDealer()
+        || (managesDealerAccount(userDealerId(request.resource.data))
             && isDealerStaffRole(request.resource.data.role)
-            && userDealerId(request.resource.data) == request.auth.uid
             && request.resource.data.active == true
             && validAadhar(request.resource.data)
             && validDealerPortalUserWrite(request.resource.data))
@@ -780,11 +804,10 @@ service cloud.firestore {
         || (request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['role', 'loginId', 'loginIdType', 'aadhar', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid', 'superAdminAccess']))
-        || (isDealer()
+        || (managesDealerAccount(userDealerId(resource.data))
             && isDealerStaffRole(resource.data.role)
-            && userDealerId(resource.data) == request.auth.uid
+            && managesDealerAccount(userDealerId(request.resource.data))
             && isDealerStaffRole(request.resource.data.role)
-            && userDealerId(request.resource.data) == request.auth.uid
             && validDealerPortalUserWrite(request.resource.data))
       );
 
