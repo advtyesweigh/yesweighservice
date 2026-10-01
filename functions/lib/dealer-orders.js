@@ -576,6 +576,9 @@ async function createSegmentSalesOrders({
         salespersonId: salesperson?.id || null,
       });
     } catch (err) {
+      if (err?.yesOneHint) {
+        throw new HttpsError('failed-precondition', String(err.yesOneHint));
+      }
       const zohoMessage = String(err?.message || 'Could not create Zoho sales order.');
       if (/not authorized to perform this operation/i.test(zohoMessage)) {
         throw new HttpsError(
@@ -584,17 +587,18 @@ async function createSegmentSalesOrders({
             ? 'Zoho rejected the software sales order. Software items are billed as Cloud Charges (not your salesperson) and are not warehouse-stocked. Confirm “Cloud Charges” is an active Zoho salesperson, then try again.'
             : segment === 'spare'
               ? (
-                'Zoho Inventory refused this spare sales order (not authorized). This is not your YesOne login. '
-                + 'YesOne already retried without salesperson and shipping address. Stocked items still use a warehouse. '
-                + 'In Zoho, confirm the spare SKUs and courier freight item are active and for sale, '
+                'Zoho Inventory refused this spare sales order. '
+                + 'YesOne retried with each spare’s own Zoho warehouse, without a warehouse on items Zoho does not stock, '
+                + 'and without salesperson or shipping address. '
+                + 'Confirm the spare SKUs and courier freight item are active and for sale, '
                 + 'salesperson Shibin is active, and the dealer is an active customer. '
                 + (zohoMessage ? `Zoho: ${zohoMessage}` : '')
               )
             : (
-              'Zoho Inventory refused this sales order (not authorized). This is not your YesOne login. '
-              + 'YesOne already retried without salesperson and shipping address. '
-              + 'Stocked items still use a warehouse. '
-              + 'In Zoho, confirm the customer is active, the product is active and available for sale, '
+              'Zoho Inventory refused this sales order. '
+              + 'YesOne retried with each item’s own Zoho warehouse, without a warehouse on items Zoho does not stock, '
+              + 'and without salesperson or shipping address. '
+              + 'Confirm the customer is active, the product is active and available for sale, '
               + 'and the connected Zoho user can create sales orders. '
               + (zohoMessage ? `Zoho: ${zohoMessage}` : '')
             ),
@@ -638,7 +642,7 @@ async function createSegmentSalesOrders({
       yesOneInventorySite: site,
       yesOneBranchLabel: inventorySiteLabel(site),
       yesOneCourierPartner: courierPartner,
-      zohoLocationId: locationId,
+      zohoLocationId: so.warehouseId || locationId,
       salesOrderCategory: segmentToInvoiceCategory(segment),
       categories: [segmentToInvoiceCategory(segment)],
       categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },

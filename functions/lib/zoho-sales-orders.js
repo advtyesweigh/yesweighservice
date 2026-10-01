@@ -107,6 +107,9 @@ function salesOrderAttemptKey(body) {
     shippingInline: Boolean(body.shipping_address),
     warehouses: (body.line_items || []).map(line => line.warehouse_id || null),
     descriptions: (body.line_items || []).map(line => String(line.description || '')),
+    rates: (body.line_items || []).map(line => (
+      Object.prototype.hasOwnProperty.call(line, 'rate') ? line.rate : null
+    )),
   });
 }
 
@@ -275,7 +278,10 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
       || payload?.code
       || classified?.message
       || `Zoho request failed (${res.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    error.zohoCode = payload?.code ?? classified?.zohoCode ?? null;
+    throw error;
   }
   return payload;
 }
@@ -610,6 +616,204 @@ async function confirmSalesOrderRequest(accessToken, orgId, soId) {
   }
 }
 
+function warehouseRowsFromZohoItem(item) {
+  const raw = [
+    ...(Array.isArray(item?.warehouses) ? item.warehouses : []),
+    ...(Array.isArray(item?.locations) ? item.locations : []),
+  ];
+  const seen = new Set();
+  const rows = [];
+  for (const row of raw) {
+    const id = String(row?.warehouse_id ?? row?.location_id ?? row?.warehouseId ?? '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const stock = Number(
+      row?.warehouse_available_for_sale_stock
+      ?? row?.warehouse_actual_available_for_sale_stock
+      ?? row?.warehouse_available_stock
+      ?? row?.warehouse_stock_on_hand
+      ?? row?.location_available_stock
+      ?? row?.location_stock_on_hand
+      ?? 0,
+    );
+    rows.push({
+      id,
+      stock: Number.isFinite(stock) ? stock : 0,
+    });
+  }
+  return rows;
+}
+
+/** Service / non-inventory Zoho items reject warehouse_id as "not authorized". */
+function zohoItemSkipsWarehouse(item) {
+  if (!item) return false;
+  const productType = String(item.product_type || '').toLowerCase();
+  const itemType = String(item.item_type || '').toLowerCase();
+  if (productType === 'service') return true;
+  if (item.track_inventory === false) return true;
+  if (itemType === 'sales' || itemType === 'purchases' || itemType === 'sales_and_purchases') return true;
+  if (
+    itemType.includes('non-inventory')
+    || itemType.includes('non_inventory')
+    || itemType.includes('service')
+  ) return true;
+  if (item.is_combo_product === true && warehouseRowsFromZohoItem(item).length === 0) return true;
+  return false;
+}
+
+function zohoItemBlockReason(item) {
+  if (!item) return null;
+  const label = String(item.name || item.sku || item.item_id || 'Item').trim();
+  const status = String(item.status || '').trim().toLowerCase();
+  if (status && status !== 'active') return `${label} is ${status} in Zoho`;
+  if (item.can_be_sold === false) return `${label} is not available for sale in Zoho`;
+  return null;
+}
+
+function catalogWarehouseIdsByItemId(order) {
+  const map = new Map();
+  for (const line of Array.isArray(order?.lines) ? order.lines : []) {
+    const id = String(line?.itemId || line?.productId || '').trim();
+    if (!id) continue;
+    const ids = map.get(id) || [];
+    for (const row of Array.isArray(line?.warehouses) ? line.warehouses : []) {
+      const wid = String(row?.warehouseId ?? row?.warehouse_id ?? '').trim();
+      if (wid && !ids.includes(wid)) ids.push(wid);
+    }
+    if (ids.length) map.set(id, ids);
+  }
+  return map;
+}
+
+function rowsForSalesOrderLine(item, catalogIds) {
+  const live = item ? warehouseRowsFromZohoItem(item) : [];
+  if (live.length) return live;
+  return (catalogIds || []).map(id => ({ id, stock: 0 }));
+}
+
+function pickWarehouseId(rows, preferredId) {
+  if (!rows.length) return null;
+  const preferred = preferredId != null ? String(preferredId).trim() : '';
+  if (preferred && rows.some(row => row.id === preferred)) return preferred;
+  return (rows.find(row => row.stock > 0) || rows[0]).id;
+}
+
+function withoutRates(body) {
+  const next = cloneSalesOrderBody(body);
+  next.line_items = next.line_items.map(({ rate: _rate, ...line }) => line);
+  return next;
+}
+
+/**
+ * Rebuild a refused sales-order body from the live Zoho item.
+ * Inventory lines use that item's warehouse (not a stale Cochin/HO id).
+ * Service and non-inventory lines drop warehouse_id.
+ */
+export function salesOrderBodiesFromZohoItems(sourceBody, itemById, catalogByItem, preferredWarehouseId) {
+  const blocked = [];
+  for (const item of itemById.values()) {
+    const reason = zohoItemBlockReason(item);
+    if (reason) blocked.push(reason);
+  }
+  if (blocked.length) {
+    return {
+      bodies: [],
+      blockedHint: `Zoho Inventory refused this sales order. ${blocked.join('. ')}. `
+        + 'Activate the item in Zoho and mark it available for sale, then try again.',
+    };
+  }
+
+  const mapLines = (body, mode) => {
+    const next = cloneSalesOrderBody(body);
+    next.line_items = next.line_items.map(line => {
+      const copy = { ...line };
+      if (!copy.warehouse_id) return copy;
+      const itemId = String(copy.item_id || '').trim();
+      const item = itemById.get(itemId);
+      if (mode === 'omit' || (item && zohoItemSkipsWarehouse(item))) {
+        delete copy.warehouse_id;
+        return copy;
+      }
+      const rows = rowsForSalesOrderLine(item, catalogByItem.get(itemId));
+      if (!rows.length) return copy;
+      if (mode === 'alternate') {
+        const current = String(copy.warehouse_id || '').trim();
+        const other = rows.find(row => row.id !== current);
+        if (other) copy.warehouse_id = other.id;
+        return copy;
+      }
+      const picked = pickWarehouseId(rows, preferredWarehouseId);
+      if (picked) copy.warehouse_id = picked;
+      return copy;
+    });
+    return next;
+  };
+
+  const preferred = mapLines(sourceBody, 'preferred');
+  const stripped = withoutLineDescriptions(
+    stripShippingFromBody(withoutSalesperson(preferred)),
+  );
+  return {
+    bodies: [
+      preferred,
+      stripped,
+      mapLines(stripped, 'alternate'),
+      mapLines(stripped, 'omit'),
+    ],
+    blockedHint: null,
+  };
+}
+
+async function loadSalesOrderZohoItems(accessToken, orgId, itemIds) {
+  const byId = new Map();
+  await Promise.all(itemIds.map(async (itemId) => {
+    try {
+      const payload = await zohoJson(accessToken, orgId, `/items/${encodeURIComponent(itemId)}`);
+      if (payload?.item) byId.set(itemId, payload.item);
+    } catch (err) {
+      console.warn('Zoho item lookup during sales order create failed', {
+        itemId,
+        message: err?.message || err,
+      });
+    }
+  }));
+  return byId;
+}
+
+async function itemAwareSalesOrderBodies(accessToken, orgId, sourceBody, order, preferredWarehouseId) {
+  const itemIds = [...new Set(
+    (sourceBody.line_items || [])
+      .map(line => String(line.item_id || '').trim())
+      .filter(Boolean),
+  )];
+  const itemById = await loadSalesOrderZohoItems(accessToken, orgId, itemIds);
+  console.warn('Zoho sales order item-aware retry', {
+    items: itemIds.map(id => {
+      const item = itemById.get(id);
+      return {
+        item_id: id,
+        name: item?.name || null,
+        item_type: item?.item_type || null,
+        product_type: item?.product_type || null,
+        status: item?.status || null,
+        warehouses: item ? warehouseRowsFromZohoItem(item).map(row => row.id) : null,
+      };
+    }),
+  });
+  return salesOrderBodiesFromZohoItems(
+    sourceBody,
+    itemById,
+    catalogWarehouseIdsByItemId(order),
+    preferredWarehouseId,
+  );
+}
+
+const SALES_ORDER_REFUSAL_HINT = 'Zoho Inventory refused this sales order. '
+  + 'YesOne loaded each item from Zoho and retried with that item’s own warehouses, '
+  + 'without a warehouse on items Zoho does not stock, and without salesperson, shipping address, or a custom rate. '
+  + 'Confirm the customer is active, the product is active and available for sale, '
+  + 'and the connected Zoho user can create sales orders.';
+
 export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, order) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
@@ -646,10 +850,6 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const lineWarehouseIds = [];
   for (const line of Array.isArray(order.lines) ? order.lines : []) {
     for (const row of Array.isArray(line?.warehouses) ? line.warehouses : []) {
-      const name = String(row?.warehouseName ?? row?.warehouse_name ?? '').trim().toLowerCase();
-      const cochinOrHeadOffice = name === 'cochin' || name.includes('cochin')
-        || name === 'head office' || (name.includes('head') && name.includes('office'));
-      if (!cochinOrHeadOffice) continue;
       const id = String(row?.warehouseId ?? row?.warehouse_id ?? '').trim();
       if (id) lineWarehouseIds.push(id);
     }
@@ -694,39 +894,88 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   }
 
   const attempts = uniqueSalesOrderCreateAttempts(body, { alternateWarehouseIds });
+  const tried = new Set();
   let payload = null;
   let lastErr = null;
   let createdBody = null;
-  for (let i = 0; i < attempts.length; i += 1) {
+  let itemAwareBodies = [];
+  let itemAwareDone = false;
+
+  const postAttempt = async (candidate) => {
+    const key = salesOrderAttemptKey(candidate);
+    if (tried.has(key)) return 'skip';
+    tried.add(key);
     try {
       payload = await zohoJson(accessToken, orgId, '/salesorders', {
         method: 'POST',
-        body: attempts[i],
+        body: candidate,
       });
-      createdBody = attempts[i];
+      createdBody = candidate;
       lastErr = null;
-      break;
+      return 'ok';
     } catch (err) {
       lastErr = err;
-      if (isZohoShippingAddressTooLong(err) && i < attempts.length - 1) {
+      if (isZohoShippingAddressTooLong(err)) {
         console.warn('Zoho shipping address over 100 characters, creating the order without it.');
-        continue;
+        return 'next';
       }
       if (!isZohoNotAuthorized(err)) throw err;
       console.warn('Zoho sales order create not authorized', {
-        attempt: i + 1,
-        of: attempts.length,
-        items: attempts[i].line_items.map(line => ({
+        attempt: tried.size,
+        status: err?.status || null,
+        zohoCode: err?.zohoCode ?? null,
+        items: candidate.line_items.map(line => ({
           item_id: line.item_id,
           warehouse_id: line.warehouse_id || null,
-          hsn: line.hsn_or_sac || null,
+          rate: Object.prototype.hasOwnProperty.call(line, 'rate') ? line.rate : null,
         })),
-        salesperson: Boolean(attempts[i].salesperson_id),
-        shippingAddressId: Boolean(attempts[i].shipping_address_id),
+        salesperson: Boolean(candidate.salesperson_id),
+        shippingAddressId: Boolean(candidate.shipping_address_id),
       });
+      return 'unauthorized';
+    }
+  };
+
+  for (let i = 0; i < attempts.length; i += 1) {
+    const result = await postAttempt(attempts[i]);
+    if (result === 'ok') break;
+    if (result === 'unauthorized' && !itemAwareDone) {
+      itemAwareDone = true;
+      const extra = await itemAwareSalesOrderBodies(
+        accessToken,
+        orgId,
+        attempts[i],
+        order,
+        warehouseId,
+      );
+      if (extra.blockedHint) {
+        const blockedErr = new Error(extra.blockedHint);
+        blockedErr.yesOneHint = extra.blockedHint;
+        throw blockedErr;
+      }
+      itemAwareBodies = extra.bodies;
+      for (const candidate of extra.bodies) {
+        const extraResult = await postAttempt(candidate);
+        if (extraResult === 'ok') break;
+      }
+    }
+    if (!lastErr) break;
+  }
+
+  if (lastErr && isZohoNotAuthorized(lastErr)) {
+    const rateFreeSources = itemAwareBodies.length ? itemAwareBodies : [body];
+    for (const candidate of rateFreeSources.map(withoutRates)) {
+      const result = await postAttempt(candidate);
+      if (result === 'ok') break;
     }
   }
-  if (lastErr) throw lastErr;
+
+  if (lastErr) {
+    if (isZohoNotAuthorized(lastErr)) {
+      lastErr.yesOneHint = `${SALES_ORDER_REFUSAL_HINT} Zoho: ${lastErr.message}`;
+    }
+    throw lastErr;
+  }
 
   const so = payload?.salesorder;
   if (!so?.salesorder_id) {
