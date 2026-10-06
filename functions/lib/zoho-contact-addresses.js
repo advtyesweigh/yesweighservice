@@ -154,11 +154,7 @@ function isZohoAuthDeniedError(err) {
 
 function zohoAddressSyncFailureHint(zohoError) {
   if (!isZohoAuthDeniedError(zohoError)) return '';
-  return (
-    ' Zoho rejected the contacts request — this is usually transient (retry), a wrong organization ID, '
-    + 'or an invalid customer id. OAuth already has ZohoInventory.fullaccess.all; re-authorizing scopes '
-    + 'is unlikely to help unless the refresh token was replaced with a narrower one.'
-  );
+  return ` ${ZOHO_CUSTOMER_ACCESS_DENIED_TEXT}`;
 }
 
 function zohoAddressSyncWarningText() {
@@ -167,6 +163,12 @@ function zohoAddressSyncWarningText() {
     + 'If it keeps failing, check Firebase Functions logs for this customer id.'
   );
 }
+
+/** Same Zoho user that creates sales orders; if it cannot open the customer, the order is refused too. */
+export const ZOHO_CUSTOMER_ACCESS_DENIED_TEXT = 'Zoho will not let YesOne open this customer, '
+  + 'so Zoho will also refuse a sales order for them. '
+  + 'In Zoho Inventory, give the user connected to YesOne access to this customer '
+  + '(check the customer is active and not limited to another user or branch), then try again.';
 
 function extractPinFromText(text) {
   const match = String(text ?? '').match(/\b(\d{6})\b/);
@@ -431,8 +433,12 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     }
   }
 
+  const customerAccessDenied = !contact && isZohoAuthDeniedError(zohoError);
   const result = { customerId: contactId, addresses: rows };
-  if (usedCachedFallback || zohoError) {
+  if (customerAccessDenied) {
+    result.customerAccessDenied = true;
+    result.zohoSyncWarning = ZOHO_CUSTOMER_ACCESS_DENIED_TEXT;
+  } else if (usedCachedFallback || zohoError) {
     result.zohoSyncWarning = zohoAddressSyncWarningText();
   }
   return result;
@@ -631,7 +637,11 @@ export async function resolveShippingAddressId(
     if (!found) {
       throw new HttpsError('invalid-argument', 'Selected address was not found on this customer.');
     }
-    return { shippingAddressId: id, address: found };
+    return {
+      shippingAddressId: id,
+      address: found,
+      customerAccessDenied: listed.customerAccessDenied === true,
+    };
   }
 
   const kindKey = String(kind || '').trim();
@@ -641,11 +651,12 @@ export async function resolveShippingAddressId(
     if (!found) {
       throw new HttpsError('invalid-argument', `No ${kindKey} address on this customer.`);
     }
+    const customerAccessDenied = listed.customerAccessDenied === true;
     if (found.addressId) {
-      return { shippingAddressId: found.addressId, address: found };
+      return { shippingAddressId: found.addressId, address: found, customerAccessDenied };
     }
     // Fallback: no id — return address fields for inline SO shipping_address
-    return { shippingAddressId: null, address: found, useInline: true };
+    return { shippingAddressId: null, address: found, useInline: true, customerAccessDenied };
   }
 
   throw new HttpsError(

@@ -574,6 +574,7 @@ async function createSegmentSalesOrders({
         shippingAddressId: shippingResolved.shippingAddressId,
         shippingAddressInline: shippingResolved.address || null,
         salespersonId: salesperson?.id || null,
+        customerAccessDenied: shippingResolved.customerAccessDenied === true,
       });
     } catch (err) {
       if (err?.yesOneHint) {

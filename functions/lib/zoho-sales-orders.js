@@ -11,6 +11,7 @@ import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine, zohoModeOfTransportFromOrder } from './freight-lines.js';
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
 import { KNOWN_ZOHO_WAREHOUSE_IDS, loadZohoLocationIdsBySite } from './zoho-locations.js';
+import { ZOHO_CUSTOMER_ACCESS_DENIED_TEXT } from './zoho-contact-addresses.js';
 
 function hsnDigits(value) {
   return String(value ?? '').replace(/\D/g, '');
@@ -939,6 +940,10 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   for (let i = 0; i < attempts.length; i += 1) {
     const result = await postAttempt(attempts[i]);
     if (result === 'ok') break;
+    if (result === 'unauthorized' && order.customerAccessDenied) {
+      lastErr.yesOneHint = `${ZOHO_CUSTOMER_ACCESS_DENIED_TEXT} Zoho: ${lastErr.message}`;
+      throw lastErr;
+    }
     if (result === 'unauthorized' && !itemAwareDone) {
       itemAwareDone = true;
       const extra = await itemAwareSalesOrderBodies(
