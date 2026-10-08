@@ -31,15 +31,19 @@ import {
   callTypeFromEvent,
   collapseCalls,
   filtersDiffer,
+  attendedName,
   formatCallerNumber,
   formatElapsed,
   formatTalk,
+  formatTowerLocation,
+  handlerName,
   indiaE164,
   isIndianMobile,
   isOpenMissed,
   national10,
   preFilterEvents,
   remoteParty,
+  towerMapsHref,
   visibleCalls,
   whenParts,
   type CallFilters,
@@ -54,13 +58,16 @@ import '../../phone.css';
 
 function TranscriptIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M5 4.5A2.5 2.5 0 0 1 7.5 2h6.2c.5 0 1 .2 1.3.6l2.4 2.6c.3.4.5.8.5 1.3V14a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 4.9 14V4.5Z"
-      />
-      <path fill="#ecfdf5" d="M8 7.2h5.2v1.2H8zm0 2.4h4.1v1.2H8z" />
-      <path fill="currentColor" d="M3 16.2h2.1v1.1H3zm3.2 0h1.2v2.4H6.2zm2.2-1.1h1.2v3.5H8.4zm2.2 1.1h1.2V18h-1.2zm2.2-1.6h1.2v4.2h-1.2zm2.2.8h1.2v2.6h-1.2z" />
+    <svg width="15" height="15" viewBox="0 0 32 32" fill="none" aria-hidden>
+      <rect x="3.2" y="3.4" width="5.6" height="9.2" rx="2.8" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3.6 10.2a2.4 2.6 0 0 0 4.8 0" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M6 15.2v2.1M4.2 17.3h3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="11.4" y="11.2" width="1.5" height="4.6" rx="0.6" fill="currentColor" />
+      <rect x="13.8" y="8.8" width="1.5" height="7" rx="0.6" fill="currentColor" />
+      <rect x="16.2" y="10.2" width="1.5" height="5.6" rx="0.6" fill="currentColor" />
+      <path d="M19.2 12.2h2.8M20.6 10.7 22.4 12.2 20.6 13.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M24.2 6.2h2.6L29.4 9v10.2a1.3 1.3 0 0 1-1.3 1.3h-5.2a1.3 1.3 0 0 1-1.3-1.3V7.5c0-.7.6-1.3 1.3-1.3Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M24.4 12.4h3.4M24.4 14.6h3.4M24.4 16.8h2.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -261,7 +268,7 @@ export const PhonePage: React.FC = () => {
   const agents = useMemo(() => {
     const names = new Set<string>();
     events.forEach(event => {
-      const name = event.employeeName || event.agent;
+      const name = handlerName(event);
       if (name) names.add(name);
     });
     return [...names].sort((a, b) => a.localeCompare(b));
@@ -375,30 +382,38 @@ export const PhonePage: React.FC = () => {
       ) : (
         <div className="call-page__grid">
           <div className="call-page__main">
-            <div className="phone-sort">
-              {([
-                ['all', 'Total', stats.total, <Phone size={15} />],
-                ['missed', 'Missed', stats.missed, <PhoneMissed size={15} />],
-                ['received', 'Received', stats.received, <PhoneIncoming size={15} />],
-                ['outbound', 'Outbound', stats.outbound, <PhoneOutgoing size={15} />],
-              ] as const).map(([status, label, count, icon]) => (
-                <button
-                  key={status}
-                  type="button"
-                  className={`phone-sort__tile is-${status}${applied.status === status || (status === 'all' && applied.status === 'all') ? ' is-active' : ''}`}
-                  onClick={() => chooseStatus(status)}
-                >
-                  <span className="phone-sort__icon">{icon}</span>
-                  <strong>{count}</strong>
-                  <em>{label}</em>
-                </button>
-              ))}
-              <div className="phone-sort__duration" aria-label="Talk time">
-                <span><em>IN</em><strong>{formatTalk(stats.inboundSeconds)}</strong></span>
-                <span><em>OUT</em><strong>{formatTalk(stats.outboundSeconds)}</strong></span>
-                <span><em>Total</em><strong>{formatTalk(stats.totalSeconds)}</strong></span>
+            <section className="phone-sort" aria-label="Sort calls">
+              <button type="button" className={`phone-sort__tile${applied.status === 'all' ? ' is-active' : ''}`} onClick={() => chooseStatus('all')}>
+                <span className="phone-sort__icon phone-sort__icon--total"><Phone size={16} /></span>
+                <strong className="phone-sort__count">{stats.total}</strong>
+                <span className="phone-sort__label">Total</span>
+              </button>
+              <button type="button" className={`phone-sort__tile${applied.status === 'missed' ? ' is-active' : ''}`} onClick={() => chooseStatus('missed')}>
+                <span className="phone-sort__icon phone-sort__icon--missed"><PhoneMissed size={16} /></span>
+                <strong className="phone-sort__count">{stats.missed}</strong>
+                <span className="phone-sort__label">Missed</span>
+              </button>
+              <button type="button" className={`phone-sort__tile${applied.status === 'received' ? ' is-active' : ''}`} onClick={() => chooseStatus('received')}>
+                <span className="phone-sort__icon phone-sort__icon--received"><PhoneIncoming size={16} /></span>
+                <strong className="phone-sort__count">{stats.received}</strong>
+                <span className="phone-sort__label">Received</span>
+              </button>
+              <button type="button" className={`phone-sort__tile${applied.status === 'outbound' ? ' is-active' : ''}`} onClick={() => chooseStatus('outbound')}>
+                <span className="phone-sort__icon phone-sort__icon--outbound"><PhoneOutgoing size={16} /></span>
+                <strong className="phone-sort__count">{stats.outbound}</strong>
+                <span className="phone-sort__label">Outbound</span>
+              </button>
+              <div
+                className="phone-sort__tile phone-sort__tile--duration"
+                aria-label={`Duration in ${formatTalk(stats.inboundSeconds)}, out ${formatTalk(stats.outboundSeconds)}, total ${formatTalk(stats.totalSeconds)}`}
+              >
+                <span className="phone-sort__durations">
+                  <span className="phone-sort__dur phone-sort__dur--in"><em>IN</em><strong>{formatTalk(stats.inboundSeconds)}</strong></span>
+                  <span className="phone-sort__dur phone-sort__dur--out"><em>OUT</em><strong>{formatTalk(stats.outboundSeconds)}</strong></span>
+                  <span className="phone-sort__dur phone-sort__dur--total"><em>Total</em><strong>{formatTalk(stats.totalSeconds)}</strong></span>
+                </span>
               </div>
-            </div>
+            </section>
             {error ? <p className="call-page__error">{error}</p> : null}
             <div className="call-list">
               <div className="call-list__head">
@@ -420,185 +435,225 @@ export const PhonePage: React.FC = () => {
                 const whatsApp = e164
                   ? `https://wa.me/${e164}${openMissed ? `?text=${encodeURIComponent(MISSED_FOLLOW_UP_TEXT)}` : ''}`
                   : '';
-                const numberHref = openMissed && showWhatsApp ? whatsApp : tel;
-                const handler = row.event.employeeName || row.event.agent;
+                const followHref = openMissed ? (showWhatsApp ? whatsApp : tel) : '';
+                const followedBy = row.event.missedFollowedUpBy.trim();
+                const handler = handlerName(row.event);
+                const attended = attendedName(row.event, row.status);
                 const type = callTypeFromEvent(row.event);
                 const recording = /^https?:\/\//i.test(row.event.recordingUrl);
                 const showActions = row.status === 'received' && recording;
                 const thisPlaying = playingId === row.event.id && playing;
-                return (
-                  <article
-                    key={row.event.id}
-                    className={`call-row${openMissed ? ' is-open-missed' : ''}`}
+                const numberLabel = formatCallerNumber(party, !desktop);
+                const numberClass = `call-row__number${openMissed ? ' is-missed-open' : ''}`;
+                const towerLabel = formatTowerLocation(row.event.tower);
+                const mapsHref = towerMapsHref(row.event.tower);
+                const missedSince = row.status === 'missed' ? formatElapsed(row.occurred, now) : '';
+                const turns = row.event.transcriptTurns;
+                const roles = new Set(turns.map(turn => turn.speaker));
+                const hasDialogue = roles.has('agent') && roles.has('customer');
+                const markFollowUp = () => {
+                  if (openMissed) followUp(row.event);
+                };
+                const numberNode = openMissed && followHref ? (
+                  <a
+                    className={`${numberClass} call-row__number-link`}
+                    href={followHref}
+                    target={showWhatsApp ? '_blank' : undefined}
+                    rel={showWhatsApp ? 'noreferrer' : undefined}
                     onClick={event => {
-                      if (!openMissed) return;
-                      const target = event.target as HTMLElement;
-                      if (target.closest('a,button')) return;
-                      followUp(row.event);
+                      event.stopPropagation();
+                      markFollowUp();
                     }}
                   >
-                    <div className="call-row__when">
-                      <strong>{serial}</strong>
-                      <span>{when.date}</span>
-                      <time>{when.time}</time>
-                    </div>
-                    <div className="call-row__caller">
-                      <div className="call-row__phone">
-                        {tel ? (
-                          <a
-                            className="call-row__chip"
-                            href={tel}
-                            aria-label="Call"
-                            onClick={() => {
-                              if (openMissed) followUp(row.event);
-                            }}
-                          >
-                            <Phone size={15} />
-                          </a>
-                        ) : null}
-                        {showWhatsApp && whatsApp ? (
-                          <a
-                            className="call-row__chip call-row__chip--wa"
-                            href={whatsApp}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label="WhatsApp"
-                            onClick={() => {
-                              if (openMissed) followUp(row.event);
-                            }}
-                          >
-                            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
-                              <path fill="currentColor" d="M12 3.2A8.7 8.7 0 0 0 4.6 16.4L3.4 20.6l4.3-1.1A8.7 8.7 0 1 0 12 3.2Zm4.9 12.3c-.2.6-1.2 1.1-1.6 1.1-.4.1-.9.1-1.5-.1-.3-.1-.8-.3-1.3-.5-2.3-1-3.8-3.4-3.9-3.5-.1-.2-.9-1.2-.9-2.3s.6-1.6.8-1.8c.2-.2.4-.3.6-.3h.4c.1 0 .3 0 .4.3.2.5.6 1.6.6 1.7.1.1 0 .3-.1.4l-.3.4c-.1.1-.2.2-.1.4.1.2.6 1 1.3 1.6.9.8 1.6 1 1.8 1.1.2.1.3.1.4-.1l.5-.6c.1-.2.3-.1.5-.1.2.1 1.3.6 1.5.7.2.1.3.2.4.3.1.2.1.6-.1 1.2Z" />
-                            </svg>
-                          </a>
-                        ) : null}
-                        {numberHref ? (
-                          <a
-                            className="call-row__number"
-                            href={numberHref}
-                            target={numberHref.startsWith('http') ? '_blank' : undefined}
-                            rel="noreferrer"
-                            onClick={() => {
-                              if (openMissed) followUp(row.event);
-                            }}
-                          >
-                            {formatCallerNumber(party, desktop)}
-                            {row.event.missedFollowedUpBy ? <span> ({row.event.missedFollowedUpBy})</span> : null}
-                          </a>
-                        ) : (
-                          <span className="call-row__number">{formatCallerNumber(party, desktop)}</span>
-                        )}
+                    {numberLabel}
+                  </a>
+                ) : (
+                  <strong className={numberClass}>{numberLabel}</strong>
+                );
+                return (
+                  <React.Fragment key={row.event.id}>
+                    <article
+                      className={`call-row${openMissed ? ' is-missed-open' : ''}`}
+                      onClick={event => {
+                        if (!openMissed) return;
+                        const target = event.target as HTMLElement;
+                        if (target.closest('a,button')) return;
+                        followUp(row.event);
+                      }}
+                    >
+                      <div className="call-row__lead">
+                        <span className="call-row__sl">{serial}</span>
+                        <strong className="call-row__day">{when.date}</strong>
+                        <span className="call-row__clock">{when.time}</span>
                       </div>
-                      {row.event.callerName ? <p className="call-row__party">{row.event.callerName}</p> : null}
-                      {handler ? <p className="call-row__agent">{handler}</p> : null}
-                      {row.event.tower?.place ? (
-                        row.event.tower.lat != null && row.event.tower.lng != null ? (
-                          <a
-                            className="call-row__tower"
-                            href={`https://www.google.com/maps?q=${row.event.tower.lat},${row.event.tower.lng}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {row.event.tower.place}
-                          </a>
-                        ) : <p className="call-row__tower">{row.event.tower.place}</p>
-                      ) : null}
-                      <div className="call-row__meta">
-                        {type ? (
-                          <span className={`call-row__dept is-${type}`}>
-                            <i />
-                            {type === 'sales' ? 'Sales' : 'Service'}
-                          </span>
-                        ) : null}
-                        {row.event.agent ? <span className="call-row__attended">Attended by {row.event.agent}</span> : null}
-                      </div>
-                    </div>
-                    <div className="call-row__status">
-                      <span className={`call-row__pill is-${row.status}${row.event.missedFollowedUp ? ' is-attended' : ''}`}>
-                        {statusWord(row.status, row.repeatCount)}
-                      </span>
-                      <time>
-                        {row.status === 'missed'
-                          ? formatElapsed(row.occurred, now)
-                          : formatTalk(row.event.durationSeconds)}
-                      </time>
-                      {showActions ? (
-                        <div className="call-row__actions">
-                          <button
-                            type="button"
-                            className="call-row__transcript"
-                            aria-label="Transcript"
-                            onClick={() => setOpenTranscript(current => current === row.event.id ? '' : row.event.id)}
-                          >
-                            <TranscriptIcon />
-                          </button>
-                          <button
-                            type="button"
-                            className="call-row__play"
-                            aria-label={thisPlaying ? 'Pause' : 'Play'}
-                            onClick={() => togglePlay(row)}
-                          >
-                            {thisPlaying ? <Pause size={14} /> : <Play size={14} />}
-                          </button>
-                          {playingId === row.event.id ? (
+                      <div className="call-row__caller">
+                        <div className="call-row__phone">
+                          {party ? (
                             <>
-                              {([1, 1.5, 2] as const).map(value => (
-                                <button
-                                  key={value}
-                                  type="button"
-                                  className={`call-row__rate${rate === value ? ' is-on' : ''}`}
-                                  onClick={() => {
-                                    setRate(value);
-                                    if (audioRef.current) audioRef.current.playbackRate = value;
+                              {tel ? (
+                                <a className="call-row__call" href={tel} aria-label="Call number" onClick={markFollowUp}>
+                                  <Phone size={14} />
+                                </a>
+                              ) : null}
+                              {showWhatsApp && whatsApp ? (
+                                <a
+                                  className="call-row__wa"
+                                  href={whatsApp}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label="Open WhatsApp"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    markFollowUp();
                                   }}
                                 >
-                                  X{value}
-                                </button>
-                              ))}
-                              <button
-                                type="button"
-                                className="call-row__stop"
-                                aria-label="Stop"
-                                onClick={() => {
-                                  audioRef.current?.pause();
-                                  if (audioRef.current) audioRef.current.currentTime = 0;
-                                  setPlayingId('');
-                                }}
-                              >
-                                <Square size={12} />
-                              </button>
+                                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+                                    <path fill="currentColor" d="M12 3.2A8.7 8.7 0 0 0 4.6 16.4L3.4 20.6l4.3-1.1A8.7 8.7 0 1 0 12 3.2Zm4.9 12.3c-.2.6-1.2 1.1-1.6 1.1-.4.1-.9.1-1.5-.1-.3-.1-.8-.3-1.3-.5-2.3-1-3.8-3.4-3.9-3.5-.1-.2-.9-1.2-.9-2.3s.6-1.6.8-1.8c.2-.2.4-.3.6-.3h.4c.1 0 .3 0 .4.3.2.5.6 1.6.6 1.7.1.1 0 .3-.1.4l-.3.4c-.1.1-.2.2-.1.4.1.2.6 1 1.3 1.6.9.8 1.6 1 1.8 1.1.2.1.3.1.4-.1l.5-.6c.1-.2.3-.1.5-.1.2.1 1.3.6 1.5.7.2.1.3.2.4.3.1.2.1.6-.1 1.2Z" />
+                                  </svg>
+                                </a>
+                              ) : null}
+                              <span className="call-row__number-wrap">
+                                <span className="call-row__number-line">
+                                  {numberNode}
+                                  {followedBy ? <span className="call-row__followed">({followedBy})</span> : null}
+                                </span>
+                              </span>
                             </>
+                          ) : (
+                            <strong className="call-row__number">—</strong>
+                          )}
+                        </div>
+                        {row.event.callerName ? <span className="call-row__party">{row.event.callerName}</span> : null}
+                        {handler ? <span className="call-row__agent">{handler}</span> : null}
+                        {towerLabel ? (
+                          mapsHref ? (
+                            <a
+                              className="call-row__tower"
+                              href={mapsHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={event => event.stopPropagation()}
+                            >
+                              {towerLabel}
+                            </a>
+                          ) : <span className="call-row__tower">{towerLabel}</span>
+                        ) : null}
+                        {type || attended ? (
+                          <span className="call-row__meta">
+                            {type ? (
+                              <span className="call-row__dept-line">
+                                <span className={`call-row__dept call-row__dept--${type}`}>
+                                  {type === 'sales' ? 'Sales' : 'Service'}
+                                </span>
+                              </span>
+                            ) : null}
+                            {attended ? <span className="call-row__attended">{attended}</span> : null}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="call-row__rail">
+                        <div className="call-row__status-col">
+                          <span className={`call-row__status call-row__status--${row.status}${row.status === 'missed' && !openMissed ? ' is-attended' : ''}`}>
+                            {statusWord(row.status, row.repeatCount)}
+                          </span>
+                          {missedSince ? (
+                            <span className="call-row__since">{missedSince}</span>
+                          ) : row.status === 'received' || row.status === 'outbound' ? (
+                            <span className="call-row__duration">{formatTalk(row.event.durationSeconds)}</span>
                           ) : null}
                         </div>
-                      ) : null}
-                    </div>
+                        {showActions ? (
+                          <div className="call-row__actions">
+                            <button
+                              type="button"
+                              className={`call-row__play call-row__play--transcript${openTranscript === row.event.id ? ' is-open' : ''}`}
+                              aria-label="Call transcript"
+                              aria-pressed={openTranscript === row.event.id}
+                              onClick={event => {
+                                event.stopPropagation();
+                                setOpenTranscript(current => current === row.event.id ? '' : row.event.id);
+                              }}
+                            >
+                              <TranscriptIcon />
+                            </button>
+                            {thisPlaying ? (
+                              <button type="button" className="call-row__play" aria-label="Pause recording" onClick={event => { event.stopPropagation(); togglePlay(row); }}>
+                                <Pause size={13} fill="currentColor" />
+                              </button>
+                            ) : (
+                              <button type="button" className="call-row__play" aria-label="Play recording" onClick={event => { event.stopPropagation(); togglePlay(row); }}>
+                                <Play size={13} fill="currentColor" />
+                              </button>
+                            )}
+                            {playingId === row.event.id ? (
+                              <>
+                                {([1, 1.5, 2] as const).map(value => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    className={`call-row__speed${rate === value ? ' is-active' : ''}`}
+                                    aria-pressed={rate === value}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      setRate(value);
+                                      if (audioRef.current) audioRef.current.playbackRate = value;
+                                    }}
+                                  >
+                                    X{value}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  className="call-row__play call-row__play--stop"
+                                  aria-label="Stop recording"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    audioRef.current?.pause();
+                                    if (audioRef.current) audioRef.current.currentTime = 0;
+                                    setPlayingId('');
+                                  }}
+                                >
+                                  <Square size={11} fill="currentColor" />
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
                     {openTranscript === row.event.id ? (
-                      <div className="call-transcript">
-                        {row.event.transcriptTurns.length ? row.event.transcriptTurns.map((turn, turnIndex) => (
-                          <p key={`${turn.speaker}-${turnIndex}`} className={`is-${turn.speaker}`}>
-                            <strong>{turn.speaker === 'agent' ? 'Agent' : 'Customer'}</strong>
-                            {turn.text}
-                          </p>
-                        )) : (
-                          <p>{row.event.transcript || row.event.malayalamText || 'No transcript for this call.'}</p>
+                      <div className="call-transcript" role="note">
+                        {hasDialogue ? turns.map((turn, turnIndex) => (
+                          <div key={`${turn.speaker}-${turnIndex}`} className={`call-transcript__turn call-transcript__turn--${turn.speaker}`}>
+                            <p className="call-transcript__line">{turn.text}</p>
+                          </div>
+                        )) : row.event.transcriptSingleSpeaker ? (
+                          <>
+                            <p className="call-transcript__status">Only one speaker was detected.</p>
+                            <p className="call-transcript__text">{row.event.malayalamText || row.event.transcript}</p>
+                          </>
+                        ) : (
+                          <p className="call-transcript__text">{row.event.transcript || row.event.malayalamText || 'No transcript for this call.'}</p>
                         )}
                       </div>
                     ) : null}
-                  </article>
+                  </React.Fragment>
                 );
               })}
               {rows.length > CALL_PAGE_SIZE ? (
-                <footer className="call-list__pager">
-                  <span>
+                <nav className="call-pager" aria-label="Call list pages">
+                  <span className="call-pager__meta">
                     {safePage * CALL_PAGE_SIZE + 1}–{Math.min(rows.length, (safePage + 1) * CALL_PAGE_SIZE)} of {rows.length}
                   </span>
-                  <button type="button" aria-label="Previous page" disabled={safePage <= 0} onClick={() => setPage(current => Math.max(0, current - 1))}>
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button type="button" aria-label="Next page" disabled={safePage >= pageCount - 1} onClick={() => setPage(current => current + 1)}>
-                    <ChevronRight size={16} />
-                  </button>
-                </footer>
+                  <div className="call-pager__nav">
+                    <button type="button" className="call-pager__btn" aria-label="Previous page" disabled={safePage <= 0} onClick={() => setPage(current => Math.max(0, current - 1))}>
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button type="button" className="call-pager__btn" aria-label="Next page" disabled={safePage >= pageCount - 1} onClick={() => setPage(current => current + 1)}>
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </nav>
               ) : null}
             </div>
           </div>

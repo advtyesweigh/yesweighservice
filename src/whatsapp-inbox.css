@@ -274,7 +274,8 @@
 }
 
 .wa-inbox-icon,
-.wa-inbox-send {
+.wa-inbox-send,
+a.wa-inbox-icon {
   width: 2.4rem;
   height: 2.4rem;
   border-radius: 10px;
@@ -283,6 +284,7 @@
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-main);
   flex: none;
+  text-decoration: none;
 }
 
 .wa-inbox-send {

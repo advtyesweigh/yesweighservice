@@ -9,6 +9,7 @@ import {
   Layers,
   Package,
   Percent,
+  Plug,
   Printer,
   Scale,
   Tag,
@@ -100,6 +101,7 @@ export const SettingsLayout: React.FC = () => {
     ops.push(
       { id: 'logistics', label: 'Logistics', path: `${home}/settings/logistics`, icon: <Truck size={16} /> },
       { id: 'local-printers', label: 'Label printing', path: `${home}/settings/local-printers`, icon: <Printer size={16} /> },
+      { id: 'integration', label: 'Integration', path: `${home}/settings/integration`, icon: <Plug size={16} /> },
       { id: 'webhook', label: 'Webhook', path: `${home}/settings/webhook`, icon: <Webhook size={16} /> },
       { id: 'rc-details', label: 'RC details', path: `${home}/settings/rc-details`, icon: <IdCard size={16} /> },
     );

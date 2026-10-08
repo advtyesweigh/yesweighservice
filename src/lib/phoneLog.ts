@@ -11,6 +11,10 @@ export type PhoneTower = {
   lat?: number | null;
   lng?: number | null;
   place?: string;
+  lac?: string;
+  cid?: string;
+  source?: string;
+  accuracy?: number | null;
 };
 
 export type TranscriptTurn = {
@@ -155,13 +159,73 @@ export function formatElapsed(at: Date, now = Date.now()): string {
   return left ? `${days}d ${left}h` : `${days}d`;
 }
 
-export function formatCallerNumber(raw: string, desktop: boolean): string {
-  const digits = digitsOnly(raw);
-  const local = national10(raw);
-  if (local.length !== 10) return raw || digits;
-  const compact = `${local.slice(0, 5)} ${local.slice(5)}`;
-  if (digits.length === 12 && digits.startsWith('91') && desktop) return `+91 ${compact}`;
-  return compact;
+export function formatCallerNumber(value: string, compact = false): string {
+  const digits = digitsOnly(value);
+  if (digits.length === 12 && digits.startsWith('91')) {
+    const local = `${digits.slice(2, 7)} ${digits.slice(7)}`;
+    return compact ? local : `+91 ${local}`;
+  }
+  if (digits.length === 11 && digits.startsWith('0')) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
+  if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+  return value.trim() || '—';
+}
+
+export function handlerName(event: PhoneEvent): string {
+  const payload = event.payload || {};
+  const looksLikePhone = (text: string) => national10(text).length === 10 && digitsOnly(text).length >= 8;
+  const stored = [event.employeeName, payload.employeeName, payload.agentName]
+    .map(value => String(value ?? '').trim())
+    .find(text => text && text !== '—' && !looksLikePhone(text));
+  if (stored) return stored;
+  const agent = event.agent.trim();
+  return agent && agent !== '—' && !looksLikePhone(agent) ? agent : '';
+}
+
+const ATTENDED_PLACEHOLDERS = new Set(['unassigned', 'unknown', 'n/a', 'na', 'agent', 'none', '-']);
+
+export function attendedName(event: PhoneEvent, status: CallListStatus): string {
+  if (status !== 'received' && status !== 'outbound') return '';
+  const payload = event.payload || {};
+  const usable = (value: unknown) => {
+    const text = String(value ?? '').trim();
+    if (!text || text === '—') return '';
+    if (ATTENDED_PLACEHOLDERS.has(text.toLowerCase())) return '';
+    if (national10(text).length === 10 && digitsOnly(text).length >= 8) return '';
+    return text;
+  };
+  return usable(event.employeeName)
+    || usable(payload.employeeName)
+    || usable(payload.agentName)
+    || usable(payload.AgentName)
+    || usable(payload.attendedBy)
+    || usable(payload.answeredBy)
+    || usable(event.agent);
+}
+
+export function formatTowerLocation(tower: PhoneTower | null): string {
+  if (!tower) return '';
+  const area = String(tower.place || '').trim();
+  const cell = tower.lac && tower.cid
+    ? `tower ${tower.lac}/${tower.cid}`
+    : tower.cid
+      ? `tower ${tower.cid}`
+      : tower.lac
+        ? `tower ${tower.lac}`
+        : '';
+  const gps = tower.source === 'gps'
+    || (tower.lat != null && tower.lng != null && tower.accuracy != null && tower.accuracy > 0 && tower.accuracy <= 80);
+  if (area) return gps ? `${area} · GPS` : (cell ? `${area} · ${cell}` : area);
+  if (tower.lat != null && tower.lng != null) {
+    const coords = `${tower.lat.toFixed(4)}, ${tower.lng.toFixed(4)}`;
+    return gps ? `${coords} · GPS` : (cell ? `${coords} · ${cell}` : coords);
+  }
+  return cell;
+}
+
+export function towerMapsHref(tower: PhoneTower | null): string {
+  if (!tower || tower.lat == null || tower.lng == null) return '';
+  if (!Number.isFinite(tower.lat) || !Number.isFinite(tower.lng)) return '';
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${tower.lat},${tower.lng}`)}`;
 }
 
 export function whenParts(date: Date): { date: string; time: string } {
@@ -209,10 +273,6 @@ function numberMatches(event: PhoneEvent, token: string): boolean {
   const target = digitsOnly(token.replace(/^did:|^sim:/, ''));
   if (!target) return true;
   return line.endsWith(target) || digitsOnly(event.didNumber) === target || digitsOnly(event.deviceLine) === target;
-}
-
-function handlerName(event: PhoneEvent): string {
-  return event.employeeName || event.agent || '';
 }
 
 export function preFilterEvents(events: PhoneEvent[], filters: CallFilters, now = new Date()): PhoneEvent[] {

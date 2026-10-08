@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowLeft, Check, CheckCheck, LayoutTemplate, Paperclip, Search, Send, Settings } from 'lucide-react';
 import { FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
 import { useAuth } from '../../context/AuthContext';
@@ -8,7 +9,6 @@ import {
   formatWhatsAppNumber,
   loadWhatsAppSettings,
   markWhatsAppConversationRead,
-  saveWhatsAppSettings,
   sendWhatsAppFile,
   sendWhatsAppText,
   subscribeWhatsAppConversations,
@@ -16,15 +16,10 @@ import {
   whatsAppSessionOpen,
   type WhatsAppChatMessage,
   type WhatsAppConversation,
-  type WhatsAppPhoneChoice,
   type WhatsAppSettings,
 } from '../../lib/whatsappInbox';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import '../../whatsapp-inbox.css';
-
-/** Interweighing Pvt Ltd WhatsApp Business Account and +91 88033 33444. */
-const DEFAULT_WABA_ID = '935267172861360';
-const DEFAULT_PHONE_NUMBER_ID = '1288718687667400';
 
 function clock(ms: number): string {
   if (!ms) return '';
@@ -93,15 +88,6 @@ function StatusTick({ status }: { status: string }) {
 export const WhatsAppInboxPage: React.FC = () => {
   const [settings, setSettings] = useState<WhatsAppSettings | null>(null);
   const [settingsError, setSettingsError] = useState('');
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [token, setToken] = useState('');
-  const [appSecret, setAppSecret] = useState('');
-  const [wabaId, setWabaId] = useState(DEFAULT_WABA_ID);
-  const [phoneNumberId, setPhoneNumberId] = useState(DEFAULT_PHONE_NUMBER_ID);
-  const [phones, setPhones] = useState<WhatsAppPhoneChoice[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [saveNote, setSaveNote] = useState('');
-  const [copied, setCopied] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const [chats, setChats] = useState<WhatsAppConversation[]>([]);
@@ -121,9 +107,6 @@ export const WhatsAppInboxPage: React.FC = () => {
       .then(next => {
         if (cancelled) return;
         setSettings(next);
-        setWabaId(next.wabaId || DEFAULT_WABA_ID);
-        setPhoneNumberId(next.phoneNumberId || DEFAULT_PHONE_NUMBER_ID);
-        setSetupOpen(!next.configured);
       })
       .catch(err => {
         if (!cancelled) setSettingsError(err instanceof Error ? err.message : 'Could not load WhatsApp.');
@@ -177,54 +160,13 @@ export const WhatsAppInboxPage: React.FC = () => {
       <LayoutTemplate size={18} />
     </button>
   ), [templatesOpen]);
-  useTopBarAction(templateAction, Boolean(settings?.configured && !setupOpen));
-
-  const copyText = async (value: string, key: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(key);
-      window.setTimeout(() => setCopied(''), 1400);
-    } catch {
-      setSaveNote('Could not copy that.');
-    }
-  };
+  useTopBarAction(templateAction, Boolean(settings?.configured));
 
   const openChat = (chat: WhatsAppConversation) => {
     setActiveId(chat.id);
     setSendError('');
     if (chat.unreadCount > 0) {
       void markWhatsAppConversationRead(chat.id).catch(() => undefined);
-    }
-  };
-
-  const onSave = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setSaveNote('');
-    setSettingsError('');
-    try {
-      const next = await saveWhatsAppSettings({
-        metaAccessToken: token,
-        metaAppSecret: appSecret,
-        metaWabaId: wabaId,
-        metaPhoneNumberId: phoneNumberId,
-      });
-      setSettings(next);
-      setPhones(next.phones ?? []);
-      setToken('');
-      setAppSecret('');
-      if (next.needsPhoneChoice) {
-        setSaveNote('Choose the phone number for this inbox.');
-        return;
-      }
-      setSetupOpen(false);
-      setSaveNote(next.webhookSubscribed
-        ? 'WhatsApp connected. New messages will appear here.'
-        : (next.webhookDetail || 'Saved. Subscribe the webhook in Meta if messages do not arrive.'));
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : 'Could not save WhatsApp.');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -271,105 +213,6 @@ export const WhatsAppInboxPage: React.FC = () => {
     }
   };
 
-  const setup = (
-    <form className="wa-inbox-setup" onSubmit={onSave}>
-      <h2>Connect Meta WhatsApp</h2>
-      <p>
-        One inbox for {FIRM_NAME}, {formatWhatsAppNumber(FIRM_PHONE)}.
-        Paste the Cloud API token from the Meta app that owns this number.
-      </p>
-      <label>
-        Access token
-        <input
-          type="password"
-          autoComplete="off"
-          value={token}
-          onChange={event => setToken(event.target.value)}
-          placeholder={settings?.hasAccessToken ? 'Saved — paste only to replace' : 'System user token'}
-        />
-      </label>
-      <label>
-        App secret
-        <input
-          type="password"
-          autoComplete="off"
-          value={appSecret}
-          onChange={event => setAppSecret(event.target.value)}
-          placeholder={settings?.hasAppSecret ? 'Saved — paste only to replace' : 'App settings → Basic'}
-        />
-      </label>
-      <label>
-        WhatsApp Business Account ID
-        <input
-          value={wabaId}
-          onChange={event => setWabaId(event.target.value)}
-          inputMode="numeric"
-          autoComplete="off"
-        />
-      </label>
-      <label>
-        Phone number ID
-        <input
-          value={phoneNumberId}
-          onChange={event => setPhoneNumberId(event.target.value)}
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="Filled automatically when this account has one number"
-        />
-      </label>
-      {phones.length > 0 ? (
-        <fieldset className="wa-inbox-phones">
-          <legend>Phone number</legend>
-          {phones.map(phone => (
-            <label key={phone.id}>
-              <input
-                type="radio"
-                name="wa-phone"
-                checked={phoneNumberId === phone.id}
-                onChange={() => setPhoneNumberId(phone.id)}
-              />
-              <span>
-                {phone.verifiedName || 'WhatsApp'}
-                {' '}
-                {phone.displayPhoneNumber}
-              </span>
-            </label>
-          ))}
-        </fieldset>
-      ) : null}
-      {settings?.webhookUrl ? (
-        <div className="wa-inbox-copy">
-          <span>Webhook</span>
-          <code>{settings.webhookUrl}</code>
-          <button type="button" onClick={() => void copyText(settings.webhookUrl, 'url')}>
-            {copied === 'url' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      ) : null}
-      {settings?.verifyToken ? (
-        <div className="wa-inbox-copy">
-          <span>Verify token</span>
-          <code>{settings.verifyToken}</code>
-          <button type="button" onClick={() => void copyText(settings.verifyToken, 'token')}>
-            {copied === 'token' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      ) : null}
-      {settingsError ? <p className="wa-inbox-error">{settingsError}</p> : null}
-      {saveNote ? <p className="wa-inbox-note">{saveNote}</p> : null}
-      <div className="wa-inbox-setup__actions">
-        <button type="submit" className="wa-inbox-primary" disabled={saving}>
-          {saving ? 'Connecting…' : 'Connect'}
-        </button>
-        {settings?.configured ? (
-          <button type="button" className="wa-inbox-ghost" onClick={() => setSetupOpen(false)}>
-            Close
-          </button>
-        ) : null}
-      </div>
-    </form>
-  );
-
   if (!settings && !settingsError) {
     return (
       <div className="wa-inbox-page wa-inbox-page--setup">
@@ -378,8 +221,13 @@ export const WhatsAppInboxPage: React.FC = () => {
     );
   }
 
-  if (!settings?.configured || setupOpen) {
-    return <div className="wa-inbox-page wa-inbox-page--setup">{setup}</div>;
+  if (!settings?.configured) {
+    return (
+      <div className="wa-inbox-page wa-inbox-page--setup">
+        <p className="wa-inbox-note">{settingsError || 'WhatsApp is not connected.'}</p>
+        <Link to="/super-admin/settings/integration?section=whatsapp">Open Integration settings</Link>
+      </div>
+    );
   }
 
   if (templatesOpen) {
@@ -398,9 +246,9 @@ export const WhatsAppInboxPage: React.FC = () => {
             <strong>{settings.accountName || FIRM_NAME}</strong>
             <span>{formatWhatsAppNumber(settings.displayPhoneNumber || FIRM_PHONE)}</span>
           </div>
-          <button type="button" className="wa-inbox-icon" aria-label="WhatsApp settings" onClick={() => setSetupOpen(true)}>
+          <Link className="wa-inbox-icon" aria-label="WhatsApp settings" to="/super-admin/settings/integration?section=whatsapp">
             <Settings size={18} />
-          </button>
+          </Link>
         </header>
         <label className="wa-inbox-search">
           <Search size={16} />

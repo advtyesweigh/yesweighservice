@@ -62,6 +62,7 @@ import { SerialNumberAllotmentTab } from './pages/admin/settings/SerialNumberAll
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
+import { IntegrationsSettingsTab } from './pages/admin/settings/IntegrationsSettingsTab';
 import { WebhookSettingsTab } from './pages/admin/settings/WebhookSettingsTab';
 import { RcDetailsTab } from './pages/admin/settings/RcDetailsTab';
 import { YesGatcCertificatesPage } from './pages/admin/YesGatcCertificatesPage';
@@ -385,6 +386,7 @@ const App: React.FC = () => (
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
                 <Route path="local-printers" element={<LocalPrintersTab />} />
+                <Route path="integration" element={<IntegrationsSettingsTab />} />
                 <Route path="webhook" element={<WebhookSettingsTab />} />
                 <Route path="rc-details" element={<RcDetailsTab />} />
               </Route>

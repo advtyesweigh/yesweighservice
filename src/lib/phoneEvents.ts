@@ -42,9 +42,13 @@ export function mapPhoneEvent(id: string, data: Record<string, unknown>): PhoneE
   const towerRaw = asRecord(data.tower);
   const tower: PhoneTower | null = data.tower
     ? {
-      lat: towerRaw.lat == null ? null : Number(towerRaw.lat),
-      lng: towerRaw.lng == null ? null : Number(towerRaw.lng),
+      lat: towerRaw.lat == null || towerRaw.lat === '' ? null : Number(towerRaw.lat),
+      lng: towerRaw.lng == null || towerRaw.lng === '' ? null : Number(towerRaw.lng),
       place: String(towerRaw.place || ''),
+      lac: String(towerRaw.lac || ''),
+      cid: String(towerRaw.cid || ''),
+      source: String(towerRaw.source || ''),
+      accuracy: towerRaw.accuracy == null || towerRaw.accuracy === '' ? null : Number(towerRaw.accuracy),
     }
     : null;
   const callType = data.callType === 'sales' || data.callType === 'service' ? data.callType : '';
