@@ -55,6 +55,212 @@
 
 .wa-inbox-list {
   border-right: 1px solid var(--border-glass);
+  background: #f7f8fa;
+  color: #111827;
+  min-width: 0;
+}
+
+.wa-inbox-list .wa-inbox-avatar {
+  background: #fff1e4;
+  color: #c2410c;
+}
+
+.wa-inbox-list .wa-inbox-empty {
+  color: #4b5563;
+}
+
+.wa-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.32rem;
+  padding: 0.45rem 0.5rem 0.1rem;
+}
+
+.wa-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.02rem;
+  min-width: 0;
+  border: 0;
+  border-radius: 12px;
+  padding: 0.32rem 0.08rem 0.28rem;
+  background: #f4f6f8;
+  color: #111b21;
+  cursor: pointer;
+  font: inherit;
+}
+
+.wa-tile strong {
+  font-size: 1rem;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.wa-tile span:last-child {
+  font-size: 0.56rem;
+  font-weight: 650;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-tile__icon { display: grid; place-items: center; line-height: 0; }
+.wa-tile--peach { background: #fff1e4; color: #ea580c; }
+.wa-tile--sky { background: #e7f0ff; color: #1d4ed8; }
+.wa-tile--green { background: #e5f8ee; color: #15803d; }
+.wa-tile--rose { background: #fde8ea; color: #dc2626; }
+.wa-tile--slate { background: #eef1f4; color: #1f2937; }
+.wa-tile.is-active { outline: 2px solid currentColor; }
+
+.wa-board-tabs {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  margin: 0.45rem 0;
+  padding: 0 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wa-board-tabs::-webkit-scrollbar { display: none; }
+
+.wa-board-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex: 0 0 auto;
+  border: 0;
+  background: #f2f4f7;
+  color: #4b5563;
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wa-board-tab.is-active { background: #f97316; color: #fff; }
+.wa-board-tab__count { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.wa-list-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0.55rem 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #e9edef;
+  border-radius: 999px;
+  background: #fff;
+  color: #667781;
+}
+
+.wa-list-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: #111b21;
+}
+
+.wa-filter-btn {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.wa-filter-btn.is-on {
+  border-color: #d4a24a;
+  background: rgba(212, 162, 74, 0.18);
+  color: #6b4510;
+}
+
+.wa-filter-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.wa-filter-sheet__panel {
+  width: min(28rem, 100%);
+  max-height: 88dvh;
+  overflow: auto;
+  background: #fff;
+  color: #111827;
+  border-radius: 16px 16px 0 0;
+  padding: 0.9rem 0.95rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.wa-filter-sheet__panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wa-filter-sheet__panel header button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.wa-filter-sheet__panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.wa-filter-sheet__panel select,
+.wa-filter-sheet__panel input {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: #0f172a;
+  background: #fff;
+}
+
+.wa-filter-sheet__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.wa-filter-sheet__actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: #001f3f;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wa-filter-sheet__actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .wa-inbox-list__head,
@@ -603,8 +809,15 @@ a.wa-inbox-icon {
 }
 
 @media (max-width: 800px) {
+  .content-area:has(.wa-inbox-page) {
+    padding: 0;
+  }
+
   .wa-inbox-page {
     grid-template-columns: 1fr;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
   }
 
   .wa-inbox-page.has-chat .wa-inbox-list,

@@ -1,7 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Check, CheckCheck, LayoutTemplate, Paperclip, Search, Send, Settings } from 'lucide-react';
-import { FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
+import {
+  ArrowLeft,
+  Briefcase,
+  Check,
+  CheckCheck,
+  LayoutTemplate,
+  MessageCircle,
+  Paperclip,
+  Search,
+  Send,
+  SlidersHorizontal,
+  User,
+  UserPlus,
+  Users,
+  Wrench,
+  X,
+} from 'lucide-react';
+import { FIRM_PHONE } from '../../constants/brand';
 import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
@@ -20,6 +37,58 @@ import {
 } from '../../lib/whatsappInbox';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import '../../whatsapp-inbox.css';
+
+type WaTile = 'open' | 'unassigned' | 'assigned' | 'service' | 'all';
+type WaBoard = 'all' | 'leads' | 'customers' | 'service';
+type WaDate = 'all' | '24h' | 'today' | 'yesterday' | 'month' | 'custom';
+type WaKind = 'all' | 'unread' | 'open' | 'no-reply';
+
+type WaFilters = {
+  date: WaDate;
+  customDate: string;
+  kind: WaKind;
+};
+
+const DEFAULT_WA_FILTERS: WaFilters = { date: 'all', customDate: '', kind: 'all' };
+
+function sameDay(left: Date, right: Date): boolean {
+  return left.toDateString() === right.toDateString();
+}
+
+function matchesDate(ms: number, filters: WaFilters, now: number): boolean {
+  if (filters.date === 'all') return true;
+  if (!ms) return false;
+  if (filters.date === '24h') return now - ms <= 24 * 60 * 60 * 1000;
+  const at = new Date(ms);
+  const today = new Date(now);
+  if (filters.date === 'today') return sameDay(at, today);
+  if (filters.date === 'yesterday') {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return sameDay(at, yesterday);
+  }
+  if (filters.date === 'month') {
+    return at.getMonth() === today.getMonth() && at.getFullYear() === today.getFullYear();
+  }
+  return Boolean(filters.customDate) && at.toISOString().slice(0, 10) === filters.customDate;
+}
+
+function matchesKind(chat: WhatsAppConversation, kind: WaKind, now: number): boolean {
+  if (kind === 'all') return true;
+  if (kind === 'unread') return chat.unreadCount > 0;
+  if (kind === 'open') return whatsAppSessionOpen(chat.lastInboundAtMs, now);
+  return chat.lastDirection === 'inbound';
+}
+
+function matchesTile(chat: WhatsAppConversation, tile: WaTile, now: number): boolean {
+  if (tile === 'all' || tile === 'unassigned') return true;
+  if (tile === 'open') return whatsAppSessionOpen(chat.lastInboundAtMs, now);
+  return false;
+}
+
+function matchesBoard(board: WaBoard): boolean {
+  return board === 'all';
+}
 
 function clock(ms: number): string {
   if (!ms) return '';
@@ -93,6 +162,13 @@ export const WhatsAppInboxPage: React.FC = () => {
   const [chats, setChats] = useState<WhatsAppConversation[]>([]);
   const [chatError, setChatError] = useState('');
   const [queryText, setQueryText] = useState('');
+  const [tile, setTile] = useState<WaTile>('open');
+  const [board, setBoard] = useState<WaBoard>('all');
+  const [filters, setFilters] = useState<WaFilters>(DEFAULT_WA_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<WaFilters>(DEFAULT_WA_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [numberFilter, setNumberFilter] = useState('all');
+  const [now, setNow] = useState(() => Date.now());
   const [activeId, setActiveId] = useState('');
   const [messages, setMessages] = useState<WhatsAppChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -132,35 +208,80 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [active?.waId]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [filtersOpen]);
+
+  useEffect(() => {
     const node = threadRef.current;
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [messages, activeId]);
 
-  const visibleChats = useMemo(() => {
+  const searched = useMemo(() => {
     const needle = queryText.trim().toLowerCase();
-    if (!needle) return chats;
     return chats.filter(chat => {
+      if (!matchesDate(chat.lastAtMs, filters, now)) return false;
+      if (!matchesKind(chat, filters.kind, now)) return false;
+      if (!needle) return true;
       const hay = `${chat.senderName} ${chat.waId} ${chat.lastText}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [chats, queryText]);
+  }, [chats, filters, now, queryText]);
+
+  const tileCounts = useMemo(() => ({
+    open: searched.filter(chat => whatsAppSessionOpen(chat.lastInboundAtMs, now)).length,
+    unassigned: searched.length,
+    assigned: 0,
+    service: 0,
+    all: searched.length,
+  }), [now, searched]);
+
+  const visibleChats = useMemo(
+    () => searched.filter(chat => matchesBoard(board) && matchesTile(chat, tile, now)),
+    [board, now, searched, tile],
+  );
 
   const sessionOpen = active ? whatsAppSessionOpen(active.lastInboundAtMs) : false;
   const { user } = useAuth();
   const canWriteTemplates = canSuperAdminWrite(user);
-  const templateAction = useMemo(() => (
-    <button
-      type="button"
-      className={`top-bar__action-btn top-bar__action-btn--icon${templatesOpen ? ' is-active' : ''}`}
-      aria-label="Message templates"
-      title="Message templates"
-      onClick={() => setTemplatesOpen(open => !open)}
-    >
-      <LayoutTemplate size={18} />
-    </button>
-  ), [templatesOpen]);
-  useTopBarAction(templateAction, Boolean(settings?.configured));
+  const filtersDiffer = filters.date !== 'all' || filters.kind !== 'all';
+  const headerActions = useMemo(() => (
+    <>
+      {templatesOpen ? null : (
+        <button
+          type="button"
+          className={`wa-filter-btn${filtersDiffer ? ' is-on' : ''}`}
+          aria-label="Filter chats"
+          onClick={() => {
+            setDraftFilters(filters);
+            setFiltersOpen(true);
+          }}
+        >
+          <SlidersHorizontal size={18} />
+        </button>
+      )}
+      <button
+        type="button"
+        className={`top-bar__action-btn top-bar__action-btn--icon${templatesOpen ? ' is-active' : ''}`}
+        aria-label="Message templates"
+        title="Message templates"
+        onClick={() => setTemplatesOpen(open => !open)}
+      >
+        <LayoutTemplate size={18} />
+      </button>
+    </>
+  ), [filters, filtersDiffer, templatesOpen]);
+  useTopBarAction(headerActions, Boolean(settings?.configured));
 
   const openChat = (chat: WhatsAppConversation) => {
     setActiveId(chat.id);
@@ -241,27 +362,73 @@ export const WhatsAppInboxPage: React.FC = () => {
   return (
     <div className={`wa-inbox-page${active ? ' has-chat' : ''}`}>
       <aside className="wa-inbox-list">
-        <header className="wa-inbox-list__head">
-          <div>
-            <strong>{settings.accountName || FIRM_NAME}</strong>
-            <span>{formatWhatsAppNumber(settings.displayPhoneNumber || FIRM_PHONE)}</span>
-          </div>
-          <Link className="wa-inbox-icon" aria-label="WhatsApp settings" to="/super-admin/settings/integration?section=whatsapp">
-            <Settings size={18} />
-          </Link>
-        </header>
-        <label className="wa-inbox-search">
+        <section className="wa-tile-grid" aria-label="WhatsApp summary">
+          {([
+            ['open', 'Open', tileCounts.open, <MessageCircle size={15} />, 'peach'],
+            ['unassigned', 'Unassigned', tileCounts.unassigned, <User size={15} />, 'sky'],
+            ['assigned', 'Assigned', tileCounts.assigned, <Users size={15} />, 'green'],
+            ['service', 'Service', tileCounts.service, <Wrench size={15} />, 'rose'],
+            ['all', 'Total', tileCounts.all, <Briefcase size={15} />, 'slate'],
+          ] as const).map(([id, label, count, icon, tone]) => (
+            <button
+              key={id}
+              type="button"
+              className={`wa-tile wa-tile--${tone}${tile === id ? ' is-active' : ''}`}
+              onClick={() => setTile(current => (current === id ? 'all' : id))}
+            >
+              <span className="wa-tile__icon">{icon}</span>
+              <strong>{count}</strong>
+              <span>{label}</span>
+            </button>
+          ))}
+        </section>
+        <div className="wa-board-tabs" role="tablist" aria-label="Inbox">
+          {([
+            ['all', 'All', <MessageCircle size={14} key="all" />, searched.length],
+            ['leads', 'Leads', <UserPlus size={14} key="leads" />, 0],
+            ['customers', 'Customers', <Users size={14} key="customers" />, 0],
+            ['service', 'Service', <Wrench size={14} key="service" />, 0],
+          ] as const).map(([id, label, icon, count]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={board === id}
+              className={`wa-board-tab${board === id ? ' is-active' : ''}`}
+              onClick={() => setBoard(id)}
+            >
+              {icon}
+              {label}
+              <span className="wa-board-tab__count">{count}</span>
+            </button>
+          ))}
+        </div>
+        <label className="wa-list-search">
           <Search size={16} />
           <input
             value={queryText}
             onChange={event => setQueryText(event.target.value)}
-            placeholder="Search chats"
+            placeholder="Search name, number, message..."
             aria-label="Search chats"
           />
         </label>
         <div className="wa-inbox-list__rows">
           {visibleChats.length === 0 ? (
-            <p className="wa-inbox-empty">No chats yet. Messages to this number will show up here.</p>
+            <p className="wa-inbox-empty">
+              {board === 'leads'
+                ? 'No new leads.'
+                : board === 'customers'
+                  ? 'No customer chats.'
+                  : board === 'service' || tile === 'service'
+                    ? 'No service chats.'
+                    : tile === 'assigned'
+                      ? 'No chats assigned to you.'
+                      : tile === 'open'
+                        ? 'No chats inside the 24-hour window.'
+                        : chats.length === 0
+                          ? 'No chats yet. Messages to this number will show up here.'
+                          : 'No chats match these filters.'}
+            </p>
           ) : visibleChats.map(chat => (
             <button
               key={chat.id}
@@ -363,6 +530,89 @@ export const WhatsAppInboxPage: React.FC = () => {
           </div>
         )}
       </section>
+      {filtersOpen ? createPortal(
+        <div className="wa-filter-sheet" role="presentation" onClick={() => setFiltersOpen(false)}>
+          <div
+            className="wa-filter-sheet__panel"
+            role="dialog"
+            aria-label="Filter"
+            onClick={event => event.stopPropagation()}
+          >
+            <header>
+              <strong>Filter</strong>
+              <button type="button" aria-label="Close" onClick={() => setFiltersOpen(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <label>
+              Number
+              <select value={numberFilter} onChange={event => setNumberFilter(event.target.value)}>
+                <option value="all">All</option>
+                <option value="firm">{formatWhatsAppNumber(settings.displayPhoneNumber || FIRM_PHONE)}</option>
+              </select>
+            </label>
+            <label>
+              Date
+              <select
+                value={draftFilters.date}
+                onChange={event => setDraftFilters(current => ({ ...current, date: event.target.value as WaDate }))}
+              >
+                <option value="all">All dates</option>
+                <option value="24h">Last 24 hours</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="month">This month</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            {draftFilters.date === 'custom' ? (
+              <label>
+                Day
+                <input
+                  type="date"
+                  value={draftFilters.customDate}
+                  onChange={event => setDraftFilters(current => ({ ...current, customDate: event.target.value }))}
+                />
+              </label>
+            ) : null}
+            <label>
+              Type
+              <select
+                value={draftFilters.kind}
+                onChange={event => setDraftFilters(current => ({ ...current, kind: event.target.value as WaKind }))}
+              >
+                <option value="all">All</option>
+                <option value="unread">Unread</option>
+                <option value="open">Open</option>
+                <option value="no-reply">Waiting for reply</option>
+              </select>
+            </label>
+            <div className="wa-filter-sheet__actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters(draftFilters);
+                  setFiltersOpen(false);
+                }}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                disabled={draftFilters.date === 'all' && draftFilters.kind === 'all'}
+                onClick={() => {
+                  setDraftFilters(DEFAULT_WA_FILTERS);
+                  setFilters(DEFAULT_WA_FILTERS);
+                  setFiltersOpen(false);
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 };
