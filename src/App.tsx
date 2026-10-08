@@ -71,8 +71,8 @@ import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
 import { IncentiveReportTab } from './pages/admin/settings/IncentiveReportTab';
 import { RcOvReportTab } from './pages/admin/settings/RcOvReportTab';
-import { OpsPlaceholderPage } from './pages/admin/OpsPlaceholderPage';
 import { WhatsAppInboxPage } from './pages/admin/WhatsAppInboxPage';
+import { PhonePage } from './pages/admin/PhonePage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -270,6 +270,11 @@ function hrNestedRoutes(settingsBase: string, includeAdminExtras: boolean) {
   );
 }
 
+function AdminPhoneRedirect() {
+  const location = useLocation();
+  return <Navigate to={{ pathname: '/super-admin/phone', search: location.search }} replace />;
+}
+
 const App: React.FC = () => (
   <AuthProvider>
     <DealerPriceLevelProvider>
@@ -288,6 +293,7 @@ const App: React.FC = () => (
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
           <Route path="/s/salary/:token" element={<HrSalaryPublicSharePage />} />
           <Route path="/s/worklog/:token" element={<HrWorklogPublicSharePage />} />
+          <Route path="/admin/phone" element={<AdminPhoneRedirect />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />
           <Route path="/director/*" element={<LegacyPathRedirect from="/director" to="/dealer" />} />
@@ -355,15 +361,8 @@ const App: React.FC = () => (
                 <Route path="incentive-report" element={<IncentiveReportTab />} />
               </Route>
               <Route path="whatsapp" element={<WhatsAppInboxPage />} />
-              <Route
-                path="cloud-call"
-                element={(
-                  <OpsPlaceholderPage
-                    title="Cloud call"
-                    description="Cloud call tools will appear here."
-                  />
-                )}
-              />
+              <Route path="phone" element={<PhonePage />} />
+              <Route path="cloud-call" element={<Navigate to="/super-admin/phone" replace />} />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
                 {hrNestedRoutes('/super-admin/settings', true)}

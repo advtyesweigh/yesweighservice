@@ -50,6 +50,8 @@ import {
   Percent,
 } from 'lucide-react';
 import { getAppVersionLabel } from '../lib/appVersion';
+import { openMissedLast24h } from '../lib/phoneLog';
+import { subscribePhoneEvents } from '../lib/phoneEvents';
 import { refreshAppAndData } from '../lib/refreshApp';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
 import { ZohoApiQuotaBanner } from './admin/ZohoApiQuotaBanner';
@@ -244,6 +246,7 @@ const LayoutShell: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [missedCalls, setMissedCalls] = useState(0);
   const [pageRefreshKey, setPageRefreshKey] = useState(0);
   const [appSyncing, setAppSyncing] = useState(false);
 
@@ -254,6 +257,13 @@ const LayoutShell: React.FC = () => {
   }, []);
 
   const topBarRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return undefined;
+    return subscribePhoneEvents(rows => {
+      setMissedCalls(openMissedLast24h(rows));
+    }, () => undefined);
+  }, [user?.role]);
 
   useEffect(() => {
     if (!isMobile || !headerSlot) return undefined;
@@ -314,7 +324,7 @@ const LayoutShell: React.FC = () => {
           ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
           { path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
-          { path: '/super-admin/cloud-call', icon: <Phone size={20} />, label: 'Cloud call' },
+          { path: '/super-admin/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls },
           ...operationsNavItems('/super-admin', OPS_AFTER_REPORTS_SUFFIXES),
         ];
       case 'staff': {
@@ -598,6 +608,9 @@ const LayoutShell: React.FC = () => {
               aria-label="Open menu"
             >
               <Menu size={22} />
+              {missedCalls > 0 ? (
+                <span className="nav-unread--menu">{missedCalls > 99 ? '99+' : missedCalls}</span>
+              ) : null}
             </button>
           )}
           {showHeaderBack && (

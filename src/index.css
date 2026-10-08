@@ -928,6 +928,7 @@ button.login-hero__forgot {
 
 .collapse-btn,
 .mobile-menu-btn {
+  position: relative;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -938,6 +939,22 @@ button.login-hero__forgot {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.nav-unread--menu {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.2rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.22rem;
+  border-radius: 999px;
+  background: #ef4444;
+  color: white;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
 }
 
 .collapse-btn:hover,

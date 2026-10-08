@@ -399,6 +399,7 @@ import {
   sendWhatsAppCloudFile,
   sendWhatsAppCloudText,
 } from './lib/whatsapp-cloud.js';
+import { handleVoxbayCall } from './lib/voxbay-ingest.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
 void CI_BUILD_TAG;
@@ -8261,6 +8262,24 @@ export const yesGatcRcInvoiceReportFn = onCall(
 );
 
 const WHATSAPP_OPS_ROLES = new Set(['super_admin']);
+
+/** Voxbay call events for the Interweighing trunk. */
+export const ingestVoxbayCall = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    try {
+      await handleVoxbayCall(req, res);
+    } catch (err) {
+      console.error('ingestVoxbayCall failed:', err);
+      if (!res.headersSent) res.status(500).send('error');
+    }
+  },
+);
 
 /** Meta WhatsApp Cloud webhook for the Interweighing business number. */
 export const ingestWhatsAppCloudWebhook = onRequest(
