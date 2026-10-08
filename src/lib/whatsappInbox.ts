@@ -220,3 +220,80 @@ export function subscribeWhatsAppMessages(
 export async function markWhatsAppConversationRead(id: string): Promise<void> {
   await updateDoc(doc(db, WHATSAPP_CONVERSATIONS, id), { unreadCount: 0 });
 }
+
+export type WhatsAppTemplateButton = {
+  type: string;
+  text: string;
+  url: string;
+  phone: string;
+  urlSample?: string;
+};
+
+export type WhatsAppTemplate = {
+  id: string;
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  rejectedReason: string;
+  headerFormat: string;
+  headerText: string;
+  body: string;
+  footer: string;
+  buttons: WhatsAppTemplateButton[];
+  editable: boolean;
+};
+
+export type WhatsAppTemplateInput = {
+  id?: string;
+  name?: string;
+  language?: string;
+  category: string;
+  headerText: string;
+  body: string;
+  footer: string;
+  buttons: WhatsAppTemplateButton[];
+  headerSamples: string[];
+  bodySamples: string[];
+};
+
+export async function listWhatsAppTemplates(): Promise<WhatsAppTemplate[]> {
+  try {
+    const fn = httpsCallable<undefined, { templates: WhatsAppTemplate[] }>(
+      functions,
+      'listWhatsAppTemplatesFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn();
+    return result.data.templates ?? [];
+  } catch (err) {
+    throw callableError(err, 'Could not load WhatsApp templates.');
+  }
+}
+
+export async function saveWhatsAppTemplate(input: WhatsAppTemplateInput): Promise<WhatsAppTemplate> {
+  try {
+    const fn = httpsCallable<WhatsAppTemplateInput, WhatsAppTemplate>(
+      functions,
+      'saveWhatsAppTemplateFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn(input);
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not save the WhatsApp template.');
+  }
+}
+
+export async function deleteWhatsAppTemplate(id: string, name: string): Promise<void> {
+  try {
+    const fn = httpsCallable<{ id: string; name: string }, { ok: boolean }>(
+      functions,
+      'deleteWhatsAppTemplateFn',
+      { timeout: 60_000 },
+    );
+    await fn({ id, name });
+  } catch (err) {
+    throw callableError(err, 'Could not delete the WhatsApp template.');
+  }
+}

@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, CheckCheck, Paperclip, Search, Send, Settings } from 'lucide-react';
+import { ArrowLeft, Check, CheckCheck, LayoutTemplate, Paperclip, Search, Send, Settings } from 'lucide-react';
 import { FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
+import { useAuth } from '../../context/AuthContext';
+import { useTopBarAction } from '../../context/PageHeaderContext';
+import { canSuperAdminWrite } from '../../lib/staffAccess';
 import {
   formatWhatsAppNumber,
   loadWhatsAppSettings,
@@ -16,6 +19,7 @@ import {
   type WhatsAppPhoneChoice,
   type WhatsAppSettings,
 } from '../../lib/whatsappInbox';
+import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import '../../whatsapp-inbox.css';
 
 /** Interweighing Pvt Ltd WhatsApp Business Account and +91 88033 33444. */
@@ -98,6 +102,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveNote, setSaveNote] = useState('');
   const [copied, setCopied] = useState('');
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const [chats, setChats] = useState<WhatsAppConversation[]>([]);
   const [chatError, setChatError] = useState('');
@@ -159,6 +164,20 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [chats, queryText]);
 
   const sessionOpen = active ? whatsAppSessionOpen(active.lastInboundAtMs) : false;
+  const { user } = useAuth();
+  const canWriteTemplates = canSuperAdminWrite(user);
+  const templateAction = useMemo(() => (
+    <button
+      type="button"
+      className={`top-bar__action-btn top-bar__action-btn--icon${templatesOpen ? ' is-active' : ''}`}
+      aria-label="Message templates"
+      title="Message templates"
+      onClick={() => setTemplatesOpen(open => !open)}
+    >
+      <LayoutTemplate size={18} />
+    </button>
+  ), [templatesOpen]);
+  useTopBarAction(templateAction, Boolean(settings?.configured && !setupOpen));
 
   const copyText = async (value: string, key: string) => {
     try {
@@ -361,6 +380,14 @@ export const WhatsAppInboxPage: React.FC = () => {
 
   if (!settings?.configured || setupOpen) {
     return <div className="wa-inbox-page wa-inbox-page--setup">{setup}</div>;
+  }
+
+  if (templatesOpen) {
+    return (
+      <div className="wa-inbox-page wa-inbox-page--templates">
+        <WhatsAppTemplatesPanel canWrite={canWriteTemplates} />
+      </div>
+    );
   }
 
   return (

@@ -390,9 +390,12 @@ import { linkYesGatcOvCertificatesByInvoiceQty } from './lib/yesgatc-ov-invoice-
 import { listYesGatcRcInvoiceReport } from './lib/yesgatc-rc-invoice-report.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 import {
+  deleteWhatsAppTemplate,
   getWhatsAppCloudSettings,
   handleWhatsAppCloudWebhook,
+  listWhatsAppTemplates,
   saveWhatsAppCloudSettings,
+  saveWhatsAppTemplate,
   sendWhatsAppCloudFile,
   sendWhatsAppCloudText,
 } from './lib/whatsapp-cloud.js';
@@ -4780,7 +4783,7 @@ export const backfillDealerLocationsFn = onCall(
 );
 
 // ============================================================================
-// DEALER OTP LOGIN (Wati WhatsApp)
+// DEALER OTP LOGIN (Meta WhatsApp Cloud)
 // ============================================================================
 
 function parseDealerPhoneInput(raw) {
@@ -8316,6 +8319,57 @@ export const sendWhatsAppCloudMessage = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not send the WhatsApp message.');
+    }
+  },
+);
+
+export const listWhatsAppTemplatesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
+    try {
+      return await listWhatsAppTemplates();
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load WhatsApp templates.');
+    }
+  },
+);
+
+export const saveWhatsAppTemplateFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await saveWhatsAppTemplate(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save the WhatsApp template.');
+    }
+  },
+);
+
+export const deleteWhatsAppTemplateFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await deleteWhatsAppTemplate(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete the WhatsApp template.');
     }
   },
 );

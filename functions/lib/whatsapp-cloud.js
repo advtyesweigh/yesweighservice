@@ -701,3 +701,231 @@ export async function sendWhatsAppCloudFile(data, actor) {
   });
   return { ok: true, id: whatsappMessageId };
 }
+
+const TEMPLATE_CATEGORIES = new Set(['UTILITY', 'MARKETING']);
+
+function cleanTemplateText(value, max) {
+  return String(value ?? '').replace(/\r/g, '').trim().slice(0, max);
+}
+
+function placeholderCount(text, label) {
+  const nums = [];
+  const re = /\{\{(\d+)\}\}/g;
+  let match = re.exec(text);
+  while (match) {
+    nums.push(Number(match[1]));
+    match = re.exec(text);
+  }
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  unique.forEach((n, index) => {
+    if (n !== index + 1) {
+      fail(`${label} placeholders must be {{1}}, {{2}}, and so on, in order.`, 'invalid-argument');
+    }
+  });
+  return unique.length;
+}
+
+function samplesFor(count, raw, label) {
+  const list = Array.isArray(raw) ? raw.map(value => templateParameter(value)) : [];
+  if (count === 0) return [];
+  if (list.length !== count || list.some(value => !value)) {
+    fail(`${label} needs a sample for each variable.`, 'invalid-argument');
+  }
+  return list;
+}
+
+function templateNameOf(value) {
+  const name = String(value ?? '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_]{0,511}$/.test(name)) {
+    fail('Name must start with a letter and use only lowercase letters, numbers, and underscores.', 'invalid-argument');
+  }
+  return name;
+}
+
+function templateLanguageOf(value) {
+  const language = String(value ?? '').trim();
+  if (!/^[a-z]{2}(?:_[A-Z]{2})?$/.test(language)) {
+    fail('Language must look like en or en_US.', 'invalid-argument');
+  }
+  return language;
+}
+
+function buttonFromInput(button) {
+  const type = String(button?.type ?? '').trim().toUpperCase();
+  const text = cleanTemplateText(button?.text, 25);
+  if (!text) fail('Each button needs text.', 'invalid-argument');
+  if (type === 'QUICK_REPLY') return { type, text };
+  if (type === 'PHONE_NUMBER') {
+    const phone = String(button?.phone ?? '').replace(/[^\d+]/g, '');
+    if (phone.replace(/\D/g, '').length < 8) {
+      fail('Enter a phone number for the call button.', 'invalid-argument');
+    }
+    return { type, text, phone_number: phone };
+  }
+  if (type === 'URL') {
+    const url = cleanTemplateText(button?.url, 2000);
+    if (!/^https:\/\//i.test(url)) fail('Button links must start with https://.', 'invalid-argument');
+    const count = placeholderCount(url, 'Button link');
+    if (count > 1) fail('A button link can use only {{1}}.', 'invalid-argument');
+    const next = { type, text, url };
+    if (count === 1) {
+      const sample = templateParameter(button?.urlSample);
+      if (!/^https:\/\//i.test(sample)) {
+        fail('The button link sample must be a full https:// URL.', 'invalid-argument');
+      }
+      next.example = [sample];
+    }
+    return next;
+  }
+  fail('Choose a website, call, or quick reply button.', 'invalid-argument');
+}
+
+function componentsFromInput(input) {
+  const headerText = cleanTemplateText(input?.headerText, 60);
+  const body = cleanTemplateText(input?.body, 1024);
+  const footer = cleanTemplateText(input?.footer, 60);
+  if (!body) fail('The message body is required.', 'invalid-argument');
+  const components = [];
+  if (headerText) {
+    const count = placeholderCount(headerText, 'Header');
+    if (count > 1) fail('The header can use only {{1}}.', 'invalid-argument');
+    const header = { type: 'HEADER', format: 'TEXT', text: headerText };
+    if (count === 1) {
+      header.example = { header_text: samplesFor(1, input?.headerSamples, 'Header') };
+    }
+    components.push(header);
+  }
+  const bodyCount = placeholderCount(body, 'Body');
+  const bodyComponent = { type: 'BODY', text: body };
+  if (bodyCount) {
+    bodyComponent.example = { body_text: [samplesFor(bodyCount, input?.bodySamples, 'Body')] };
+  }
+  components.push(bodyComponent);
+  if (footer) {
+    if (placeholderCount(footer, 'Footer')) fail('The footer cannot use variables.', 'invalid-argument');
+    components.push({ type: 'FOOTER', text: footer });
+  }
+  const buttons = Array.isArray(input?.buttons) ? input.buttons.slice(0, 3).map(buttonFromInput) : [];
+  if (buttons.length) components.push({ type: 'BUTTONS', buttons });
+  return components;
+}
+
+function templateView(row) {
+  const components = Array.isArray(row?.components) ? row.components : [];
+  const header = components.find(part => part?.type === 'HEADER');
+  const body = components.find(part => part?.type === 'BODY');
+  const footer = components.find(part => part?.type === 'FOOTER');
+  const buttons = components.find(part => part?.type === 'BUTTONS');
+  const headerFormat = String(header?.format ?? '');
+  return {
+    id: String(row?.id ?? ''),
+    name: String(row?.name ?? ''),
+    language: String(row?.language ?? ''),
+    status: String(row?.status ?? ''),
+    category: String(row?.category ?? ''),
+    rejectedReason: String(row?.rejected_reason ?? ''),
+    headerFormat,
+    headerText: headerFormat === 'TEXT' ? String(header?.text ?? '') : '',
+    body: String(body?.text ?? ''),
+    footer: String(footer?.text ?? ''),
+    buttons: (Array.isArray(buttons?.buttons) ? buttons.buttons : []).map(button => ({
+      type: String(button?.type ?? ''),
+      text: String(button?.text ?? ''),
+      url: String(button?.url ?? ''),
+      phone: String(button?.phone_number ?? ''),
+    })),
+    editable: (!headerFormat || headerFormat === 'TEXT')
+      && TEMPLATE_CATEGORIES.has(String(row?.category ?? '')),
+  };
+}
+
+async function graphRequest(method, path, token, { query, body } = {}) {
+  const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${String(path).replace(/^\//, '')}`);
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value == null || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body == null ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) fail(graphErrorMessage(payload, response.status));
+  return payload;
+}
+
+async function requireTemplateConfig() {
+  const config = await requireSendConfig();
+  if (!config.wabaId) fail('Connect the WhatsApp account before managing templates.');
+  return config;
+}
+
+const TEMPLATE_FIELDS = 'id,name,language,status,category,rejected_reason,components';
+
+export async function listWhatsAppTemplates() {
+  const config = await requireTemplateConfig();
+  const rows = [];
+  let after = '';
+  for (let page = 0; page < 8; page += 1) {
+    const payload = await graphGet(`${config.wabaId}/message_templates`, config.accessToken, {
+      limit: 100,
+      fields: TEMPLATE_FIELDS,
+      after,
+    });
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    rows.push(...data.map(templateView));
+    after = String(payload?.paging?.cursors?.after ?? '');
+    if (!after || !data.length) break;
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language));
+  return { templates: rows };
+}
+
+async function readWhatsAppTemplate(config, id) {
+  const payload = await graphRequest('GET', id, config.accessToken, {
+    query: { fields: TEMPLATE_FIELDS },
+  });
+  return templateView(payload);
+}
+
+export async function saveWhatsAppTemplate(input) {
+  const config = await requireTemplateConfig();
+  const id = String(input?.id ?? '').replace(/\D/g, '');
+  const category = String(input?.category ?? '').trim().toUpperCase();
+  if (!TEMPLATE_CATEGORIES.has(category)) {
+    fail('Category must be Utility or Marketing.', 'invalid-argument');
+  }
+  const components = componentsFromInput(input);
+  if (id) {
+    await graphRequest('POST', id, config.accessToken, {
+      body: { category, components },
+    });
+    return readWhatsAppTemplate(config, id);
+  }
+  const created = await graphRequest('POST', `${config.wabaId}/message_templates`, config.accessToken, {
+    body: {
+      name: templateNameOf(input?.name),
+      language: templateLanguageOf(input?.language || 'en_US'),
+      category,
+      components,
+    },
+  });
+  const createdId = String(created?.id ?? '').replace(/\D/g, '');
+  if (!createdId) fail('Meta did not return the new template.');
+  return readWhatsAppTemplate(config, createdId);
+}
+
+export async function deleteWhatsAppTemplate(input) {
+  const config = await requireTemplateConfig();
+  const id = String(input?.id ?? '').replace(/\D/g, '');
+  const name = templateNameOf(input?.name);
+  if (!id) fail('Choose a template to delete.', 'invalid-argument');
+  await graphRequest('DELETE', `${config.wabaId}/message_templates`, config.accessToken, {
+    query: { hsm_id: id, name },
+  });
+  return { ok: true };
+}
