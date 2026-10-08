@@ -544,6 +544,50 @@ async function recordOutbound({ waId, whatsappMessageId, type, text, fileName, m
   });
 }
 
+const LOGIN_OTP_TEMPLATE = 'otp';
+const LOGIN_OTP_LANGUAGE = 'en_US';
+
+function templateParameter(value) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/ {5,}/g, '    ')
+    .trim()
+    .slice(0, 80);
+}
+
+/** Dealer login OTP. Uses the approved Utility template `otp` (en_US): {{1}} name, {{2}} code. */
+export async function sendWhatsAppLoginOtp(phone10, code, name) {
+  const config = await requireSendConfig();
+  const to = `91${String(phone10).replace(/\D/g, '')}`;
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'template',
+      template: {
+        name: LOGIN_OTP_TEMPLATE,
+        language: { code: LOGIN_OTP_LANGUAGE },
+        components: [{
+          type: 'body',
+          parameters: [
+            { type: 'text', text: templateParameter(name) || 'there' },
+            { type: 'text', text: templateParameter(code) },
+          ],
+        }],
+      },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) fail(graphErrorMessage(payload, response.status));
+  return { ok: true, id: String(payload?.messages?.[0]?.id ?? '').trim() };
+}
+
 export async function sendWhatsAppCloudText(data, actor) {
   const waId = normalizeWaId(data?.waId);
   const text = String(data?.text ?? '').trim();

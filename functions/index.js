@@ -407,8 +407,6 @@ initializeApp({
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
-const watiToken = defineSecret('WATI_TOKEN');
-const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 const yesweighEmbedSecret = defineString('YESWEIGH_EMBED_SECRET', { default: '' });
@@ -4817,13 +4815,12 @@ export const dealerLoginLookup = onCall(
   },
 );
 
-/** Public — send WhatsApp OTP via Wati for first-time signup or password reset. */
+/** Public — send dealer login OTP on the Interweighing WhatsApp Cloud number. */
 export const sendDealerLoginOtp = onCall(
   {
     region: 'asia-south1',
     timeoutSeconds: 60,
     memory: '256MiB',
-    secrets: [watiToken, watiEndpoint],
   },
   async request => {
     const phone = parseDealerPhoneInput(request.data?.phone);
@@ -4834,13 +4831,7 @@ export const sendDealerLoginOtp = onCall(
       throw new HttpsError('invalid-argument', 'Select which dealer account to use.');
     }
     try {
-      return await dispatchDealerLoginOtp(
-        phone,
-        dealerId,
-        watiToken.value(),
-        watiEndpoint.value(),
-        purpose,
-      );
+      return await dispatchDealerLoginOtp(phone, dealerId, purpose);
     } catch (err) {
       dealerOtpError(err, 'Could not send OTP.');
     }

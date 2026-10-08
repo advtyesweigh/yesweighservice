@@ -2,12 +2,12 @@ import { randomBytes, randomInt } from 'crypto';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { linkDealerPortalUser } from './dealers-api.js';
+import { sendWhatsAppLoginOtp } from './whatsapp-cloud.js';
 
 const AUTH_EMAIL_DOMAIN = 'yesweigh.auth';
 const OTP_TTL_MS = 5 * 60 * 1000;
 const SETUP_TTL_MS = 15 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
-const WATI_TEMPLATE = 'yesgatcauth';
 
 export function normalizePhone10(input) {
   const digits = String(input ?? '').replace(/\D/g, '');
@@ -109,27 +109,11 @@ export async function lookupDealerForLogin(phone10) {
   };
 }
 
-async function sendWatiOtp(phone10, code, watiToken, watiEndpoint) {
-  const whatsappNumber = `91${phone10}`;
-  const base = String(watiEndpoint).replace(/\/$/, '');
-  const url = `${base}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(whatsappNumber)}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: watiToken,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      template_name: WATI_TEMPLATE,
-      broadcast_name: 'Dealer_Login_OTP',
-      parameters: [{ name: '1', value: code }],
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`WhatsApp OTP dispatch failed (${response.status})${body ? `: ${body.slice(0, 200)}` : ''}`);
+async function sendLoginOtp(phone10, code, name) {
+  try {
+    await sendWhatsAppLoginOtp(phone10, code, name);
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : 'WhatsApp OTP dispatch failed.');
   }
 }
 
@@ -147,8 +131,6 @@ async function assertOtpResendAllowed(sessionRef) {
 export async function sendDealerLoginOtp(
   phone10,
   dealerId,
-  watiToken,
-  watiEndpoint,
   purpose = 'signup',
 ) {
   const mode = purpose === 'reset' ? 'reset' : 'signup';
@@ -168,7 +150,7 @@ export async function sendDealerLoginOtp(
   await assertOtpResendAllowed(sessionRef);
 
   const code = String(randomInt(100000, 999999));
-  await sendWatiOtp(phone10, code, watiToken, watiEndpoint);
+  await sendLoginOtp(phone10, code, dealerDisplayName(dealer));
 
   await sessionRef.set({
     purpose: mode,
