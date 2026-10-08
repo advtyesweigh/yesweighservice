@@ -1245,6 +1245,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /** Meta WhatsApp inbox. Messages are written by the Cloud webhook only. */
+    match /whatsappConversations/{chatId} {
+      allow read: if isSuperAdmin();
+      allow update: if isFullSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount']);
+      allow create, delete: if false;
+    }
+
+    match /whatsappMessages/{messageId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /whatsappSettings/{docId} {
+      allow read, write: if false;
+    }
+
     /** Server-only ledger for last logistics freight Diff → next SO. */
     match /customerFreightSettlements/{customerId} {
       allow read, write: if false;

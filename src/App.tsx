@@ -72,6 +72,7 @@ import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
 import { IncentiveReportTab } from './pages/admin/settings/IncentiveReportTab';
 import { RcOvReportTab } from './pages/admin/settings/RcOvReportTab';
 import { OpsPlaceholderPage } from './pages/admin/OpsPlaceholderPage';
+import { WhatsAppInboxPage } from './pages/admin/WhatsAppInboxPage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -353,15 +354,7 @@ const App: React.FC = () => (
                 <Route path="rc-ov-report" element={<RcOvReportTab />} />
                 <Route path="incentive-report" element={<IncentiveReportTab />} />
               </Route>
-              <Route
-                path="whatsapp"
-                element={(
-                  <OpsPlaceholderPage
-                    title="WhatsApp"
-                    description="WhatsApp tools will appear here."
-                  />
-                )}
-              />
+              <Route path="whatsapp" element={<WhatsAppInboxPage />} />
               <Route
                 path="cloud-call"
                 element={(

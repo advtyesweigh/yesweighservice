@@ -389,6 +389,13 @@ import {
 import { linkYesGatcOvCertificatesByInvoiceQty } from './lib/yesgatc-ov-invoice-qty-link.js';
 import { listYesGatcRcInvoiceReport } from './lib/yesgatc-rc-invoice-report.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
+import {
+  getWhatsAppCloudSettings,
+  handleWhatsAppCloudWebhook,
+  saveWhatsAppCloudSettings,
+  sendWhatsAppCloudFile,
+  sendWhatsAppCloudText,
+} from './lib/whatsapp-cloud.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
 void CI_BUILD_TAG;
@@ -8255,6 +8262,88 @@ export const yesGatcRcInvoiceReportFn = onCall(
         'failed-precondition',
         err?.message ?? 'Could not build the GATC RC invoice report.',
       );
+    }
+  },
+);
+
+const WHATSAPP_OPS_ROLES = new Set(['super_admin']);
+
+/** Meta WhatsApp Cloud webhook for the Interweighing business number. */
+export const ingestWhatsAppCloudWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    await handleWhatsAppCloudWebhook(req, res);
+  },
+);
+
+export const getWhatsAppCloudSettingsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
+    return getWhatsAppCloudSettings();
+  },
+);
+
+export const saveWhatsAppCloudSettingsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await saveWhatsAppCloudSettings(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save WhatsApp settings.');
+    }
+  },
+);
+
+export const sendWhatsAppCloudMessage = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
+    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    try {
+      return await sendWhatsAppCloudText(request.data ?? {}, { uid: request.auth.uid, name });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not send the WhatsApp message.');
+    }
+  },
+);
+
+export const sendWhatsAppCloudFileFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
+    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    try {
+      return await sendWhatsAppCloudFile(request.data ?? {}, { uid: request.auth.uid, name });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not send the WhatsApp file.');
     }
   },
 );
