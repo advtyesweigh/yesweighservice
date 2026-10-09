@@ -1245,11 +1245,81 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /softwareShops/{id} {
+      allow read: if isSuperAdmin();
+      allow update: if isFullSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'whatsappRenewalSentAt',
+              'hasFollowUp',
+              'contactedAt',
+              'lastFollowUpRemarks',
+              'lastFollowUpChannel',
+              'contactedViaCall',
+              'contactedViaWhatsApp',
+              'installationDate',
+              'customerId',
+              'customerName',
+              'customerOrgKey',
+              'isNewCustomer',
+              'trainingScheduledAt',
+              'trainingScheduledByUid',
+              'trainingScheduledByName',
+              'trainingCompletedAt',
+              'pocName',
+              'pocPhone',
+              'pocEmail',
+              'ownerPhone',
+              'supportUsername',
+              'supportPassword',
+              'trainingPoints',
+              'voided',
+              'cancelled',
+              'cancelledAt'
+            ]);
+      allow create, delete: if false;
+
+      match /followUps/{followUpId} {
+        allow read: if isSuperAdmin();
+        allow create: if isFullSuperAdmin()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() > 0
+          && request.resource.data.remarks is string
+          && request.resource.data.remarks.size() > 0
+          && request.resource.data.channel in ['call', 'whatsapp']
+          && request.resource.data.createdAt is timestamp;
+        allow update, delete: if false;
+      }
+
+      match /trainings/{trainingId} {
+        allow read: if isSuperAdmin();
+        allow create: if isFullSuperAdmin()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() > 0
+          && request.resource.data.scheduledAt is string
+          && request.resource.data.trainingPoints is string
+          && request.resource.data.createdAt is timestamp;
+        allow update, delete: if false;
+      }
+    }
+
+    match /softwareShopMeta/{id} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /softwareShopSecrets/{id} {
+      allow read, write: if false;
+    }
+
     /** Meta WhatsApp inbox. Messages are written by the Cloud webhook only. */
     match /whatsappConversations/{chatId} {
       allow read: if isSuperAdmin();
       allow update: if isFullSuperAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount']);
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['unreadCount', 'assignedToUid', 'assignedToName', 'closed']);
       allow create, delete: if false;
     }
 
