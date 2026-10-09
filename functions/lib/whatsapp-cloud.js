@@ -392,6 +392,7 @@ async function ingestMessages(value, accessToken) {
       lastAt: eventTime(message?.timestamp),
       lastInboundAt: eventTime(message?.timestamp),
       channelPhoneNumber,
+      closed: false,
       ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
     });
