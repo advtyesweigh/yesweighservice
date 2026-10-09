@@ -410,8 +410,8 @@ initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
 });
 
-const sanoftYesweighUsername = defineSecret('SANOFT_YESWEIGH_USERNAME');
-const sanoftYesweighPassword = defineSecret('SANOFT_YESWEIGH_PASSWORD');
+const sanoftYesweighUsername = defineString('SANOFT_YESWEIGH_USERNAME', { default: '' });
+const sanoftYesweighPassword = defineString('SANOFT_YESWEIGH_PASSWORD', { default: '' });
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
@@ -8466,7 +8466,6 @@ const SANOFT_SHOP_SYNC_OPTS = {
   region: 'asia-south1',
   timeoutSeconds: 540,
   memory: '1GiB',
-  secrets: [sanoftYesweighUsername, sanoftYesweighPassword],
 };
 
 /** Admin refresh of YesWeigh Sanoft dealer shops (admin.sanoft.com / api1.sanoft.com). */
