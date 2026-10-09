@@ -8506,8 +8506,8 @@ export const setWhatsAppVoiceTranslateFn = onCall(
 export const sendWhatsAppCloudFileFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 120,
-    memory: '512MiB',
+    timeoutSeconds: 180,
+    memory: '1GiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);

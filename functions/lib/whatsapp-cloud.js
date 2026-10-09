@@ -1,7 +1,12 @@
+import { spawn } from 'node:child_process';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
+import ffmpegPath from 'ffmpeg-static';
 import {
   KNOWN_SOURCE_ACCOUNTS,
   SOFTWARE_SHOPS_COLLECTION,
@@ -10,14 +15,20 @@ import {
 } from './sanoft-shops.js';
 import { translateInboundMessage } from './whatsapp-translate.js';
 import {
+  detectAgentVoiceGender,
   isVoiceTranslateEnabled,
   loadCustomerLanguage,
   loadOutboundVoiceLanguageOverride,
   loadSarvamApiKey,
   manualOutboundLanguageFromCode,
   markVoiceTranslatePending,
+  messageLanguageFields,
   persistOutboundVoiceLanguage,
+  prepareOutboundVoiceTranslateReply,
+  saveAgentVoiceGender,
+  sarvamSpeechToText,
   sarvamTranslateSmart,
+  shouldSendOriginalAgentVoice,
 } from './whatsapp-voice-translate.js';
 import { markTranscriptionPending } from './whatsapp-transcribe.js';
 
@@ -219,6 +230,117 @@ function extFromMime(mime) {
   if (value.includes('pdf')) return 'pdf';
   if (value.includes('webm')) return 'webm';
   return 'bin';
+}
+
+function baseMime(mimeType) {
+  return String(mimeType ?? '').split(';')[0].trim().toLowerCase();
+}
+
+/** Browser MediaRecorder usually yields webm; Graph voice notes need audio/ogg (Opus). */
+function needsWebmToOggTranscode(mimeType) {
+  const mime = baseMime(mimeType);
+  return mime === 'audio/webm' || mime === 'audio/x-matroska';
+}
+
+async function transcodeBufferToOggOpus(buffer, inputExt = 'webm') {
+  if (!ffmpegPath) {
+    fail('Voice note conversion is not available on the server.');
+  }
+  const id = randomUUID();
+  const safeExt = String(inputExt || 'webm').replace(/[^\w]/g, '') || 'webm';
+  const inPath = path.join(tmpdir(), `wa-in-${id}.${safeExt}`);
+  const outPath = path.join(tmpdir(), `wa-out-${id}.ogg`);
+  await fs.writeFile(inPath, buffer);
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error', '-y', '-i', inPath,
+        '-vn', '-c:a', 'libopus', '-b:a', '32k', '-ac', '1', '-application', 'voip', '-f', 'ogg', outPath,
+      ], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', chunk => {
+        stderr += String(chunk);
+        if (stderr.length > 4000) stderr = stderr.slice(-4000);
+      });
+      child.on('error', err => reject(err));
+      child.on('close', code => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr.trim() || `ffmpeg exited with code ${code}`));
+      });
+    });
+    const out = await fs.readFile(outPath);
+    if (!out.length) fail('Voice note conversion produced an empty file.', 'internal');
+    return out;
+  } catch (err) {
+    if (err?.httpErrorCode || err?.code === 'internal' || err?.code === 'failed-precondition') throw err;
+    throw fail(
+      'Could not convert the voice note for WhatsApp. Try recording again.',
+      'internal',
+    );
+  } finally {
+    await Promise.all([
+      fs.unlink(inPath).catch(() => {}),
+      fs.unlink(outPath).catch(() => {}),
+    ]);
+  }
+}
+
+async function graphUploadAndSendVoice(config, waId, oggBuffer, fileName = 'voice-note.ogg') {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', 'audio/ogg');
+  form.append('file', new Blob([oggBuffer], { type: 'audio/ogg' }), fileName);
+  const uploaded = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+    body: form,
+  });
+  const uploadedPayload = await uploaded.json().catch(() => ({}));
+  const mediaId = String(uploadedPayload?.id ?? '').trim();
+  if (!uploaded.ok || !mediaId) fail(graphErrorMessage(uploadedPayload, uploaded.status));
+
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: waId,
+      type: 'audio',
+      audio: { id: mediaId, voice: true },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) fail(graphErrorMessage(payload, response.status));
+  return String(payload?.messages?.[0]?.id ?? '').trim();
+}
+
+async function storeDeliveredVoiceAudio(waId, whatsappMessageId, audioBuffer, languageCode) {
+  const safeId = docIdForMessage(whatsappMessageId || randomUUID());
+  const lang = String(languageCode || 'voice').replace(/[^\w-]/g, '') || 'voice';
+  const storagePath = `whatsappMedia/${normalizeWaId(waId) || 'unknown'}/${safeId}-delivered-${lang}.mp3`;
+  const bucket = getStorage().bucket();
+  const downloadToken = randomUUID();
+  await bucket.file(storagePath).save(audioBuffer, {
+    resumable: false,
+    metadata: {
+      contentType: 'audio/mpeg',
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken,
+        source: 'sarvam-bulbul-outbound',
+        language: lang,
+        messageId: safeId,
+      },
+    },
+  });
+  return {
+    storagePath,
+    mimeType: 'audio/mpeg',
+    mediaUrl: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`,
+  };
 }
 
 function eventTime(unixSeconds) {
@@ -749,10 +871,13 @@ export async function sendWhatsAppCloudText(data, actor) {
         if (translated && translated !== text) {
           deliverText = translated;
           extra.translationStatus = 'done';
-          extra.translationKind = 'text';
+          extra.translationKind = await isVoiceTranslateEnabled()
+            ? 'voice-translate-outbound'
+            : 'text';
           extra.translatedText = translated;
           extra.translationTargetLang = target.code;
           extra.translationTargetName = target.name || '';
+          Object.assign(extra, messageLanguageFields(target.code));
         }
       }
     } catch (err) {
@@ -805,6 +930,157 @@ function sendTypeForMime(mimeType) {
   return 'document';
 }
 
+/**
+ * Voice translate ON + staff voice note: STT → translate → destination-language VOICE.
+ * CRM keeps staff audio on mediaUrl; delivered audio on translatedMediaUrl.
+ */
+async function sendTranslatedStaffVoiceReply({
+  waId,
+  staffBuffer,
+  staffMimeType,
+  stableMediaUrl,
+  fileName,
+  caption,
+  staffUid = '',
+  sentByName = '',
+}) {
+  const apiKey = await loadSarvamApiKey();
+  if (!apiKey) {
+    fail('Sarvam API key missing. Save it on the server.', 'failed-precondition');
+  }
+
+  let agentVoiceGender = '';
+  try {
+    agentVoiceGender = await detectAgentVoiceGender(staffBuffer, staffMimeType);
+    if (agentVoiceGender && staffUid) {
+      await saveAgentVoiceGender(staffUid, agentVoiceGender);
+    }
+  } catch (err) {
+    console.warn('agent voice gender detect skipped', err?.message || err);
+  }
+
+  let spokenLanguageCode = '';
+  let transcript = '';
+  const dropdown = await loadOutboundVoiceLanguageOverride(waId);
+  const dropdownCode = dropdown?.code || 'auto';
+  let sttFailed = false;
+  try {
+    const stt = await sarvamSpeechToText(staffBuffer, staffMimeType, apiKey);
+    transcript = String(stt.transcript || '').trim();
+    spokenLanguageCode = String(stt.languageCode || '').trim();
+  } catch (err) {
+    sttFailed = true;
+    console.warn('staff voice stt failed', err?.message || err);
+  }
+
+  if (shouldSendOriginalAgentVoice({
+    spokenLanguageCode,
+    transcript,
+    dropdownLanguageCode: dropdownCode,
+  })) {
+    return {
+      ok: true,
+      passthrough: true,
+      malayalamText: transcript,
+      transcript,
+      spokenLanguageCode: spokenLanguageCode || 'ml-IN',
+      agentVoiceGender,
+      langFields: messageLanguageFields(spokenLanguageCode || 'ml-IN'),
+    };
+  }
+
+  if (sttFailed || !transcript) {
+    fail('Could not understand the voice note. Try again or type the reply.', 'failed-precondition');
+  }
+
+  let malayalamText = transcript;
+  const base = (spokenLanguageCode.split(/[-_]/)[0] || '').toLowerCase();
+  const isMl = base === 'ml' || /[\u0D00-\u0D7F]/.test(transcript);
+  if (!isMl) {
+    try {
+      const { translateTextViaGoogle } = await import('./whatsapp-translate.js');
+      const google = await translateTextViaGoogle(transcript, 'ml', spokenLanguageCode || '');
+      malayalamText = String(google?.text || '').trim() || transcript;
+    } catch {
+      malayalamText = transcript;
+    }
+  }
+
+  const prepared = await prepareOutboundVoiceTranslateReply({
+    waId,
+    malayalamText,
+    apiKey,
+    agentVoiceGender,
+    staffUid,
+    spokenLanguageCode,
+    staffInputModality: 'voice',
+  });
+  const destCode = prepared.customerLanguage?.code || '';
+  const passthroughLangFields = spokenLanguageCode
+    ? messageLanguageFields(spokenLanguageCode)
+    : (/[\u0D00-\u0D7F]/.test(malayalamText)
+      ? messageLanguageFields('ml-IN')
+      : { messageLanguage: '', messageLanguageName: '' });
+
+  if (prepared.mode === 'passthrough') {
+    return {
+      ok: true,
+      passthrough: true,
+      malayalamText,
+      transcript,
+      spokenLanguageCode,
+      agentVoiceGender: agentVoiceGender || prepared.agentVoiceGender || '',
+      langFields: passthroughLangFields,
+    };
+  }
+
+  if (!prepared.ttsBuffer || !Buffer.isBuffer(prepared.ttsBuffer)) {
+    fail('Could not synthesize destination-language voice for this reply.', 'unavailable');
+  }
+
+  const config = await requireSendConfig();
+  const oggBuffer = await transcodeBufferToOggOpus(prepared.ttsBuffer, 'mp3');
+  const whatsappMessageId = await graphUploadAndSendVoice(config, waId, oggBuffer);
+  const stored = await storeDeliveredVoiceAudio(
+    waId,
+    whatsappMessageId || randomUUID(),
+    prepared.ttsBuffer,
+    destCode,
+  );
+  await recordOutbound({
+    waId,
+    whatsappMessageId,
+    type: 'audio',
+    text: malayalamText,
+    fileName,
+    mimeType: staffMimeType,
+    mediaUrl: stableMediaUrl,
+    sentByUid: staffUid,
+    sentByName,
+    extra: {
+      malayalamText,
+      transcript: transcript || malayalamText,
+      transcriptionStatus: 'completed',
+      transcriptionError: '',
+      transcriptLanguage: '',
+      translatedText: prepared.deliveredText,
+      translatedMediaUrl: stored.mediaUrl,
+      translatedMediaMimeType: stored.mimeType,
+      translationStatus: 'done',
+      translationKind: 'voice-translate-outbound',
+      translationSourceLang: spokenLanguageCode || (/[\u0D00-\u0D7F]/.test(malayalamText) ? 'ml-IN' : ''),
+      translationTargetLang: destCode,
+      translationTargetName: prepared.customerLanguage?.name || '',
+      ...(agentVoiceGender || prepared.agentVoiceGender
+        ? { agentVoiceGender: agentVoiceGender || prepared.agentVoiceGender }
+        : {}),
+      ...(prepared.ttsSpeaker ? { ttsSpeaker: prepared.ttsSpeaker } : {}),
+      ...messageLanguageFields(destCode),
+    },
+  });
+  return { ok: true, id: whatsappMessageId, passthrough: false };
+}
+
 export async function sendWhatsAppCloudFile(data, actor) {
   const waId = normalizeWaId(data?.waId);
   const fileBase64 = String(data?.fileBase64 ?? '').trim();
@@ -818,11 +1094,61 @@ export async function sendWhatsAppCloudFile(data, actor) {
     fail('File must be under 8 MB.', 'invalid-argument');
   }
   const sendType = sendTypeForMime(mimeType);
+  const isVoiceNote = sendType === 'audio'
+    || /^voice-note\./i.test(fileName)
+    || needsWebmToOggTranscode(mimeType);
+
+  const storagePath = `whatsappMedia/${waId}/${docIdForMessage(randomUUID())}.${extFromMime(mimeType)}`;
+  const token = randomUUID();
+  const bucket = getStorage().bucket();
+  await bucket.file(storagePath).save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType: mimeType,
+      metadata: { firebaseStorageDownloadTokens: token },
+    },
+  });
+  const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+
+  let staffMalayalamText = caption;
+  let staffSpokenLang = '';
+  let staffTranscript = '';
+  let staffPassthroughLangFields = null;
+  if (isVoiceNote && await isVoiceTranslateEnabled()) {
+    const translated = await sendTranslatedStaffVoiceReply({
+      waId,
+      staffBuffer: buffer,
+      staffMimeType: mimeType,
+      stableMediaUrl: mediaUrl,
+      fileName,
+      caption,
+      staffUid: actor?.uid,
+      sentByName: actor?.name,
+    });
+    if (translated && !translated.passthrough) return translated;
+    if (translated?.passthrough) {
+      staffMalayalamText = String(translated.malayalamText || translated.transcript || '').trim() || staffMalayalamText;
+      staffSpokenLang = String(translated.spokenLanguageCode || '').trim();
+      staffPassthroughLangFields = translated.langFields || null;
+      staffTranscript = String(translated.transcript || translated.malayalamText || '').trim();
+    }
+  }
+
+  let graphBuffer = buffer;
+  let graphMime = mimeType;
+  let graphFileName = fileName;
+  if (needsWebmToOggTranscode(mimeType)) {
+    graphBuffer = await transcodeBufferToOggOpus(buffer, extFromMime(mimeType) || 'webm');
+    graphMime = 'audio/ogg';
+    graphFileName = fileName.replace(/\.[^.]+$/i, '') || 'voice-note';
+    if (!/\.ogg$/i.test(graphFileName)) graphFileName = `${graphFileName}.ogg`;
+  }
+
   const config = await requireSendConfig();
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
-  form.append('type', mimeType);
-  form.append('file', new Blob([buffer], { type: mimeType }), fileName);
+  form.append('type', graphMime);
+  form.append('file', new Blob([graphBuffer], { type: graphMime }), graphFileName);
   const uploaded = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/media`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.accessToken}` },
@@ -833,6 +1159,7 @@ export async function sendWhatsAppCloudFile(data, actor) {
   if (!uploaded.ok || !mediaId) fail(graphErrorMessage(uploadedPayload, uploaded.status));
 
   const mediaBody = { id: mediaId };
+  if (isVoiceNote) mediaBody.voice = true;
   if (caption && sendType !== 'audio') mediaBody.caption = caption;
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/messages`, {
     method: 'POST',
@@ -852,27 +1179,37 @@ export async function sendWhatsAppCloudFile(data, actor) {
   if (!response.ok) fail(graphErrorMessage(payload, response.status));
   const whatsappMessageId = String(payload?.messages?.[0]?.id ?? '').trim();
 
-  const storagePath = `whatsappMedia/${waId}/${docIdForMessage(whatsappMessageId || randomUUID())}.${extFromMime(mimeType)}`;
-  const token = randomUUID();
-  const bucket = getStorage().bucket();
-  await bucket.file(storagePath).save(buffer, {
-    resumable: false,
-    metadata: {
-      contentType: mimeType,
-      metadata: { firebaseStorageDownloadTokens: token },
-    },
-  });
-  const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+  const extra = {};
+  if (isVoiceNote) {
+    const usableMl = staffMalayalamText && !/^(voice message|audio)$/i.test(staffMalayalamText)
+      ? staffMalayalamText
+      : '';
+    Object.assign(extra, staffPassthroughLangFields || (staffSpokenLang
+      ? messageLanguageFields(staffSpokenLang)
+      : (usableMl && /[\u0D00-\u0D7F]/.test(usableMl)
+        ? messageLanguageFields('ml-IN')
+        : {})));
+    extra.text = usableMl || caption || '';
+    extra.malayalamText = usableMl || '';
+    extra.transcript = staffTranscript || usableMl || '';
+    extra.transcriptLanguage = staffSpokenLang || '';
+    if (staffTranscript) {
+      extra.transcriptionStatus = 'completed';
+      extra.transcriptionError = '';
+    }
+  }
+
   await recordOutbound({
     waId,
     whatsappMessageId,
     type: sendType,
-    text: caption,
-    fileName,
-    mimeType,
+    text: isVoiceNote ? (staffMalayalamText || caption) : caption,
+    fileName: isVoiceNote ? graphFileName : fileName,
+    mimeType: isVoiceNote ? graphMime : mimeType,
     mediaUrl,
     sentByUid: actor?.uid,
     sentByName: actor?.name,
+    extra,
   });
   return { ok: true, id: whatsappMessageId };
 }
