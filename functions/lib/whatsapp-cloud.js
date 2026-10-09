@@ -961,17 +961,9 @@ export async function deleteWhatsAppTemplate(input) {
   const config = await requireTemplateConfig();
   const id = String(input?.id ?? '').replace(/\D/g, '');
   const name = templateNameOf(input?.name);
-  if (!name && !id) fail('Choose a template to delete.', 'invalid-argument');
+  if (!name) fail('Choose a template to delete.', 'invalid-argument');
   const path = `${config.wabaId}/message_templates`;
-  try {
-    await graphRequest('DELETE', path, config.accessToken, {
-      query: name ? { name } : { hsm_id: id },
-    });
-  } catch (err) {
-    if (!id || !name) throw err;
-    await graphRequest('DELETE', path, config.accessToken, {
-      query: { hsm_id: id },
-    });
-  }
+  const query = id ? { hsm_id: id, name } : { name };
+  await graphRequest('DELETE', path, config.accessToken, { query });
   return { ok: true };
 }
