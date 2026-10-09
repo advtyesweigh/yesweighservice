@@ -285,11 +285,21 @@ export async function saveWhatsAppSettings(input: {
 export async function sendWhatsAppText(
   waId: string,
   text: string,
-  options?: { outboundVoiceLanguage?: string; outboundVoiceLanguageName?: string },
+  options?: {
+    outboundVoiceLanguage?: string;
+    outboundVoiceLanguageName?: string;
+    skipTranslation?: boolean;
+  },
 ): Promise<void> {
   try {
     const fn = httpsCallable<
-      { waId: string; text: string; outboundVoiceLanguage?: string; outboundVoiceLanguageName?: string },
+      {
+        waId: string;
+        text: string;
+        outboundVoiceLanguage?: string;
+        outboundVoiceLanguageName?: string;
+        skipTranslation?: boolean;
+      },
       { ok: boolean }
     >(
       functions,
@@ -301,6 +311,7 @@ export async function sendWhatsAppText(
       text,
       outboundVoiceLanguage: options?.outboundVoiceLanguage,
       outboundVoiceLanguageName: options?.outboundVoiceLanguageName,
+      skipTranslation: options?.skipTranslation === true,
     });
   } catch (err) {
     throw callableError(err, 'Could not send the message.');

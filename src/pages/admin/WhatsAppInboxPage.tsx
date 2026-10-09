@@ -80,6 +80,10 @@ import {
   outboundVoiceLanguageLabel,
 } from '../../lib/outboundVoiceLanguages';
 import { lookupSoftwareShopById } from '../../lib/softwareShops';
+import {
+  buildSoftwareRenewalAutoReply,
+  renewalShopIdFromText,
+} from '../../lib/softwareRenewalAutoReply';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import '../../whatsapp-inbox.css';
 
@@ -512,6 +516,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const recordTimerRef = useRef<number | null>(null);
   const [shopNameById, setShopNameById] = useState<Record<number, string>>({});
   const shopNameByIdRef = useRef<Record<number, string>>({});
+  const renewalAutoRef = useRef(new Set<string>());
 
   const { user } = useAuth();
   const uid = user?.uid || '';
@@ -581,6 +586,46 @@ export const WhatsAppInboxPage: React.FC = () => {
   useEffect(() => {
     shopNameByIdRef.current = shopNameById;
   }, [shopNameById]);
+
+  useEffect(() => {
+    if (!settings?.configured) return;
+    for (const chat of chats) {
+      if (chat.lastDirection !== 'inbound') continue;
+      const shopId = renewalShopIdFromText(chat.lastText);
+      if (!shopId) continue;
+      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}`;
+      if (renewalAutoRef.current.has(key)) continue;
+      try {
+        if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
+          renewalAutoRef.current.add(key);
+          continue;
+        }
+      } catch {
+        // ignore
+      }
+      renewalAutoRef.current.add(key);
+      const age = Date.now() - (Number(chat.lastInboundAtMs) || Date.now());
+      const delay = age > 15_000 ? 400 : 8_000;
+      const waId = chat.waId;
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            const { card, payment } = await buildSoftwareRenewalAutoReply(shopId);
+            await sendWhatsAppText(waId, card, { skipTranslation: true });
+            if (payment) await sendWhatsAppText(waId, payment, { skipTranslation: true });
+            try {
+              sessionStorage.setItem(`waRenewalAuto:${key}`, '1');
+            } catch {
+              // ignore
+            }
+          } catch (err) {
+            renewalAutoRef.current.delete(key);
+            console.warn('software renewal auto-reply failed', err);
+          }
+        })();
+      }, delay);
+    }
+  }, [chats, settings?.configured]);
 
   useEffect(() => {
     const ids = new Set<number>();
