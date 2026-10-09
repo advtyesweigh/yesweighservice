@@ -410,8 +410,6 @@ initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
 });
 
-const sanoftYesweighUsername = defineString('SANOFT_YESWEIGH_USERNAME', { default: '' });
-const sanoftYesweighPassword = defineString('SANOFT_YESWEIGH_PASSWORD', { default: '' });
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
@@ -8433,17 +8431,9 @@ export const sendWhatsAppCloudFileFn = onCall(
   },
 );
 
-function readSecretValue(secret) {
-  try {
-    return String(secret.value() || '').trim();
-  } catch {
-    return '';
-  }
-}
-
 function yesweighSanoftAccounts() {
-  const username = readSecretValue(sanoftYesweighUsername);
-  const password = readSecretValue(sanoftYesweighPassword);
+  const username = String(process.env.SANOFT_YESWEIGH_USERNAME || '').trim();
+  const password = String(process.env.SANOFT_YESWEIGH_PASSWORD || '').trim();
   if (!username || !password) return null;
   return [{
     sourceAccount: SOURCE_ACCOUNT_YESWEIGH,
