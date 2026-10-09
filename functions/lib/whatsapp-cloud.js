@@ -864,21 +864,27 @@ export async function sendWhatsAppCloudText(data, actor) {
   }
   if (target?.code) {
     try {
+      let translated = '';
       const apiKey = await loadSarvamApiKey();
       if (apiKey) {
         const result = await sarvamTranslateSmart(text, 'auto', target.code, apiKey);
-        const translated = String(result?.text || '').trim();
-        if (translated && translated !== text) {
-          deliverText = translated;
-          extra.translationStatus = 'done';
-          extra.translationKind = await isVoiceTranslateEnabled()
-            ? 'voice-translate-outbound'
-            : 'text';
-          extra.translatedText = translated;
-          extra.translationTargetLang = target.code;
-          extra.translationTargetName = target.name || '';
-          Object.assign(extra, messageLanguageFields(target.code));
-        }
+        translated = String(result?.text || '').trim();
+      }
+      if (!translated || translated === text) {
+        const { translateTextViaGoogle } = await import('./whatsapp-translate.js');
+        const google = await translateTextViaGoogle(text, target.code, '');
+        translated = String(google?.text || '').trim();
+      }
+      if (translated && translated !== text) {
+        deliverText = translated;
+        extra.translationStatus = 'done';
+        extra.translationKind = await isVoiceTranslateEnabled()
+          ? 'voice-translate-outbound'
+          : 'text';
+        extra.translatedText = translated;
+        extra.translationTargetLang = target.code;
+        extra.translationTargetName = target.name || '';
+        Object.assign(extra, messageLanguageFields(target.code));
       }
     } catch (err) {
       extra.translationError = String(err?.message || err).slice(0, 300);
@@ -946,7 +952,15 @@ async function sendTranslatedStaffVoiceReply({
 }) {
   const apiKey = await loadSarvamApiKey();
   if (!apiKey) {
-    fail('Sarvam API key missing. Save it on the server.', 'failed-precondition');
+    return {
+      ok: true,
+      passthrough: true,
+      malayalamText: caption || '',
+      transcript: caption || '',
+      spokenLanguageCode: '',
+      agentVoiceGender: '',
+      langFields: {},
+    };
   }
 
   let agentVoiceGender = '';
