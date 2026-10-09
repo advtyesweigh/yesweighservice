@@ -5,6 +5,7 @@ import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow, isKotakBankFeedWindow } from './lib/business-hours.js';
+import { SOURCE_ACCOUNT_YESWEIGH, syncSanoftShopsHandler } from './lib/sanoft-shops.js';
 import {
   getAccessToken,
   resolveOrganizationId,
@@ -394,6 +395,7 @@ import {
   getWhatsAppCloudSettings,
   handleWhatsAppCloudWebhook,
   listWhatsAppTemplates,
+  patchWhatsAppConversation,
   saveWhatsAppCloudSettings,
   saveWhatsAppTemplate,
   sendWhatsAppCloudFile,
@@ -408,6 +410,8 @@ initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
 });
 
+const sanoftYesweighUsername = defineSecret('SANOFT_YESWEIGH_USERNAME');
+const sanoftYesweighPassword = defineSecret('SANOFT_YESWEIGH_PASSWORD');
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
@@ -8323,6 +8327,23 @@ export const saveWhatsAppCloudSettingsFn = onCall(
   },
 );
 
+export const patchWhatsAppConversationFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await patchWhatsAppConversation(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update this chat.');
+    }
+  },
+);
+
 export const sendWhatsAppCloudMessage = onCall(
   {
     region: 'asia-south1',
@@ -8409,6 +8430,77 @@ export const sendWhatsAppCloudFileFn = onCall(
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not send the WhatsApp file.');
     }
+  },
+);
+
+function readSecretValue(secret) {
+  try {
+    return String(secret.value() || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function yesweighSanoftAccounts() {
+  const username = readSecretValue(sanoftYesweighUsername);
+  const password = readSecretValue(sanoftYesweighPassword);
+  if (!username || !password) return null;
+  return [{
+    sourceAccount: SOURCE_ACCOUNT_YESWEIGH,
+    username,
+    password,
+  }];
+}
+
+async function runYesweighSanoftShopSync() {
+  const accounts = yesweighSanoftAccounts();
+  if (!accounts) {
+    throw new Error(
+      'YesWeigh Sanoft dealer credentials are not configured (SANOFT_YESWEIGH_USERNAME / SANOFT_YESWEIGH_PASSWORD).',
+    );
+  }
+  return syncSanoftShopsHandler({ accounts });
+}
+
+const SANOFT_SHOP_SYNC_OPTS = {
+  region: 'asia-south1',
+  timeoutSeconds: 540,
+  memory: '1GiB',
+  secrets: [sanoftYesweighUsername, sanoftYesweighPassword],
+};
+
+/** Admin refresh of YesWeigh Sanoft dealer shops (admin.sanoft.com / api1.sanoft.com). */
+export const syncSanoftShops = onCall(
+  SANOFT_SHOP_SYNC_OPTS,
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await runYesweighSanoftShopSync();
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not sync Sanoft shops.';
+      if (/not configured/i.test(message)) {
+        throw new HttpsError('failed-precondition', message);
+      }
+      throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** Daily 9:30 AM IST — pull every YesWeigh Sanoft shop and upsert into softwareShops. */
+export const syncSanoftShopsScheduled = onSchedule(
+  {
+    ...SANOFT_SHOP_SYNC_OPTS,
+    schedule: '30 9 * * *',
+    timeZone: 'Asia/Kolkata',
+    retryCount: 2,
+  },
+  async () => {
+    const result = await runYesweighSanoftShopSync();
+    console.log(
+      `Scheduled Sanoft shop sync: fetched ${result.fetched}, upserted ${result.upserted}, renewals ${result.renewals}.`,
+    );
+    return result;
   },
 );
 

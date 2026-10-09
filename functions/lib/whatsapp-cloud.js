@@ -234,6 +234,21 @@ async function writeConversation(waId, patch) {
   }, { merge: true });
 }
 
+export async function patchWhatsAppConversation(data = {}) {
+  const id = String(data.id || data.waId || '').trim();
+  if (!id) throw new Error('Missing WhatsApp conversation.');
+  const patch = {};
+  if (typeof data.closed === 'boolean') patch.closed = data.closed;
+  if ('assignedToUid' in data) patch.assignedToUid = String(data.assignedToUid || '');
+  if ('assignedToName' in data) patch.assignedToName = String(data.assignedToName || '');
+  if (!Object.keys(patch).length) throw new Error('Nothing to update.');
+  await getFirestore().collection(CONVERSATIONS).doc(id).set({
+    ...patch,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { ok: true };
+}
+
 async function ingestMessages(value, accessToken) {
   const metadata = value?.metadata && typeof value.metadata === 'object' ? value.metadata : {};
   const channelPhoneNumber = String(metadata.display_phone_number ?? '').trim();
@@ -285,6 +300,7 @@ async function ingestMessages(value, accessToken) {
       lastAt: eventTime(message?.timestamp),
       lastInboundAt: eventTime(message?.timestamp),
       channelPhoneNumber,
+      ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
     });
   }
