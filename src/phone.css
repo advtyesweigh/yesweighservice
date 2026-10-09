@@ -252,7 +252,7 @@
 .call-list__head > :last-child { text-align: right; }
 
 .call-row {
-  --call-icon: 1.7rem;
+  --call-icon: 2.15rem;
   padding: 0.72rem 0.9rem;
   line-height: 1.25;
   border: 1px solid var(--border-glass);
@@ -323,17 +323,20 @@
 
 .call-row__number-wrap {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   min-width: 0;
   flex: 1 1 auto;
+  gap: 0.12rem;
 }
 
 .call-row__number-line {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.28rem;
   min-width: 0;
   max-width: 100%;
+  width: auto;
 }
 
 .call-row__party {
@@ -385,12 +388,12 @@ button.call-row__number-link,
 }
 
 .call-row__number {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 1.18rem;
+  font-weight: 800;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
   color: var(--text-main);
@@ -861,15 +864,15 @@ a.call-row__tower:hover { color: var(--accent-text); }
   }
 
   .call-row {
-    --call-icon: 1.45rem;
+    --call-icon: 2rem;
     padding: 0.68rem 0.75rem;
   }
 
   .call-row__sl { font-size: 0.8rem; }
   .call-row__day { font-size: 0.68rem; }
   .call-row__clock { font-size: 0.6rem; }
-  .call-row__phone { gap: 0.28rem; }
-  .call-row__number { font-size: 0.82rem; }
+  .call-row__phone { gap: 0.38rem; }
+  .call-row__number { font-size: 1.12rem; }
   .call-row__agent { font-size: 0.88rem; }
   .call-row__tower { font-size: 0.62rem; }
   .call-row__status { padding: 0 0.42rem; font-size: 0.62rem; }

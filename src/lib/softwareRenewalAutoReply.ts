@@ -1,12 +1,11 @@
 import { parseSoftwareShopIdFromText } from './whatsappInbox';
 import {
   formatShopRateCardMessage,
-  lookupSoftwareShopById,
+  resolveSoftwareShopForRenewal,
   softwareCallRenewalCharge,
 } from './softwareShops';
 import type { SoftwareShop } from '../types/software-shop';
 
-const GST_RATE = 0.18;
 const GPAY_NUMBER = '8803333444';
 
 export const RENEWAL_BANK_DETAILS = [
@@ -32,18 +31,19 @@ function formatInr(amount: number): string {
 export function softwareRenewalPaymentText(shop: SoftwareShop | null, shopId: number): string {
   const name = shop?.name?.trim() || `Shop ${shopId}`;
   const charge = shop ? softwareCallRenewalCharge(shop) : null;
-  const subtotal = charge?.amount || 0;
-  const gst = Math.round(subtotal * GST_RATE);
-  const total = subtotal + gst;
+  const total = charge?.amount || 0;
   const amountLine = total
-    ? `Please pay ${formatInr(total)} to renew ${name} (${formatInr(subtotal)} + 18% GST).`
-    : `Please pay the renewal amount + 18% GST for ${name}.`;
+    ? `Please pay ${formatInr(total)} to renew ${name}.`
+    : `Please pay the renewal amount for ${name}.`;
   return [
     amountLine,
     '',
     RENEWAL_BANK_DETAILS,
     '',
     'Please share the payment screenshot here after paying.',
+    '',
+    'Customer care Team',
+    'Interweighing Pvt Ltd',
   ].join('\n');
 }
 
@@ -51,17 +51,24 @@ export function softwareRenewalMissingShopText(shopId: number): string {
   return `We could not find Shop ID ${shopId} in Software. Our team will help you shortly.`;
 }
 
-export async function buildSoftwareRenewalAutoReply(shopId: number): Promise<{ card: string; payment: string }> {
-  const shop = await lookupSoftwareShopById(shopId);
+export async function buildSoftwareRenewalAutoReply(
+  shopId: number,
+  phone = '',
+): Promise<{ card: string; payment: string; shopId: number; found: boolean }> {
+  const shop = await resolveSoftwareShopForRenewal({ shopId, phone });
   if (!shop) {
     return {
       card: softwareRenewalMissingShopText(shopId),
       payment: '',
+      shopId,
+      found: false,
     };
   }
   return {
     card: formatShopRateCardMessage(shop),
-    payment: softwareRenewalPaymentText(shop, shopId),
+    payment: softwareRenewalPaymentText(shop, shop.shopId || shopId),
+    shopId: shop.shopId || shopId,
+    found: true,
   };
 }
 

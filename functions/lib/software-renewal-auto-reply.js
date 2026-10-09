@@ -10,7 +10,6 @@ export const SOFTWARE_RENEWAL_CHARGES_INR = {
 };
 
 const SMART_SCALE_CALL_EXTRA_INR = 1500;
-const GST_RATE = 0.18;
 
 const GPAY_NUMBER = '8803333444';
 
@@ -63,11 +62,10 @@ export function softwareRenewalBaseInr(subscription) {
 
 export function softwareRenewalPayableInr(shop) {
   const base = softwareRenewalBaseInr(shop?.subscription);
-  if (!base) return { base: 0, extra: 0, subtotal: 0, gst: 0, total: 0 };
+  if (!base) return { base: 0, extra: 0, subtotal: 0, total: 0 };
   const extra = shopHasSmartScale(shop) ? SMART_SCALE_CALL_EXTRA_INR : 0;
   const subtotal = base + extra;
-  const gst = Math.round(subtotal * GST_RATE);
-  return { base, extra, subtotal, gst, total: subtotal + gst };
+  return { base, extra, subtotal, total: subtotal };
 }
 
 function formatInr(amount) {
@@ -124,14 +122,17 @@ export function softwareRenewalPaymentText(shop, shopId) {
   const name = asString(shop?.name) || `Shop ${id}`;
   const payable = softwareRenewalPayableInr(shop);
   const amountLine = payable.total
-    ? `Please pay ${formatInr(payable.total)} to renew ${name} (${formatInr(payable.subtotal)} + 18% GST).`
-    : `Please pay the renewal amount + 18% GST for ${name}.`;
+    ? `Please pay ${formatInr(payable.total)} to renew ${name}.`
+    : `Please pay the renewal amount for ${name}.`;
   return [
     amountLine,
     '',
     RENEWAL_BANK_DETAILS,
     '',
     'Please share the payment screenshot here after paying.',
+    '',
+    'Customer care Team',
+    'Interweighing Pvt Ltd',
   ].join('\n');
 }
 

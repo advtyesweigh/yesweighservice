@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Landmark,
   LayoutTemplate,
+  Menu,
   MessageCircle,
   Mic,
   Paperclip,
@@ -34,7 +35,6 @@ import { FIRM_PHONE } from '../../constants/brand';
 import { WhatsAppIcon } from '../../components/WhatsAppIcon';
 import { YESWEIGH_BANK_DETAILS } from '../../lib/whatsappBank';
 import { useAuth } from '../../context/AuthContext';
-import { useTopBarAction } from '../../context/PageHeaderContext';
 import { findDealersByPhoneNeedle } from '../../lib/dealers';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import {
@@ -79,7 +79,7 @@ import {
   normalizeOutboundVoiceLanguageValue,
   outboundVoiceLanguageLabel,
 } from '../../lib/outboundVoiceLanguages';
-import { lookupSoftwareShopById } from '../../lib/softwareShops';
+import { resolveSoftwareShopForRenewal } from '../../lib/softwareShops';
 import {
   buildSoftwareRenewalAutoReply,
   renewalShopIdFromText,
@@ -194,7 +194,11 @@ function LastMessagePreview({ item }: { item: WhatsAppConversation }) {
   const fallback = formatWhatsAppNumber(item.waId);
 
   if (!label && kind === 'text') {
-    return <span className="wa-inbox__preview">{fallback}</span>;
+    return (
+      <span className="wa-inbox__preview">
+        <span>{fallback}</span>
+      </span>
+    );
   }
 
   if (kind === 'image') {
@@ -220,24 +224,9 @@ function LastMessagePreview({ item }: { item: WhatsAppConversation }) {
     );
   }
 
-  return <span className="wa-inbox__preview">{label || fallback}</span>;
-}
-
-function WaAvatar({ src, name, size = 40 }: { src: string; name: string; size?: number }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => {
-    setBroken(false);
-  }, [src]);
-  const letter = name.trim().match(/^\p{L}/u)?.[0]?.toUpperCase() ?? '';
   return (
-    <span className="wa-avatar" style={{ width: size, height: size, fontSize: Math.round(size * 0.38) }}>
-      {src && !broken ? (
-        <img src={src} alt="" onError={() => setBroken(true)} />
-      ) : letter ? (
-        letter
-      ) : (
-        <User size={Math.round(size * 0.48)} />
-      )}
+    <span className="wa-inbox__preview">
+      <span>{label || fallback}</span>
     </span>
   );
 }
@@ -448,6 +437,36 @@ function chatSearchNeedle(waId: string): string {
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
+function openAppMenu() {
+  window.dispatchEvent(new Event('yesweigh:open-menu'));
+}
+
+function WaInboxChrome({
+  title,
+  action,
+  onBack,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  onBack?: () => void;
+}) {
+  return (
+    <header className="wa-inbox-list__head">
+      {onBack ? (
+        <button type="button" className="wa-inbox-menu" onClick={onBack} aria-label="Back">
+          <ChevronLeft size={22} />
+        </button>
+      ) : (
+        <button type="button" className="wa-inbox-menu" onClick={openAppMenu} aria-label="Open menu">
+          <Menu size={22} />
+        </button>
+      )}
+      <h1 className="wa-inbox-list__title">{title}</h1>
+      {action ?? <span className="wa-inbox-list__head-spacer" aria-hidden />}
+    </header>
+  );
+}
+
 function shopIdFromMessages(items: WhatsAppChatMessage[]): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const shopId = parseSoftwareShopIdFromText(items[index].text);
@@ -593,7 +612,7 @@ export const WhatsAppInboxPage: React.FC = () => {
       if (chat.lastDirection !== 'inbound') continue;
       const shopId = renewalShopIdFromText(chat.lastText);
       if (!shopId) continue;
-      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}`;
+      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}:v2`;
       if (renewalAutoRef.current.has(key)) continue;
       try {
         if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
@@ -610,7 +629,7 @@ export const WhatsAppInboxPage: React.FC = () => {
       window.setTimeout(() => {
         void (async () => {
           try {
-            const { card, payment } = await buildSoftwareRenewalAutoReply(shopId);
+            const { card, payment } = await buildSoftwareRenewalAutoReply(shopId, waId);
             await sendWhatsAppText(waId, card, { skipTranslation: true });
             if (payment) await sendWhatsAppText(waId, payment, { skipTranslation: true });
             try {
@@ -628,13 +647,65 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [chats, settings?.configured]);
 
   useEffect(() => {
+    if (!settings?.configured || !active || !messages.length) return undefined;
+    const inbound = [...messages].reverse().find(item => (
+      item.direction === 'inbound' && Boolean(renewalShopIdFromText(item.text))
+    ));
+    if (!inbound) return undefined;
+    const shopId = renewalShopIdFromText(inbound.text);
+    const alreadyPaid = messages.some(item => (
+      item.direction === 'outbound'
+      && /Please pay /i.test(item.text)
+      && /Interweighing Pvt Ltd/i.test(item.text)
+    ));
+    if (alreadyPaid) return undefined;
+    const key = `retry:${active.waId}:${inbound.id}:${shopId}`;
+    try {
+      if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
+        renewalAutoRef.current.add(key);
+        return undefined;
+      }
+    } catch {
+      // ignore
+    }
+    if (renewalAutoRef.current.has(key)) return undefined;
+    const waId = active.waId;
+    const timer = window.setTimeout(() => {
+      if (renewalAutoRef.current.has(key)) return;
+      renewalAutoRef.current.add(key);
+      void (async () => {
+        try {
+          const { card, payment, found } = await buildSoftwareRenewalAutoReply(shopId, waId);
+          if (!found || !payment) {
+            renewalAutoRef.current.delete(key);
+            return;
+          }
+          await sendWhatsAppText(waId, card, { skipTranslation: true });
+          await sendWhatsAppText(waId, payment, { skipTranslation: true });
+          try {
+            sessionStorage.setItem(`waRenewalAuto:${key}`, '1');
+          } catch {
+            // ignore
+          }
+        } catch (err) {
+          renewalAutoRef.current.delete(key);
+          console.warn('software renewal auto-reply retry failed', err);
+        }
+      })();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [active?.waId, messages, settings?.configured]);
+
+  useEffect(() => {
     const ids = new Set<number>();
     const seeded: Record<number, string> = {};
     for (const chat of chats) {
       const shopId = softwareShopIdFromChat(chat);
       if (!shopId) continue;
       ids.add(shopId);
-      if (chat.softwareShopName) seeded[shopId] = chat.softwareShopName;
+      if (chat.softwareShopName && !/^Shop \d+$/i.test(chat.softwareShopName)) {
+        seeded[shopId] = chat.softwareShopName;
+      }
     }
     for (const message of messages) {
       const shopId = parseSoftwareShopIdFromText(message.text);
@@ -657,13 +728,17 @@ export const WhatsAppInboxPage: React.FC = () => {
     if (!missing.length) return undefined;
     let cancelled = false;
     void Promise.all(missing.map(async (shopId) => {
-      const shop = await lookupSoftwareShopById(shopId);
-      return [shopId, shop?.name || `Shop ${shopId}`] as const;
+      const shop = await resolveSoftwareShopForRenewal({ shopId });
+      return [shopId, shop] as const;
     })).then((rows) => {
       if (cancelled) return;
       setShopNameById(current => {
         const next = { ...current };
-        for (const [shopId, name] of rows) next[shopId] = name;
+        for (const [shopId, shop] of rows) {
+          const name = shop?.name || `Shop ${shopId}`;
+          next[shopId] = name;
+          if (shop?.shopId) next[shop.shopId] = name;
+        }
         return next;
       });
     });
@@ -767,32 +842,19 @@ export const WhatsAppInboxPage: React.FC = () => {
   const sessionOpen = active ? whatsAppSessionOpen(active.lastInboundAtMs) : false;
   const canWriteTemplates = canSuperAdminWrite(user);
   const filtersDiffer = filters.date !== 'all' || filters.kind !== 'all';
-  const headerActions = useMemo(() => (
-    templatesOpen ? (
-      <button
-        type="button"
-        className="top-bar__action-btn top-bar__action-btn--icon"
-        aria-label="Close templates"
-        title="Close templates"
-        onClick={() => setTemplatesOpen(false)}
-      >
-        <X size={18} />
-      </button>
-    ) : (
-      <button
-        type="button"
-        className={`wa-filter-btn${filtersDiffer ? ' is-on' : ''}`}
-        aria-label="Filter chats"
-        onClick={() => {
-          setDraftFilters(filters);
-          setFiltersOpen(true);
-        }}
-      >
-        <SlidersHorizontal size={18} />
-      </button>
-    )
-  ), [filters, filtersDiffer, templatesOpen]);
-  useTopBarAction(headerActions, Boolean(settings?.configured));
+  const headerActions = (
+    <button
+      type="button"
+      className={`wa-filter-btn${filtersDiffer ? ' is-on' : ''}`}
+      aria-label="Filter chats"
+      onClick={() => {
+        setDraftFilters(filters);
+        setFiltersOpen(true);
+      }}
+    >
+      <SlidersHorizontal size={18} />
+    </button>
+  );
 
   const closePanels = () => {
     setEmojiOpen(false);
@@ -1043,6 +1105,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   if (!settings && !settingsError) {
     return (
       <div className="wa-inbox-page wa-inbox-page--setup">
+        <WaInboxChrome title="WhatsApp" />
         <p className="wa-inbox-note">Loading WhatsApp…</p>
       </div>
     );
@@ -1051,6 +1114,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   if (!settings?.configured) {
     return (
       <div className="wa-inbox-page wa-inbox-page--setup">
+        <WaInboxChrome title="WhatsApp" />
         <p className="wa-inbox-note">{settingsError || 'WhatsApp is not connected.'}</p>
         <Link to="/super-admin/settings/integration?section=whatsapp">Open Integration settings</Link>
       </div>
@@ -1060,6 +1124,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   if (templatesOpen) {
     return (
       <div className="wa-inbox-page wa-inbox-page--templates">
+        <WaInboxChrome title="Templates" onBack={() => setTemplatesOpen(false)} />
         <WhatsAppTemplatesPanel canWrite={canWriteTemplates} />
       </div>
     );
@@ -1068,6 +1133,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   return (
     <div className={`wa-inbox-page${active ? ' has-chat' : ''}`}>
       <aside className="wa-inbox-list" aria-label="Conversations">
+        <WaInboxChrome title="WhatsApp" action={headerActions} />
         <section className="wa-tile-grid" aria-label="WhatsApp summary">
           {([
             ['open', 'Open', tileCounts.open, <MessageCircle size={15} />, 'peach'],
@@ -1228,71 +1294,67 @@ export const WhatsAppInboxPage: React.FC = () => {
                 <button type="button" className="wa-back" onClick={() => setActiveId('')} aria-label="Back to chats">
                   <ChevronLeft size={22} />
                 </button>
-                <WaAvatar
-                  src={active.profileImage}
-                  name={activeName}
-                />
                 <div className="wa-inbox__thread-copy">
                   <h3>{formatWhatsAppNumber(active.waId)}</h3>
-                  <div className="wa-inbox__thread-name-row">
-                    <div className="wa-inbox__thread-identity">
-                      {activeName && activeName !== formatWhatsAppNumber(active.waId) ? (
-                        <p className="wa-inbox__thread-name">{activeName}</p>
-                      ) : null}
-                      <p className="wa-inbox__thread-assignee">{active.assignedToName || 'Unassigned'}</p>
-                    </div>
-                    <label className="wa-outbound-lang" title="Customer language">
-                      <select
-                        className="wa-outbound-lang__select"
-                        value={outboundLangLocal ?? normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage)}
-                        disabled={sending}
-                        aria-label="Customer language"
-                        onChange={event => {
-                          const value = event.target.value;
-                          const previous = outboundLangLocal
-                            ?? normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage);
-                          setOutboundLangLocal(value);
-                          setSendError('');
-                          void setWhatsAppOutboundLanguage(
-                            active.id,
-                            value,
-                            outboundVoiceLanguageLabel(value),
-                          ).catch(err => {
-                            setOutboundLangLocal(previous);
-                            setSendError(err instanceof Error ? err.message : 'Could not save language.');
-                          });
-                        }}
-                      >
-                        {OUTBOUND_VOICE_LANGUAGE_OPTIONS.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.value === 'auto' ? 'Auto detect' : option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label
-                      className="wa-voice-translate-toggle"
-                      title="Voice translate: transcribe voice notes and speak them in Malayalam"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={voiceTranslate}
-                        disabled={voiceTranslateSaving}
-                        onChange={event => {
-                          const next = event.target.checked;
-                          setVoiceTranslate(next);
-                          setVoiceTranslateSaving(true);
-                          setSendError('');
-                          void setWhatsAppVoiceTranslate(next)
-                            .catch(err => {
-                              setVoiceTranslate(!next);
-                              setSendError(err instanceof Error ? err.message : 'Could not save Voice translate.');
-                            })
-                            .finally(() => setVoiceTranslateSaving(false));
-                        }}
-                      />
-                    </label>
+                  <div className="wa-inbox__thread-identity">
+                    {activeName && activeName !== formatWhatsAppNumber(active.waId) ? (
+                      <p className="wa-inbox__thread-name">{activeName}</p>
+                    ) : null}
+                    <p className="wa-inbox__thread-assignee">{active.assignedToName || 'Unassigned'}</p>
                   </div>
+                </div>
+                <div className="wa-inbox__thread-tools">
+                  <label className="wa-outbound-lang" title="Customer language">
+                    <select
+                      className="wa-outbound-lang__select"
+                      value={outboundLangLocal ?? normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage)}
+                      disabled={sending}
+                      aria-label="Customer language"
+                      onChange={event => {
+                        const value = event.target.value;
+                        const previous = outboundLangLocal
+                          ?? normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage);
+                        setOutboundLangLocal(value);
+                        setSendError('');
+                        void setWhatsAppOutboundLanguage(
+                          active.id,
+                          value,
+                          outboundVoiceLanguageLabel(value),
+                        ).catch(err => {
+                          setOutboundLangLocal(previous);
+                          setSendError(err instanceof Error ? err.message : 'Could not save language.');
+                        });
+                      }}
+                    >
+                      {OUTBOUND_VOICE_LANGUAGE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.value === 'auto' ? 'Auto detect' : option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label
+                    className="wa-voice-translate-toggle"
+                    title="Voice translate: transcribe voice notes and speak them in Malayalam"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={voiceTranslate}
+                      disabled={voiceTranslateSaving}
+                      onChange={event => {
+                        const next = event.target.checked;
+                        setVoiceTranslate(next);
+                        setVoiceTranslateSaving(true);
+                        setSendError('');
+                        void setWhatsAppVoiceTranslate(next)
+                          .catch(err => {
+                            setVoiceTranslate(!next);
+                            setSendError(err instanceof Error ? err.message : 'Could not save Voice translate.');
+                          })
+                          .finally(() => setVoiceTranslateSaving(false));
+                      }}
+                    />
+                  </label>
                 </div>
               </div>
             </header>

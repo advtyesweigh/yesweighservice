@@ -364,6 +364,22 @@ export function parseSoftwareShopIdFromText(text) {
   return match ? Number(match[1]) : 0;
 }
 
+function nationalPhoneDigits(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+function shopPhoneDigits(shop) {
+  return [shop.phone, shop.ownerPhone, shop.pocPhone]
+    .map(nationalPhoneDigits)
+    .filter(digits => digits.length >= 8);
+}
+
+function preferYesweighShop(rows) {
+  if (!rows.length) return null;
+  return rows.find(row => row.sourceAccount === SOURCE_ACCOUNT_YESWEIGH) || rows[0];
+}
+
 async function findSoftwareShopById(shopId) {
   if (!shopId) return null;
   const db = getFirestore();
@@ -374,7 +390,6 @@ async function findSoftwareShopById(shopId) {
   for (const account of accounts) {
     const snap = await db.collection(SOFTWARE_SHOPS_COLLECTION).doc(softwareShopDocId(account, shopId)).get();
     if (!snap.exists) continue;
-    const data = snap.data() || {};
     return mapSoftwareShopSnap(snap, shopId, account);
   }
   const queried = await db.collection(SOFTWARE_SHOPS_COLLECTION).where('shopId', '==', shopId).limit(5).get();
@@ -383,18 +398,60 @@ async function findSoftwareShopById(shopId) {
   return mapSoftwareShopSnap(preferred, shopId, '');
 }
 
+let softwareShopsCache = { at: 0, rows: null };
+const SOFTWARE_SHOPS_CACHE_MS = 5 * 60 * 1000;
+
+async function loadSoftwareShopsForLookup() {
+  if (softwareShopsCache.rows && Date.now() - softwareShopsCache.at < SOFTWARE_SHOPS_CACHE_MS) {
+    return softwareShopsCache.rows;
+  }
+  const snap = await getFirestore().collection(SOFTWARE_SHOPS_COLLECTION).get();
+  const rows = snap.docs.map(docSnap => mapSoftwareShopSnap(docSnap, 0, '')).filter(shop => shop.shopId);
+  softwareShopsCache = { at: Date.now(), rows };
+  return rows;
+}
+
+async function findSoftwareShopForRenewal(shopId, waId) {
+  const exact = await findSoftwareShopById(shopId);
+  if (exact) return exact;
+  const shops = await loadSoftwareShopsForLookup();
+  if (shopId) {
+    const idMatch = shops.filter(shop => shop.shopId === shopId);
+    if (idMatch.length) return preferYesweighShop(idMatch);
+  }
+  const idText = shopId ? String(shopId) : '';
+  if (idText.length >= 4) {
+    const phoneIdMatch = shops.filter(shop => shopPhoneDigits(shop).some(digits => digits.includes(idText)));
+    if (phoneIdMatch.length === 1) return phoneIdMatch[0];
+    const yesweighPhone = phoneIdMatch.filter(shop => shop.sourceAccount === SOURCE_ACCOUNT_YESWEIGH);
+    if (yesweighPhone.length === 1) return yesweighPhone[0];
+    const userMatch = shops.filter(shop => (shop.users || []).some(user => Number(user.userId) === shopId));
+    if (userMatch.length === 1) return userMatch[0];
+  }
+  const wa = nationalPhoneDigits(waId);
+  if (wa.length >= 10) {
+    const byWa = shops.filter(shop => shopPhoneDigits(shop).includes(wa));
+    if (byWa.length) return preferYesweighShop(byWa);
+  }
+  return null;
+}
+
 function mapSoftwareShopSnap(snap, shopId, fallbackAccount) {
   const data = snap.data() || {};
+  const id = Number(data.shopId || data.id || shopId) || shopId;
   return {
     id: snap.id,
-    shopId,
+    shopId: id,
     name: String(data.name || '').trim(),
     phone: String(data.phone || '').trim(),
+    ownerPhone: String(data.ownerPhone || '').trim(),
+    pocPhone: String(data.pocPhone || '').trim(),
     sourceAccount: String(data.sourceAccount || fallbackAccount || ''),
     subscription: String(data.subscription || '').trim(),
     subscriptionEnd: String(data.subscriptionEnd || '').trim(),
     status: String(data.status || '').trim(),
     smartScale: String(data.smartScale || '').trim(),
+    users: Array.isArray(data.users) ? data.users : [],
   };
 }
 
@@ -501,9 +558,10 @@ async function ingestMessages(value, accessToken) {
     let shop = null;
     if (shopId) {
       try {
-        shop = await findSoftwareShopById(shopId);
-        const shopName = String(shop?.name || '').trim() || `Shop ${shopId}`;
-        shopPatch.softwareShopId = shopId;
+        shop = await findSoftwareShopForRenewal(shopId, waId);
+        const resolvedId = Number(shop?.shopId || shopId) || shopId;
+        const shopName = String(shop?.name || '').trim() || `Shop ${resolvedId}`;
+        shopPatch.softwareShopId = resolvedId;
         shopPatch.softwareShopDocId = shop?.id || '';
         shopPatch.softwareShopName = shopName;
         shopPatch.senderName = shopName;
@@ -529,7 +587,7 @@ async function ingestMessages(value, accessToken) {
     });
     if (!existing.exists && isSoftwareRenewalRequest(text) && shopId) {
       try {
-        await sendSoftwareRenewalAutoReply({ waId, shopId, shop });
+        await sendSoftwareRenewalAutoReply({ waId, shopId: Number(shop?.shopId || shopId) || shopId, shop });
         await ref.set({
           renewalAutoReply: true,
           updatedAt: FieldValue.serverTimestamp(),

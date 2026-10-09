@@ -286,6 +286,12 @@ const LayoutShell: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    const openMenu = () => setMobileOpen(true);
+    window.addEventListener('yesweigh:open-menu', openMenu);
+    return () => window.removeEventListener('yesweigh:open-menu', openMenu);
+  }, []);
+
   // Keep cart fly target even when pages inject topBarAction (e.g. spare filters/sync).
   const showCartFlyTarget = canUseOrderCart(user)
     && !/\/warranty-support(\/|$)/.test(location.pathname)

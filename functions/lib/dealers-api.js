@@ -72,7 +72,7 @@ export async function listAssignableStaffOptions() {
   return rows;
 }
 
-function assertAssignableDealerStaff(userSnap) {
+function assertAssignableDealerStaff(userSnap, { requireZohoSalesperson = true } = {}) {
   if (!userSnap?.exists) {
     throw new HttpsError('not-found', 'Assigned staff not found.');
   }
@@ -84,7 +84,7 @@ function assertAssignableDealerStaff(userSnap) {
   if (userData.active === false) {
     throw new HttpsError('failed-precondition', 'Assigned staff is inactive.');
   }
-  if (!normalizeStaffZohoSalespersonIds(userData).length) {
+  if (requireZohoSalesperson && !normalizeStaffZohoSalespersonIds(userData).length) {
     throw new HttpsError('failed-precondition', STAFF_ASSIGN_NO_ZOHO_MESSAGE);
   }
   return userData;
@@ -197,7 +197,7 @@ function zohoAddressRaw(addr) {
   };
 }
 
-export async function createDealerRecord(input, { secrets, orgId } = {}) {
+export async function createDealerRecord(input, { secrets, orgId, requireZohoSalesperson = false } = {}) {
   const companyName = String(input?.companyName ?? '').trim();
   if (!companyName) {
     throw new HttpsError('invalid-argument', 'Company name is required.');
@@ -264,9 +264,9 @@ export async function createDealerRecord(input, { secrets, orgId } = {}) {
   const staffUid = String(input?.assignedStaffUid ?? '').trim();
   if (staffUid) {
     const userSnap = await db.doc(`users/${staffUid}`).get();
-    const userData = assertAssignableDealerStaff(userSnap);
+    const userData = assertAssignableDealerStaff(userSnap, { requireZohoSalesperson });
     assignedStaffUid = staffUid;
-    assignedStaffName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+    assignedStaffName = String(userData.displayName ?? userData.name ?? 'Staff').trim() || 'Staff';
   }
 
   let contactId;

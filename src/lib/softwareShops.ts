@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -818,6 +819,83 @@ export async function lookupSoftwareShopById(shopId: number): Promise<SoftwareSh
     const snap = await getDoc(doc(db, SOFTWARE_SHOPS_COLLECTION, softwareShopDocId(account, shopId)));
     if (!snap.exists()) continue;
     return asSoftwareShop(snap.data(), snap.id);
+  }
+  return null;
+}
+
+function nationalPhoneDigits(value: string | null | undefined): string {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+function shopPhoneDigits(shop: SoftwareShop): string[] {
+  return [shop.phone, shop.ownerPhone, shop.pocPhone]
+    .map(nationalPhoneDigits)
+    .filter((digits) => digits.length >= 8);
+}
+
+function preferYesweighShop(rows: SoftwareShop[]): SoftwareShop | null {
+  if (!rows.length) return null;
+  return rows.find((shop) => shop.sourceAccount === DEFAULT_SOFTWARE_SOURCE_ACCOUNT) || rows[0];
+}
+
+async function loadSoftwareShopsForLookup(): Promise<SoftwareShop[]> {
+  if (memoryShops?.length) return memoryShops;
+  const cached = await displayCacheGet<SoftwareShop[]>(DISPLAY_CACHE_KEYS.softwareShops);
+  if (cached?.data?.length) {
+    memoryShops = cached.data;
+    return cached.data;
+  }
+  if (import.meta.env.DEV) {
+    try {
+      const rows = await loadYesweighShopsFromSanoft(false);
+      if (rows.length) {
+        commitSoftwareShopsCache(rows);
+        return rows;
+      }
+    } catch {
+      // Firestore / Sanoft fallback below
+    }
+  }
+  try {
+    const snap = await getDocs(collection(db, SOFTWARE_SHOPS_COLLECTION));
+    const rows = shopsFromSnapshot(snap.docs);
+    if (rows.length) commitSoftwareShopsCache(rows);
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/** Exact shop id, then the same phone / user match Software search uses. */
+export async function resolveSoftwareShopForRenewal(input: {
+  shopId: number;
+  phone?: string;
+}): Promise<SoftwareShop | null> {
+  const shopId = Number(input.shopId) || 0;
+  if (shopId) {
+    const exact = await lookupSoftwareShopById(shopId);
+    if (exact) return exact;
+  }
+  const shops = await loadSoftwareShopsForLookup();
+  if (!shops.length) return null;
+  if (shopId) {
+    const idMatch = shops.filter((shop) => shop.shopId === shopId);
+    if (idMatch.length) return preferYesweighShop(idMatch);
+  }
+  const idText = shopId ? String(shopId) : '';
+  if (idText.length >= 4) {
+    const phoneIdMatch = shops.filter((shop) => shopPhoneDigits(shop).some((digits) => digits.includes(idText)));
+    if (phoneIdMatch.length === 1) return phoneIdMatch[0];
+    const yesweighPhone = phoneIdMatch.filter((shop) => shop.sourceAccount === DEFAULT_SOFTWARE_SOURCE_ACCOUNT);
+    if (yesweighPhone.length === 1) return yesweighPhone[0];
+    const userMatch = shops.filter((shop) => shop.users.some((user) => Number(user.userId) === shopId));
+    if (userMatch.length === 1) return userMatch[0];
+  }
+  const wa = nationalPhoneDigits(input.phone);
+  if (wa.length >= 10) {
+    const byWa = shops.filter((shop) => shopPhoneDigits(shop).includes(wa));
+    if (byWa.length) return preferYesweighShop(byWa);
   }
   return null;
 }

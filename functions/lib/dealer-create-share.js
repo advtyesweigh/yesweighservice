@@ -80,7 +80,7 @@ export async function publicCreateDealerForShare(token, input, { secrets, orgId 
     phone: trimStr(input?.phone) || trimStr(data.phone),
     assignedStaffUid: trimStr(data.createdByUid) || undefined,
     dealerStage: trimStr(input?.dealerStage) || 'Active',
-  }, { secrets, orgId });
+  }, { secrets, orgId, requireZohoSalesperson: false });
   await ref.set({
     status: 'completed',
     completedAt: FieldValue.serverTimestamp(),

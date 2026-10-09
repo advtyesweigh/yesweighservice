@@ -230,7 +230,7 @@ export function conversationPreviewLabel(
   if (kind === 'video') return usable && text.toLowerCase() !== 'video' ? text : 'Video';
   if (kind === 'audio') return usable && text.toLowerCase() !== 'voice message' ? text : 'Voice message';
   if (kind === 'file') return usable && text.toLowerCase() !== 'document' ? text : 'Document';
-  return text;
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 export function formatWhatsAppUnread(count: number): string {

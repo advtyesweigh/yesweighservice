@@ -492,31 +492,33 @@ export const PhonePage: React.FC = () => {
                             <>
                               {tel ? (
                                 <a className="call-row__call" href={tel} aria-label="Call number" onClick={markFollowUp}>
-                                  <Phone size={14} />
-                                </a>
-                              ) : null}
-                              {showWhatsApp && whatsApp ? (
-                                <a
-                                  className="call-row__wa"
-                                  href={whatsApp}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  aria-label="Open WhatsApp"
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                    markFollowUp();
-                                  }}
-                                >
-                                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
-                                    <path fill="currentColor" d="M12 3.2A8.7 8.7 0 0 0 4.6 16.4L3.4 20.6l4.3-1.1A8.7 8.7 0 1 0 12 3.2Zm4.9 12.3c-.2.6-1.2 1.1-1.6 1.1-.4.1-.9.1-1.5-.1-.3-.1-.8-.3-1.3-.5-2.3-1-3.8-3.4-3.9-3.5-.1-.2-.9-1.2-.9-2.3s.6-1.6.8-1.8c.2-.2.4-.3.6-.3h.4c.1 0 .3 0 .4.3.2.5.6 1.6.6 1.7.1.1 0 .3-.1.4l-.3.4c-.1.1-.2.2-.1.4.1.2.6 1 1.3 1.6.9.8 1.6 1 1.8 1.1.2.1.3.1.4-.1l.5-.6c.1-.2.3-.1.5-.1.2.1 1.3.6 1.5.7.2.1.3.2.4.3.1.2.1.6-.1 1.2Z" />
-                                  </svg>
+                                  <Phone size={20} />
                                 </a>
                               ) : null}
                               <span className="call-row__number-wrap">
                                 <span className="call-row__number-line">
                                   {numberNode}
-                                  {followedBy ? <span className="call-row__followed">({followedBy})</span> : null}
+                                  {showWhatsApp && whatsApp ? (
+                                    <a
+                                      className="call-row__wa"
+                                      href={whatsApp}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      aria-label="Open WhatsApp"
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        markFollowUp();
+                                      }}
+                                    >
+                                      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+                                        <path fill="currentColor" d="M12 3.2A8.7 8.7 0 0 0 4.6 16.4L3.4 20.6l4.3-1.1A8.7 8.7 0 1 0 12 3.2Zm4.9 12.3c-.2.6-1.2 1.1-1.6 1.1-.4.1-.9.1-1.5-.1-.3-.1-.8-.3-1.3-.5-2.3-1-3.8-3.4-3.9-3.5-.1-.2-.9-1.2-.9-2.3s.6-1.6.8-1.8c.2-.2.4-.3.6-.3h.4c.1 0 .3 0 .4.3.2.5.6 1.6.6 1.7.1.1 0 .3-.1.4l-.3.4c-.1.1-.2.2-.1.4.1.2.6 1 1.3 1.6.9.8 1.6 1 1.8 1.1.2.1.3.1.4-.1l.5-.6c.1-.2.3-.1.5-.1.2.1 1.3.6 1.5.7.2.1.3.2.4.3.1.2.1.6-.1 1.2Z" />
+                                      </svg>
+                                    </a>
+                                  ) : null}
                                 </span>
+                                {followedBy || handler ? (
+                                  <span className="call-row__agent">{followedBy || handler}</span>
+                                ) : null}
                               </span>
                             </>
                           ) : (
@@ -524,7 +526,6 @@ export const PhonePage: React.FC = () => {
                           )}
                         </div>
                         {row.event.callerName ? <span className="call-row__party">{row.event.callerName}</span> : null}
-                        {handler ? <span className="call-row__agent">{handler}</span> : null}
                         {towerLabel ? (
                           mapsHref ? (
                             <a
