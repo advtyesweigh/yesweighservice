@@ -57,16 +57,18 @@ interface SupportDealerPickerProps {
   value: SupportOnBehalfDealer | null;
   onChange: (dealer: SupportOnBehalfDealer | null) => void;
   disabled?: boolean;
+  initialQuery?: string;
 }
 
 export const SupportDealerPicker: React.FC<SupportDealerPickerProps> = ({
   value,
   onChange,
   disabled,
+  initialQuery = '',
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [query, setQuery] = useState(() => value?.dealerName ?? '');
-  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(() => value?.dealerName ?? initialQuery);
+  const [open, setOpen] = useState(() => !value && Boolean(initialQuery.trim()));
   const [loading, setLoading] = useState(false);
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [selectedDealer, setSelectedDealer] = useState<ZohoDealer | null>(null);

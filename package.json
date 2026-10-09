@@ -20,7 +20,7 @@
     "seed:bluedart": "python scripts/extract-bluedart-pincodes.py && node scripts/seed-bluedart-rates.mjs",
     "seed:trackon": "node scripts/seed-trackon-rates.mjs",
     "seed:yesgatc-rc-offices": "node scripts/seed-yesgatc-rc-offices.mjs",
-    "seed:yesgatc-rc-offices": "node scripts/seed-yesgatc-rc-offices.mjs",
+    "import:sanoft-shops": "node scripts/import-sanoft-shops.mjs",
     "validate:bluedart": "node scripts/validate-bluedart-quotes.mjs",
     "complete:admin": "node scripts/complete-super-admin.mjs",
     "seed:sample-users": "node scripts/seed-sample-users.mjs",

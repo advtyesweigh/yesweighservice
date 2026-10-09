@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, Paperclip, Plus, Trash2, X } from 'lucide-react';
 import {
   deleteWhatsAppTemplate,
   listWhatsAppTemplates,
@@ -7,6 +7,7 @@ import {
   type WhatsAppTemplate,
   type WhatsAppTemplateButton,
 } from '../../lib/whatsappInbox';
+import { FIRM_NAME } from '../../constants/brand';
 
 type ButtonDraft = {
   type: 'URL' | 'PHONE_NUMBER' | 'QUICK_REPLY';
@@ -16,12 +17,17 @@ type ButtonDraft = {
   urlSample: string;
 };
 
+type HeaderFormat = 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
 type Draft = {
   id: string;
   name: string;
   language: string;
   category: string;
+  headerFormat: HeaderFormat;
   headerText: string;
+  headerFile: File | null;
+  headerFileName: string;
   body: string;
   footer: string;
   buttons: ButtonDraft[];
@@ -32,14 +38,60 @@ type Draft = {
   editable: boolean;
 };
 
+const TEMPLATE_DELETE_PASSWORD = '1010';
+
+const TEMPLATE_CATEGORIES = [
+  { value: 'UTILITY', label: 'Utility' },
+  { value: 'MARKETING', label: 'Marketing' },
+  { value: 'AUTHENTICATION', label: 'Authentication' },
+];
+
+const HEADER_TYPES: Array<{ value: HeaderFormat; label: string }> = [
+  { value: 'NONE', label: 'None' },
+  { value: 'TEXT', label: 'Text' },
+  { value: 'IMAGE', label: 'Image' },
+  { value: 'VIDEO', label: 'Video' },
+  { value: 'DOCUMENT', label: 'Document' },
+];
+
+const HEADER_ACCEPT: Record<'IMAGE' | 'VIDEO' | 'DOCUMENT', string> = {
+  IMAGE: 'image/jpeg,image/png',
+  VIDEO: 'video/mp4,video/3gpp',
+  DOCUMENT: 'application/pdf',
+};
+
+const TEMPLATE_MEDIA_MAX_BYTES = 6 * 1024 * 1024;
+
+const TEMPLATE_LANGUAGES = [
+  { value: 'en_US', label: 'English (US)' },
+  { value: 'en_GB', label: 'English (UK)' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'ml', label: 'Malayalam' },
+  { value: 'ta', label: 'Tamil' },
+  { value: 'te', label: 'Telugu' },
+  { value: 'kn', label: 'Kannada' },
+  { value: 'mr', label: 'Marathi' },
+  { value: 'gu', label: 'Gujarati' },
+  { value: 'bn', label: 'Bengali' },
+  { value: 'pa', label: 'Punjabi' },
+  { value: 'ur', label: 'Urdu' },
+  { value: 'ar', label: 'Arabic' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'pt_BR', label: 'Portuguese (BR)' },
+  { value: 'fr', label: 'French' },
+];
+
 const EMPTY: Draft = {
   id: '',
   name: '',
   language: 'en_US',
   category: 'UTILITY',
+  headerFormat: 'NONE',
   headerText: '',
+  headerFile: null,
+  headerFileName: '',
   body: '',
-  footer: '',
+  footer: FIRM_NAME,
   buttons: [],
   headerSamples: [],
   bodySamples: [],
@@ -47,6 +99,25 @@ const EMPTY: Draft = {
   rejectedReason: '',
   editable: true,
 };
+
+function headerFormatFrom(template: WhatsAppTemplate): HeaderFormat {
+  const format = String(template.headerFormat || '').toUpperCase();
+  if (format === 'IMAGE' || format === 'VIDEO' || format === 'DOCUMENT' || format === 'TEXT') return format;
+  return template.headerText ? 'TEXT' : 'NONE';
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function placeholderIndexes(text: string): number[] {
   const found = new Set<number>();
@@ -75,7 +146,10 @@ function draftFrom(template: WhatsAppTemplate): Draft {
     name: template.name,
     language: template.language || 'en_US',
     category: template.category || 'UTILITY',
+    headerFormat: headerFormatFrom(template),
     headerText: template.headerText,
+    headerFile: null,
+    headerFileName: '',
     body: template.body,
     footer: template.footer,
     buttons: template.buttons.map(button => buttonDraft(button)),
@@ -105,6 +179,9 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const [mediaPreview, setMediaPreview] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -122,8 +199,19 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
     void load();
   }, []);
 
-  const headerCount = placeholderIndexes(draft?.headerText ?? '').length;
+  const headerCount = draft?.headerFormat === 'TEXT' ? placeholderIndexes(draft.headerText).length : 0;
   const bodyCount = placeholderIndexes(draft?.body ?? '').length;
+  const mediaHeader = draft?.headerFormat === 'IMAGE' || draft?.headerFormat === 'VIDEO' || draft?.headerFormat === 'DOCUMENT';
+
+  useEffect(() => {
+    if (!draft?.headerFile) {
+      setMediaPreview('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(draft.headerFile);
+    setMediaPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draft?.headerFile]);
 
   useEffect(() => {
     setDraft(current => {
@@ -148,15 +236,35 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
 
   const locked = !canWrite || !draft?.editable;
   const loginTemplate = draft?.name === 'otp';
+  const isApproved = Boolean(draft?.id && draft.status.toUpperCase() === 'APPROVED');
+
+  const resetDeleteConfirm = () => {
+    setConfirmDelete(false);
+    setDeletePassword('');
+  };
 
   const update = (patch: Partial<Draft>) => {
     setDraft(current => (current ? { ...current, ...patch } : current));
     setNote('');
-    setConfirmDelete(false);
+    resetDeleteConfirm();
   };
 
   const onSave = async () => {
     if (!draft || locked) return;
+    if (draft.id && draft.status.toUpperCase() === 'APPROVED') {
+      setError('Approved templates cannot be edited. Delete it with password 1010, then create a new one.');
+      return;
+    }
+    const buttons = draft.buttons.filter(button => button.text.trim());
+    const media = draft.headerFormat === 'IMAGE' || draft.headerFormat === 'VIDEO' || draft.headerFormat === 'DOCUMENT';
+    if (media && !draft.headerFile) {
+      setError('Attach a sample image, video, or PDF for the header.');
+      return;
+    }
+    if (draft.headerFile && draft.headerFile.size > TEMPLATE_MEDIA_MAX_BYTES) {
+      setError('Header media must be under 6 MB.');
+      return;
+    }
     setBusy(true);
     setError('');
     setNote('');
@@ -166,11 +274,15 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
         name: draft.name,
         language: draft.language,
         category: draft.category,
-        headerText: draft.headerText,
+        headerFormat: draft.headerFormat === 'NONE' ? '' : draft.headerFormat,
+        headerText: draft.headerFormat === 'TEXT' ? draft.headerText : '',
+        headerMediaBase64: draft.headerFile ? await fileToBase64(draft.headerFile) : '',
+        headerMediaName: draft.headerFile?.name || '',
+        headerMediaMime: draft.headerFile?.type || '',
         body: draft.body,
-        footer: draft.footer,
-        buttons: draft.buttons,
-        headerSamples: draft.headerSamples,
+        footer: FIRM_NAME,
+        buttons,
+        headerSamples: draft.headerFormat === 'TEXT' ? draft.headerSamples : [],
         bodySamples: draft.bodySamples,
       });
       setDraft(draftFrom(saved));
@@ -186,13 +298,18 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
   };
 
   const onDelete = async () => {
-    if (!draft?.id || locked) return;
+    if (!draft?.id || !canWrite) return;
+    if (deletePassword !== TEMPLATE_DELETE_PASSWORD) {
+      setError('Enter password 1010 to delete.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       await deleteWhatsAppTemplate(draft.id, draft.name);
       setDraft(null);
       setConfirmDelete(false);
+      setDeletePassword('');
       setNote('Template deleted.');
       await load();
     } catch (err) {
@@ -203,10 +320,15 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
   };
 
   return (
-    <div className="wa-templates">
+    <div className={`wa-templates${draft ? '' : ' wa-templates--list-only'}`}>
       <aside className="wa-templates__list">
-        <header className="wa-templates__bar">
-          <strong>Templates</strong>
+        <div className="wa-inbox-search">
+          <input
+            value={queryText}
+            onChange={event => setQueryText(event.target.value)}
+            placeholder="Search templates"
+            aria-label="Search templates"
+          />
           {canWrite ? (
             <button
               type="button"
@@ -216,25 +338,18 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
                 setDraft({ ...EMPTY, buttons: [] });
                 setNote('');
                 setError('');
-                setConfirmDelete(false);
+                resetDeleteConfirm();
               }}
             >
               <Plus size={18} />
             </button>
           ) : null}
-        </header>
-        <label className="wa-inbox-search">
-          <input
-            value={queryText}
-            onChange={event => setQueryText(event.target.value)}
-            placeholder="Search templates"
-            aria-label="Search templates"
-          />
-        </label>
+        </div>
         <div className="wa-templates__rows">
-          {loading ? <p className="wa-inbox-empty">Loading templates…</p> : null}
+          {loading ? <p className="wa-inbox-empty">Loading…</p> : null}
+          {error && !draft ? <p className="wa-inbox-error">{error}</p> : null}
           {!loading && !error && visible.length === 0 ? (
-            <p className="wa-inbox-empty">No templates yet.</p>
+            <p className="wa-inbox-empty">No templates.</p>
           ) : null}
           {visible.map(row => (
             <button
@@ -245,26 +360,35 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
                 setDraft(draftFrom(row));
                 setNote('');
                 setError('');
-                setConfirmDelete(false);
+                resetDeleteConfirm();
               }}
             >
-              <span>
-                <strong>{row.name}</strong>
-                <em>{row.language} · {row.category === 'MARKETING' ? 'Marketing' : row.category === 'UTILITY' ? 'Utility' : row.category}</em>
-              </span>
+              <strong>{row.name}</strong>
               <b className={`wa-templates__status is-${row.status.toLowerCase()}`}>{statusLabel(row.status)}</b>
             </button>
           ))}
         </div>
       </aside>
+      {draft ? (
       <section className="wa-templates__editor">
-        {draft ? (
           <form
             onSubmit={event => {
               event.preventDefault();
+              if (confirmDelete) {
+                void onDelete();
+                return;
+              }
               void onSave();
             }}
           >
+            <button
+              type="button"
+              className="wa-templates__back"
+              onClick={() => setDraft(null)}
+            >
+              <ChevronLeft size={18} />
+              Templates
+            </button>
             <div className="wa-templates__fields">
               <label>
                 Name
@@ -278,24 +402,31 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
               </label>
               <label>
                 Language
-                <input
+                <select
                   value={draft.language}
                   disabled={locked || Boolean(draft.id)}
                   onChange={event => update({ language: event.target.value })}
-                  placeholder="en_US"
                   required
-                />
+                >
+                  {TEMPLATE_LANGUAGES.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                  {draft.language && !TEMPLATE_LANGUAGES.some(option => option.value === draft.language) ? (
+                    <option value={draft.language}>{draft.language}</option>
+                  ) : null}
+                </select>
               </label>
               <label>
                 Category
                 <select
                   value={draft.category}
                   disabled={locked}
-                  onChange={event => update({ category: event.target.value === 'MARKETING' ? 'MARKETING' : 'UTILITY' })}
+                  onChange={event => update({ category: event.target.value })}
                 >
-                  <option value="UTILITY">Utility</option>
-                  <option value="MARKETING">Marketing</option>
-                  {draft.category !== 'UTILITY' && draft.category !== 'MARKETING' ? (
+                  {TEMPLATE_CATEGORIES.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                  {draft.category && !TEMPLATE_CATEGORIES.some(option => option.value === draft.category) ? (
                     <option value={draft.category}>{draft.category}</option>
                   ) : null}
                 </select>
@@ -304,7 +435,9 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
             {draft.status ? (
               <p className={`wa-templates__status-line is-${draft.status.toLowerCase()}`}>
                 {statusLabel(draft.status)}
-                {draft.rejectedReason ? ` — ${draft.rejectedReason}` : ''}
+                {draft.rejectedReason && draft.rejectedReason.toUpperCase() !== 'NONE'
+                  ? ` — ${draft.rejectedReason}`
+                  : ''}
               </p>
             ) : null}
             {loginTemplate ? (
@@ -312,21 +445,105 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
                 Dealer login sends this template. Saving it sends it back to Meta review, and login codes stop until it is approved again.
               </p>
             ) : null}
-            {!draft.editable ? (
-              <p className="wa-inbox-note">
-                This template uses a media header or an authentication layout. Edit that kind in Meta.
-              </p>
-            ) : null}
             <label>
               Header
-              <input
-                value={draft.headerText}
-                maxLength={60}
+              <select
+                value={draft.headerFormat}
                 disabled={locked}
-                onChange={event => update({ headerText: event.target.value })}
-                placeholder="Optional"
-              />
+                onChange={event => {
+                  const headerFormat = HEADER_TYPES.some(option => option.value === event.target.value)
+                    ? event.target.value as HeaderFormat
+                    : 'NONE';
+                  update({
+                    headerFormat,
+                    headerText: headerFormat === 'TEXT' ? draft.headerText : '',
+                    headerFile: null,
+                    headerFileName: '',
+                    headerSamples: headerFormat === 'TEXT' ? draft.headerSamples : [],
+                  });
+                }}
+              >
+                {HEADER_TYPES.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </label>
+            {draft.headerFormat === 'TEXT' ? (
+              <label>
+                Header text
+                <input
+                  value={draft.headerText}
+                  maxLength={60}
+                  disabled={locked}
+                  onChange={event => update({ headerText: event.target.value })}
+                  placeholder="Optional"
+                />
+              </label>
+            ) : null}
+            {mediaHeader ? (
+              <div className="wa-templates__media">
+                <input
+                  ref={mediaInputRef}
+                  type="file"
+                  accept={
+                    draft.headerFormat === 'IMAGE'
+                    || draft.headerFormat === 'VIDEO'
+                    || draft.headerFormat === 'DOCUMENT'
+                      ? HEADER_ACCEPT[draft.headerFormat]
+                      : undefined
+                  }
+                  hidden
+                  onChange={event => {
+                    const file = event.target.files?.[0] || null;
+                    event.target.value = '';
+                    if (!file) return;
+                    if (file.size > TEMPLATE_MEDIA_MAX_BYTES) {
+                      setError('Header media must be under 6 MB.');
+                      return;
+                    }
+                    update({ headerFile: file, headerFileName: file.name });
+                  }}
+                />
+                <div className="wa-templates__media-row">
+                  <button
+                    type="button"
+                    className="wa-inbox-ghost"
+                    disabled={locked}
+                    onClick={() => mediaInputRef.current?.click()}
+                  >
+                    <Paperclip size={16} />
+                    {draft.headerFile || draft.headerFileName ? 'Replace media' : 'Attach media'}
+                  </button>
+                  {draft.headerFile || draft.headerFileName ? (
+                    <span className="wa-templates__media-name">
+                      {draft.headerFileName || draft.headerFile?.name}
+                      {canWrite && draft.editable ? (
+                        <button
+                          type="button"
+                          className="wa-inbox-icon"
+                          aria-label="Remove media"
+                          onClick={() => update({ headerFile: null, headerFileName: '' })}
+                        >
+                          <X size={14} />
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="wa-templates__media-hint">
+                      {draft.headerFormat === 'IMAGE' ? 'JPEG or PNG, under 6 MB'
+                        : draft.headerFormat === 'VIDEO' ? 'MP4, under 6 MB'
+                          : 'PDF, under 6 MB'}
+                    </span>
+                  )}
+                </div>
+                {draft.headerFormat === 'IMAGE' && mediaPreview ? (
+                  <img className="wa-templates__media-preview" src={mediaPreview} alt="" />
+                ) : null}
+                {draft.headerFormat === 'VIDEO' && mediaPreview ? (
+                  <video className="wa-templates__media-preview" src={mediaPreview} controls muted />
+                ) : null}
+              </div>
+            ) : null}
             {draft.headerSamples.length === 1 ? (
               <label>
                 Header sample for {'{{1}}'}
@@ -367,13 +584,7 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
             ))}
             <label>
               Footer
-              <input
-                value={draft.footer}
-                maxLength={60}
-                disabled={locked}
-                onChange={event => update({ footer: event.target.value })}
-                placeholder="Optional"
-              />
+              <input value={FIRM_NAME} maxLength={60} disabled readOnly />
             </label>
             <div className="wa-templates__buttons">
               <div className="wa-templates__buttons-head">
@@ -474,32 +685,50 @@ export const WhatsAppTemplatesPanel: React.FC<{ canWrite: boolean }> = ({ canWri
             </div>
             {error ? <p className="wa-inbox-error">{error}</p> : null}
             {note ? <p className="wa-inbox-note">{note}</p> : null}
-            {canWrite && draft.editable ? (
+            {isApproved ? (
+              <p className="wa-inbox-note">Approved templates cannot be edited. Delete it, then create a new one.</p>
+            ) : null}
+            {canWrite ? (
               <div className="wa-inbox-setup__actions">
+                {!isApproved && draft.editable ? (
                 <button type="submit" className="wa-inbox-primary" disabled={busy}>
                   {busy ? 'Saving…' : draft.id ? 'Save' : 'Create'}
                 </button>
+                ) : null}
                 {draft.id && !confirmDelete ? (
                   <button type="button" className="wa-inbox-ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
                     Delete
                   </button>
                 ) : null}
                 {draft.id && confirmDelete ? (
-                  <button type="button" className="wa-templates__danger" disabled={busy} onClick={() => void onDelete()}>
-                    Delete {draft.name}
-                  </button>
+                  <>
+                    <input
+                      type="password"
+                      className="wa-templates__delete-pin"
+                      value={deletePassword}
+                      onChange={event => setDeletePassword(event.target.value)}
+                      placeholder="Password"
+                      aria-label="Delete password"
+                      autoComplete="off"
+                      inputMode="numeric"
+                      disabled={busy}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void onDelete();
+                        }
+                      }}
+                    />
+                    <button type="button" className="wa-templates__danger" disabled={busy} onClick={() => void onDelete()}>
+                      Delete
+                    </button>
+                  </>
                 ) : null}
               </div>
             ) : error ? null : null}
           </form>
-        ) : (
-          <div className="wa-inbox-thread__empty">
-            <strong>Message templates</strong>
-            <p>Create a template or open one to edit it. Meta reviews every change before it can be sent.</p>
-            {error ? <p className="wa-inbox-error">{error}</p> : null}
-          </div>
-        )}
       </section>
+      ) : null}
     </div>
   );
 };

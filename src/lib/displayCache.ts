@@ -10,6 +10,7 @@ const STORE = 'kv';
 export const DISPLAY_CACHE_KEYS = {
   catalog: 'catalog.v3',
   dealers: 'dealers.v3',
+  softwareShops: 'softwareShops.v1',
 } as const;
 
 type Envelope<T> = {

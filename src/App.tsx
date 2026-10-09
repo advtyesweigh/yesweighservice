@@ -73,6 +73,7 @@ import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
 import { IncentiveReportTab } from './pages/admin/settings/IncentiveReportTab';
 import { RcOvReportTab } from './pages/admin/settings/RcOvReportTab';
 import { WhatsAppInboxPage } from './pages/admin/WhatsAppInboxPage';
+import { SoftwarePage } from './pages/admin/SoftwarePage';
 import { PhonePage } from './pages/admin/PhonePage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
@@ -158,7 +159,8 @@ const superAdminOpsRoutes = (
     <Route path="logistics" element={<DealerMenuPages.Logistics />} />
     <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
-    <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
+    <Route path="software" element={<SoftwarePage />} />
+    <Route path="ai-assistant" element={<Navigate to="software" replace />} />
   </>
 );
 

@@ -48,6 +48,7 @@ import {
   Stamp,
   List,
   Percent,
+  AppWindow,
 } from 'lucide-react';
 import { getAppVersionLabel } from '../lib/appVersion';
 import { openMissedLast24h } from '../lib/phoneLog';
@@ -73,14 +74,8 @@ const OPS_BEFORE_REPORTS_SUFFIXES = [
   '/loyalty',
 ] as const;
 
-/** Shown after Reports. */
-const OPS_AFTER_REPORTS_SUFFIXES = [
-  '/ai-assistant',
-] as const;
-
 const OPS_REST_SUFFIXES = [
   ...OPS_BEFORE_REPORTS_SUFFIXES,
-  ...OPS_AFTER_REPORTS_SUFFIXES,
 ] as const;
 
 const OPS_PATH_SUFFIXES = [...OPS_PRIORITY_SUFFIXES, ...OPS_REST_SUFFIXES] as const;
@@ -143,6 +138,7 @@ function portalNavItems(
     rewardPoint: { path: `${home}/loyalty`, icon: <Gift size={20} />, label: 'Reward point' },
     scheme: { path: `${home}/scheme`, icon: <Percent size={20} />, label: 'Scheme' },
     aiAssistant: { path: `${home}/ai-assistant`, icon: <Bot size={20} />, label: 'AI assistance' },
+    software: { path: `${home}/software`, icon: <AppWindow size={20} />, label: 'Software' },
     training: { path: `${home}/training`, icon: <GraduationCap size={20} />, label: 'Trainings' },
   };
 
@@ -314,6 +310,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
+          { path: '/super-admin/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls },
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
@@ -324,8 +321,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/spare-indents', icon: <PackagePlus size={20} />, label: 'Spare Indent' },
           ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
-          { path: '/super-admin/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls },
-          ...operationsNavItems('/super-admin', OPS_AFTER_REPORTS_SUFFIXES),
+          { path: '/super-admin/software', icon: <AppWindow size={20} />, label: 'Software' },
         ];
       case 'staff': {
         const portal = portalNavItems('/staff', 'staff');

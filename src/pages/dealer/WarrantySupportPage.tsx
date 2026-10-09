@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, LifeBuoy, Plus } from 'lucide-react';
 import { SupportWizard } from '../../components/support/SupportWizard';
 import { useAuth } from '../../context/AuthContext';
@@ -7,8 +7,10 @@ import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
 import { canMutateDealerSupport } from '../../lib/dealerAccess';
 import { isInternalOpsUser, canCreateSupportOnBehalf } from '../../lib/staffAccess';
+import { whatsappInboxChatPath } from '../../lib/whatsappInbox';
 import type {
   DealerSupportRequest,
+  SupportOnBehalfDealer,
   SupportProductDraft,
   SupportRequestType,
 } from '../../types/dealer-support';
@@ -22,13 +24,18 @@ interface LocationState {
   createdRequestNumber?: string;
   createdRequestType?: SupportRequestType;
   openWizard?: boolean;
+  onBehalfDealer?: SupportOnBehalfDealer;
+  dealerQuery?: string;
+  dealerLookupStatus?: 'none' | 'multiple' | 'matched';
 }
 
 export const WarrantySupportPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const state = (location.state as LocationState | null) ?? {};
+  const waId = String(searchParams.get('wa') || '').replace(/\D/g, '');
 
   const isOps = isInternalOpsUser(user);
   const canCreateOnBehalf = canCreateSupportOnBehalf(user);
@@ -50,6 +57,9 @@ export const WarrantySupportPage: React.FC = () => {
 
   const productDraft = state.draft ?? null;
   const initialIntent = state.intent ?? (productDraft ? 'service' : null);
+  const initialOnBehalfDealer = state.onBehalfDealer ?? null;
+  const initialDealerQuery = state.dealerQuery ?? '';
+  const dealerLookupStatus = state.dealerLookupStatus ?? null;
 
   const load = useCallback(async () => {
     if (!user || !canUseSupport) return;
@@ -97,8 +107,12 @@ export const WarrantySupportPage: React.FC = () => {
   const closeWizard = useCallback(() => {
     setShowWizard(false);
     setResumeDraft(null);
+    if (waId) {
+      navigate(whatsappInboxChatPath(waId));
+      return;
+    }
     navigate(supportPath, { replace: true, state: {} });
-  }, [navigate, supportPath]);
+  }, [navigate, supportPath, waId]);
 
   const handleDraftSaved = useCallback((requestNumber: string) => {
     setDraftMessage(`Draft ${requestNumber} saved. You can continue it anytime from your list.`);
@@ -154,7 +168,11 @@ export const WarrantySupportPage: React.FC = () => {
           <SupportWizard
             user={user}
             productDraft={null}
+            initialIntent={initialIntent}
             opsCreateMode={canCreateOnBehalf}
+            initialOnBehalfDealer={initialOnBehalfDealer}
+            initialDealerQuery={initialDealerQuery}
+            dealerLookupStatus={dealerLookupStatus}
             onCancel={closeWizard}
             onSuccess={handleWizardSuccess}
           />
