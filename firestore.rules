@@ -706,6 +706,22 @@ service cloud.firestore {
       allow delete: if isFullSuperAdmin();
     }
 
+    // Public dealer-create links from WhatsApp (unguessable token as doc id).
+    match /dealerCreateShares/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSuperAdmin()
+        && request.resource.data.keys().hasOnly([
+          'waId', 'phone', 'createdByUid', 'createdByName', 'status', 'createdAt'
+        ])
+        && request.resource.data.status == 'open'
+        && request.resource.data.waId is string
+        && request.resource.data.phone is string
+        && request.resource.data.createdByUid is string
+        && request.resource.data.createdByName is string;
+      allow update, delete: if false;
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;

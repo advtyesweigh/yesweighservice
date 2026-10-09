@@ -38,6 +38,10 @@ import { useTopBarAction } from '../../context/PageHeaderContext';
 import { findDealersByPhoneNeedle } from '../../lib/dealers';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import {
+  createDealerCreateShare,
+  dealerCreateSharePublicUrl,
+} from '../../lib/dealerCreateShare';
+import {
   assignWhatsAppConversation,
   chatListPhone,
   chatPace,
@@ -255,6 +259,13 @@ function TranslatedLines({ message }: { message: WhatsAppChatMessage }) {
   return original ? <p>{original}</p> : null;
 }
 
+function destLanguageLabel(message: WhatsAppChatMessage): string {
+  if (message.translationTargetName.trim()) return message.translationTargetName.trim();
+  const fromCode = outboundVoiceLanguageLabel(message.translationTargetLang);
+  if (fromCode && fromCode !== 'Auto detect') return fromCode;
+  return message.messageLanguageName.trim();
+}
+
 function VoiceNoteExtras({ message }: { message: WhatsAppChatMessage }) {
   const inbound = message.direction === 'inbound';
   const [busy, setBusy] = useState(false);
@@ -304,12 +315,17 @@ function VoiceNoteExtras({ message }: { message: WhatsAppChatMessage }) {
     }
   };
 
-  const original = transcript && transcript !== mlText ? transcript : '';
-  const outboundVoice = !inbound && message.translationKind === 'voice-translate-outbound';
+  const original = inbound && transcript && transcript !== mlText ? transcript : '';
+  const destName = destLanguageLabel(message);
+  const destAudio = message.translatedMediaUrl.trim();
+  const destText = message.translatedText.trim();
+  const outboundVoice = !inbound && Boolean(
+    destAudio || (destText && destText !== mlText) || message.translationKind === 'voice-translate-outbound',
+  );
 
   return (
     <div className="wa-media-wrap--translated">
-      {original || mlText || (outboundVoice && message.translatedText) ? (
+      {original || mlText ? (
         <div className="wa-text-translated">
           {original ? (
             <>
@@ -323,18 +339,24 @@ function VoiceNoteExtras({ message }: { message: WhatsAppChatMessage }) {
               <p className="wa-voice-ml-text">{mlText}</p>
             </>
           ) : null}
-          {outboundVoice && message.translatedText && message.translatedText !== mlText ? (
-            <>
-              <span className="wa-lang-tag">{message.translationTargetName || message.messageLanguageName || 'Translated'}</span>
-              <p className="wa-voice-ml-text">{message.translatedText}</p>
-            </>
-          ) : null}
         </div>
       ) : null}
-      {mlAudio ? (
+      {inbound && mlAudio ? (
         <div className="wa-voice-ml">
           <span className="wa-lang-tag">Malayalam voice</span>
           <audio src={mlAudio} controls className="wa-inbox-bubble__audio" />
+        </div>
+      ) : null}
+      {outboundVoice && destAudio ? (
+        <div className="wa-voice-ml">
+          <span className="wa-lang-tag">{destName ? `${destName} voice` : 'Translated voice'}</span>
+          <audio src={destAudio} controls className="wa-inbox-bubble__audio" />
+        </div>
+      ) : null}
+      {outboundVoice && destText && destText !== mlText ? (
+        <div className="wa-text-translated">
+          <span className="wa-lang-tag">{destName || 'Translated'}</span>
+          <p className="wa-voice-ml-text">{destText}</p>
         </div>
       ) : null}
       {voiceBusy ? <p className="wa-transcript-status">Voice translating…</p> : null}
@@ -390,13 +412,9 @@ function MessageBody({
     );
   }
   if ((message.type === 'audio' || message.type === 'voice' || message.type === 'ptt') && url) {
-    const outboundVoice = message.direction === 'outbound'
-      && message.translationKind === 'voice-translate-outbound'
-      && message.translatedMediaUrl;
-    const playUrl = outboundVoice || url;
     return (
       <>
-        <audio src={playUrl} controls className="wa-inbox-bubble__audio" />
+        <audio src={url} controls className="wa-inbox-bubble__audio" />
         <VoiceNoteExtras message={message} />
       </>
     );
@@ -469,6 +487,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [serviceBusy, setServiceBusy] = useState(false);
+  const [dealerShareBusy, setDealerShareBusy] = useState(false);
   const [sendError, setSendError] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -938,6 +957,34 @@ export const WhatsAppInboxPage: React.FC = () => {
     }
   };
 
+  const sendNewDealerLink = async () => {
+    if (!active || dealerShareBusy || sending) return;
+    setDealerShareBusy(true);
+    setSendError('');
+    try {
+      const token = await createDealerCreateShare({
+        waId: active.waId,
+        phone: chatSearchNeedle(active.waId),
+        createdByUid: uid,
+        createdByName: String(user?.displayName || '').trim(),
+      });
+      const text = `Please open this link to register as a YesWeigh dealer:\n${dealerCreateSharePublicUrl(token)}`;
+      closePanels();
+      if (sessionOpen) {
+        await sendWhatsAppText(active.waId, text, {
+          outboundVoiceLanguage: normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage),
+          outboundVoiceLanguageName: outboundVoiceLanguageLabel(active.outboundVoiceLanguage),
+        });
+      } else {
+        setDraft(current => (current.trim() ? `${current.trim()}\n${text}` : text));
+      }
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Could not create the dealer link.');
+    } finally {
+      setDealerShareBusy(false);
+    }
+  };
+
   const insertComposerBlock = (block: string) => {
     const text = block.trim();
     if (!text) return;
@@ -1330,6 +1377,15 @@ export const WhatsAppInboxPage: React.FC = () => {
                 >
                   <span className="wa-attach-sheet__icon wa-attach-sheet__icon--template"><LayoutTemplate size={22} /></span>
                   Template
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void sendNewDealerLink()}
+                  disabled={dealerShareBusy || sending}
+                >
+                  <span className="wa-attach-sheet__icon wa-attach-sheet__icon--dealer"><UserPlus size={22} /></span>
+                  {dealerShareBusy ? 'Creating…' : 'New dealer'}
                 </button>
               </div>
             ) : null}

@@ -1417,6 +1417,7 @@ a.wa-inbox-icon {
 .wa-attach-sheet__icon--close { background: #6d28d9; }
 .wa-attach-sheet__icon--service { background: #7c3aed; }
 .wa-attach-sheet__icon--template { background: #0284c7; }
+.wa-attach-sheet__icon--dealer { background: #16a34a; }
 
 .wa-assign-sheet {
   display: flex;
@@ -1631,6 +1632,13 @@ a.wa-inbox-icon {
   font-weight: 650;
   color: #fca5a5;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.wa-voice-ml {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
 }
 
 .wa-voice-ml-text,

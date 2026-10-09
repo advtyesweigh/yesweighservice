@@ -93,6 +93,7 @@ export type WhatsAppChatMessage = {
   translatedText: string;
   translationStatus: string;
   translationKind: string;
+  translationTargetLang: string;
   translationTargetName: string;
   messageLanguageName: string;
   transcript: string;
@@ -437,6 +438,7 @@ export function subscribeWhatsAppMessages(
         translatedText: String(data.translatedText ?? ''),
         translationStatus: String(data.translationStatus ?? ''),
         translationKind: String(data.translationKind ?? ''),
+        translationTargetLang: String(data.translationTargetLang ?? ''),
         translationTargetName: String(data.translationTargetName ?? ''),
         messageLanguageName: String(data.messageLanguageName ?? data.customerLanguageName ?? ''),
         transcript: String(data.transcript ?? ''),

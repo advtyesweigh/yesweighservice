@@ -1,6 +1,6 @@
 /**
  * Outbound WhatsApp voice language choices for the Cloud inbox header.
- * Indian codes must match Sarvam bulbul:v3. Arabic / Chinese use Google Cloud TTS.
+ * Codes must match Sarvam bulbul:v3.
  */
 
 export type OutboundVoiceLanguageOption = {
@@ -25,15 +25,9 @@ export const SARVAM_BULBUL_TTS_LANGUAGES: ReadonlyArray<OutboundVoiceLanguageOpt
   { value: 'en-IN', label: 'English (India)', engine: 'sarvam' },
 ];
 
-export const GOOGLE_OUTBOUND_TTS_LANGUAGES: ReadonlyArray<OutboundVoiceLanguageOption> = [
-  { value: 'ar', label: 'Arabic', engine: 'google' },
-  { value: 'zh-CN', label: 'Chinese', engine: 'google' },
-];
-
 export const OUTBOUND_VOICE_LANGUAGE_OPTIONS: ReadonlyArray<OutboundVoiceLanguageOption> = [
   { value: 'auto', label: 'Auto', engine: 'auto' },
   ...SARVAM_BULBUL_TTS_LANGUAGES,
-  ...GOOGLE_OUTBOUND_TTS_LANGUAGES,
 ];
 
 export const OUTBOUND_VOICE_LANGUAGE_AUTO = 'auto';
@@ -46,7 +40,6 @@ export function normalizeOutboundVoiceLanguageValue(raw: string | undefined | nu
     if (opt.value.toLowerCase() === value.toLowerCase()) return true;
     const left = (opt.value.split(/[-_]/)[0] || '').toLowerCase();
     const right = (value.split(/[-_]/)[0] || '').toLowerCase();
-    if (left === 'zh' || left === 'cmn') return right === 'zh' || right === 'cmn';
     if (left === 'od' || left === 'or') return right === 'od' || right === 'or';
     return left === right && Boolean(left);
   });

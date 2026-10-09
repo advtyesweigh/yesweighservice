@@ -82,6 +82,12 @@ import {
   writeDealerSetting,
 } from './lib/dealers-api.js';
 import { lookupGstinDetails } from './lib/gstin-lookup.js';
+import {
+  createDealerCreateShareRecord,
+  loadDealerCreateShare,
+  publicCreateDealerForShare,
+  publicLookupGstinForShare,
+} from './lib/dealer-create-share.js';
 import { setDealerCatalogMrp } from './lib/dealer-catalog-mrp.js';
 import {
   importCrmDealerOverlay,
@@ -4620,6 +4626,90 @@ export const fetchGstinDetails = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('not-found', err?.message ?? 'Could not fetch GSTIN details.');
+    }
+  },
+);
+
+/** Staff: create a public dealer-registration link for a WhatsApp chat. */
+export const createDealerCreateShareFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    return createDealerCreateShareRecord({
+      waId: request.data?.waId,
+      phone: request.data?.phone,
+      createdByUid: uid,
+      createdByName: name,
+    });
+  },
+);
+
+/** Public: load a dealer-create share (token is the credential). */
+export const getDealerCreateShareFn = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 15,
+    memory: '256MiB',
+  },
+  async request => {
+    const share = await loadDealerCreateShare(request.data?.token);
+    if (!share) throw new HttpsError('not-found', 'This dealer link is invalid or has expired.');
+    return share;
+  },
+);
+
+/** Public GSTIN lookup for a WhatsApp dealer-create share link (token is the credential). */
+export const publicFetchGstinDetails = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 45,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      const accessToken = await getAccessToken(zohoSecrets());
+      const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+      const details = await publicLookupGstinForShare(
+        request.data?.token,
+        request.data?.gstin,
+        { accessToken, organizationId },
+      );
+      return { details };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('not-found', err?.message ?? 'Could not fetch GSTIN details.');
+    }
+  },
+);
+
+/** Public dealer create for a WhatsApp share link (token is the credential). */
+export const publicCreateDealerFromShare = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      return await publicCreateDealerForShare(request.data?.token, request.data ?? {}, {
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not create dealer.');
     }
   },
 );
