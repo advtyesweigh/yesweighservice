@@ -31,6 +31,12 @@ import {
   shouldSendOriginalAgentVoice,
 } from './whatsapp-voice-translate.js';
 import { markTranscriptionPending } from './whatsapp-transcribe.js';
+import {
+  isSoftwareRenewalRequest,
+  softwareRenewalCardText,
+  softwareRenewalMissingShopText,
+  softwareRenewalPaymentText,
+} from './software-renewal-auto-reply.js';
 
 const SETTINGS_DOC = 'whatsappSettings/config';
 const CONVERSATIONS = 'whatsappConversations';
@@ -369,24 +375,26 @@ async function findSoftwareShopById(shopId) {
     const snap = await db.collection(SOFTWARE_SHOPS_COLLECTION).doc(softwareShopDocId(account, shopId)).get();
     if (!snap.exists) continue;
     const data = snap.data() || {};
-    return {
-      id: snap.id,
-      shopId,
-      name: String(data.name || '').trim(),
-      phone: String(data.phone || '').trim(),
-      sourceAccount: String(data.sourceAccount || account),
-    };
+    return mapSoftwareShopSnap(snap, shopId, account);
   }
   const queried = await db.collection(SOFTWARE_SHOPS_COLLECTION).where('shopId', '==', shopId).limit(5).get();
   if (queried.empty) return null;
   const preferred = queried.docs.find(row => row.data()?.sourceAccount === SOURCE_ACCOUNT_YESWEIGH) || queried.docs[0];
-  const data = preferred.data() || {};
+  return mapSoftwareShopSnap(preferred, shopId, '');
+}
+
+function mapSoftwareShopSnap(snap, shopId, fallbackAccount) {
+  const data = snap.data() || {};
   return {
-    id: preferred.id,
+    id: snap.id,
     shopId,
     name: String(data.name || '').trim(),
     phone: String(data.phone || '').trim(),
-    sourceAccount: String(data.sourceAccount || ''),
+    sourceAccount: String(data.sourceAccount || fallbackAccount || ''),
+    subscription: String(data.subscription || '').trim(),
+    subscriptionEnd: String(data.subscriptionEnd || '').trim(),
+    status: String(data.status || '').trim(),
+    smartScale: String(data.smartScale || '').trim(),
   };
 }
 
@@ -490,9 +498,10 @@ async function ingestMessages(value, accessToken) {
     }, { merge: true });
     const shopPatch = {};
     const shopId = parseSoftwareShopIdFromText(text);
+    let shop = null;
     if (shopId) {
       try {
-        const shop = await findSoftwareShopById(shopId);
+        shop = await findSoftwareShopById(shopId);
         const shopName = String(shop?.name || '').trim() || `Shop ${shopId}`;
         shopPatch.softwareShopId = shopId;
         shopPatch.softwareShopDocId = shop?.id || '';
@@ -518,6 +527,17 @@ async function ingestMessages(value, accessToken) {
       ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
     });
+    if (!existing.exists && isSoftwareRenewalRequest(text) && shopId) {
+      try {
+        await sendSoftwareRenewalAutoReply({ waId, shopId, shop });
+        await ref.set({
+          renewalAutoReply: true,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch (err) {
+        console.warn('software renewal auto-reply failed', err?.message || err);
+      }
+    }
     const isInboundVoice = type === 'audio' || type === 'voice' || type === 'ptt';
     if (isInboundVoice) {
       try {
@@ -843,6 +863,28 @@ export async function sendWhatsAppLoginOtp(phone10, code, name) {
   return { ok: true, id: String(payload?.messages?.[0]?.id ?? '').trim() };
 }
 
+async function sendSoftwareRenewalAutoReply({ waId, shopId, shop }) {
+  const actor = { uid: '', name: 'YesWeigh' };
+  if (!shop?.id) {
+    await sendWhatsAppCloudText({
+      waId,
+      text: softwareRenewalMissingShopText(shopId),
+      skipTranslation: true,
+    }, actor);
+    return;
+  }
+  await sendWhatsAppCloudText({
+    waId,
+    text: softwareRenewalCardText(shop, shopId),
+    skipTranslation: true,
+  }, actor);
+  await sendWhatsAppCloudText({
+    waId,
+    text: softwareRenewalPaymentText(shop, shopId),
+    skipTranslation: true,
+  }, actor);
+}
+
 export async function sendWhatsAppCloudText(data, actor) {
   const waId = normalizeWaId(data?.waId);
   const text = String(data?.text ?? '').trim();
@@ -851,14 +893,17 @@ export async function sendWhatsAppCloudText(data, actor) {
   const config = await requireSendConfig();
   let deliverText = text;
   const extra = {};
-  const requestedRaw = String(data?.outboundVoiceLanguage ?? '').trim();
+  const skipTranslation = data?.skipTranslation === true;
+  const requestedRaw = skipTranslation ? '' : String(data?.outboundVoiceLanguage ?? '').trim();
   let target = requestedRaw ? manualOutboundLanguageFromCode(requestedRaw) : null;
-  if (target?.code) {
+  if (skipTranslation) {
+    target = null;
+  } else if (target?.code) {
     await persistOutboundVoiceLanguage(waId, target.code).catch(() => undefined);
   } else {
     target = await loadOutboundVoiceLanguageOverride(waId);
   }
-  if (!target?.code && await isVoiceTranslateEnabled()) {
+  if (!skipTranslation && !target?.code && await isVoiceTranslateEnabled()) {
     const customer = await loadCustomerLanguage(waId);
     if (customer?.code) target = customer;
   }
