@@ -1325,6 +1325,7 @@ service cloud.firestore {
             'assignedToName',
             'closed',
             'outboundVoiceLanguage',
+            'outboundVoiceLanguageCode',
             'outboundVoiceLanguageName',
             'outboundVoiceLanguageUpdatedAt',
           ]);
@@ -1338,7 +1339,16 @@ service cloud.firestore {
 
     match /whatsappSettings/{docId} {
       allow read: if isSuperAdmin() && docId == 'voiceTranslate';
-      allow write: if false;
+      allow create: if isFullSuperAdmin()
+        && docId == 'voiceTranslate'
+        && request.resource.data.keys().hasOnly(['enabled', 'updatedAt'])
+        && request.resource.data.enabled is bool;
+      allow update: if isFullSuperAdmin()
+        && docId == 'voiceTranslate'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['enabled', 'updatedAt'])
+        && request.resource.data.enabled is bool;
+      allow delete: if false;
     }
 
     /** Voxbay / staff call log. Webhook writes; staff only mark missed follow-up. */
