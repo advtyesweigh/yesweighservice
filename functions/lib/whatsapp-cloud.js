@@ -74,12 +74,28 @@ function normalizeWaId(value) {
 }
 
 function graphErrorMessage(payload, status) {
-  const error = payload?.error;
-  const detail = String(error?.error_data?.details || error?.message || '').trim();
-  if (/re-engagement|24 hours|131047/i.test(`${detail} ${error?.code ?? ''}`)) {
+  const error = payload?.error || {};
+  const detail = [
+    error.error_user_msg,
+    error.error_data?.details,
+    error.error_user_title,
+    error.message,
+  ].filter(Boolean).map(value => String(value).trim()).filter(Boolean);
+  const text = [...new Set(detail)].join(' — ');
+  const blob = `${text} ${error.code ?? ''} ${error.error_subcode ?? ''}`;
+  if (/re-engagement|24 hours|131047/i.test(blob)) {
     return 'WhatsApp only allows a reply within 24 hours of the customer’s last message.';
   }
-  return detail || `Meta API error (${status}).`;
+  if (/already exists|already in use/i.test(blob)) {
+    return 'A template with this name already exists.';
+  }
+  if (/cannot be edited|not allowed to edit|editing this template/i.test(blob)) {
+    return 'Approved templates cannot be edited. Delete it and create a new one.';
+  }
+  if (/^invalid parameter$/i.test(text) || (Number(error.code) === 100 && !text)) {
+    return 'Meta rejected this template. Approved templates cannot be changed — delete it and create a new one, and fill body samples for {{1}} variables.';
+  }
+  return text || `Meta API error (${status}).`;
 }
 
 async function loadSettings() {
@@ -917,6 +933,10 @@ export async function saveWhatsAppTemplate(input) {
   }
   const components = componentsFromInput(input);
   if (id) {
+    const current = await readWhatsAppTemplate(config, id).catch(() => null);
+    if (String(current?.status ?? '').toUpperCase() === 'APPROVED') {
+      fail('Approved templates cannot be edited. Delete it and create a new one.', 'failed-precondition');
+    }
     await graphRequest('POST', id, config.accessToken, {
       body: { category, components },
     });
@@ -927,6 +947,8 @@ export async function saveWhatsAppTemplate(input) {
       name: templateNameOf(input?.name),
       language: templateLanguageOf(input?.language || 'en_US'),
       category,
+      parameter_format: 'POSITIONAL',
+      allow_category_change: true,
       components,
     },
   });
@@ -939,9 +961,17 @@ export async function deleteWhatsAppTemplate(input) {
   const config = await requireTemplateConfig();
   const id = String(input?.id ?? '').replace(/\D/g, '');
   const name = templateNameOf(input?.name);
-  if (!id) fail('Choose a template to delete.', 'invalid-argument');
-  await graphRequest('DELETE', `${config.wabaId}/message_templates`, config.accessToken, {
-    query: { hsm_id: id, name },
-  });
+  if (!name && !id) fail('Choose a template to delete.', 'invalid-argument');
+  const path = `${config.wabaId}/message_templates`;
+  try {
+    await graphRequest('DELETE', path, config.accessToken, {
+      query: name ? { name } : { hsm_id: id },
+    });
+  } catch (err) {
+    if (!id || !name) throw err;
+    await graphRequest('DELETE', path, config.accessToken, {
+      query: { hsm_id: id },
+    });
+  }
   return { ok: true };
 }
