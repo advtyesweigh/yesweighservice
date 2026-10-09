@@ -8522,9 +8522,15 @@ export const sendWhatsAppCloudFileFn = onCall(
   },
 );
 
-function yesweighSanoftAccounts() {
-  const username = String(process.env.SANOFT_YESWEIGH_USERNAME || '').trim();
-  const password = String(process.env.SANOFT_YESWEIGH_PASSWORD || '').trim();
+async function yesweighSanoftAccounts() {
+  let username = String(process.env.SANOFT_YESWEIGH_USERNAME || '').trim();
+  let password = String(process.env.SANOFT_YESWEIGH_PASSWORD || '').trim();
+  if (!username || !password) {
+    const snap = await getFirestore().doc('whatsappSettings/sanoft').get();
+    const data = snap.data() || {};
+    username = username || String(data.username || '').trim();
+    password = password || String(data.password || '').trim();
+  }
   if (!username || !password) return null;
   return [{
     sourceAccount: SOURCE_ACCOUNT_YESWEIGH,
@@ -8534,7 +8540,7 @@ function yesweighSanoftAccounts() {
 }
 
 async function runYesweighSanoftShopSync() {
-  const accounts = yesweighSanoftAccounts();
+  const accounts = await yesweighSanoftAccounts();
   if (!accounts) {
     throw new Error(
       'YesWeigh Sanoft dealer credentials are not configured (SANOFT_YESWEIGH_USERNAME / SANOFT_YESWEIGH_PASSWORD).',
