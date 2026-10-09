@@ -1319,7 +1319,15 @@ service cloud.firestore {
       allow read: if isSuperAdmin();
       allow update: if isFullSuperAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['unreadCount', 'assignedToUid', 'assignedToName', 'closed']);
+          .hasOnly([
+            'unreadCount',
+            'assignedToUid',
+            'assignedToName',
+            'closed',
+            'outboundVoiceLanguage',
+            'outboundVoiceLanguageName',
+            'outboundVoiceLanguageUpdatedAt',
+          ]);
       allow create, delete: if false;
     }
 
@@ -1329,7 +1337,8 @@ service cloud.firestore {
     }
 
     match /whatsappSettings/{docId} {
-      allow read, write: if false;
+      allow read: if isSuperAdmin() && docId == 'voiceTranslate';
+      allow write: if false;
     }
 
     /** Voxbay / staff call log. Webhook writes; staff only mark missed follow-up. */

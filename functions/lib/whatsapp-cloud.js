@@ -2,6 +2,24 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
+import {
+  KNOWN_SOURCE_ACCOUNTS,
+  SOFTWARE_SHOPS_COLLECTION,
+  SOURCE_ACCOUNT_YESWEIGH,
+  softwareShopDocId,
+} from './sanoft-shops.js';
+import { translateInboundMessage } from './whatsapp-translate.js';
+import {
+  isVoiceTranslateEnabled,
+  loadCustomerLanguage,
+  loadOutboundVoiceLanguageOverride,
+  loadSarvamApiKey,
+  manualOutboundLanguageFromCode,
+  markVoiceTranslatePending,
+  persistOutboundVoiceLanguage,
+  sarvamTranslateSmart,
+} from './whatsapp-voice-translate.js';
+import { markTranscriptionPending } from './whatsapp-transcribe.js';
 
 const SETTINGS_DOC = 'whatsappSettings/config';
 const CONVERSATIONS = 'whatsappConversations';
@@ -213,6 +231,43 @@ function docIdForMessage(id) {
   return String(id || '').replace(/[/\s]/g, '_').slice(0, 700);
 }
 
+export function parseSoftwareShopIdFromText(text) {
+  const match = String(text || '').match(/shop\s*id\s*[=:#]?\s*(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+async function findSoftwareShopById(shopId) {
+  if (!shopId) return null;
+  const db = getFirestore();
+  const accounts = [
+    SOURCE_ACCOUNT_YESWEIGH,
+    ...KNOWN_SOURCE_ACCOUNTS.filter(account => account !== SOURCE_ACCOUNT_YESWEIGH),
+  ];
+  for (const account of accounts) {
+    const snap = await db.collection(SOFTWARE_SHOPS_COLLECTION).doc(softwareShopDocId(account, shopId)).get();
+    if (!snap.exists) continue;
+    const data = snap.data() || {};
+    return {
+      id: snap.id,
+      shopId,
+      name: String(data.name || '').trim(),
+      phone: String(data.phone || '').trim(),
+      sourceAccount: String(data.sourceAccount || account),
+    };
+  }
+  const queried = await db.collection(SOFTWARE_SHOPS_COLLECTION).where('shopId', '==', shopId).limit(5).get();
+  if (queried.empty) return null;
+  const preferred = queried.docs.find(row => row.data()?.sourceAccount === SOURCE_ACCOUNT_YESWEIGH) || queried.docs[0];
+  const data = preferred.data() || {};
+  return {
+    id: preferred.id,
+    shopId,
+    name: String(data.name || '').trim(),
+    phone: String(data.phone || '').trim(),
+    sourceAccount: String(data.sourceAccount || ''),
+  };
+}
+
 async function storeInboundMedia({ messageId, waId, media, accessToken }) {
   if (!media?.id || !accessToken) return '';
   const lookup = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${media.id}`, {
@@ -257,6 +312,10 @@ export async function patchWhatsAppConversation(data = {}) {
   if (typeof data.closed === 'boolean') patch.closed = data.closed;
   if ('assignedToUid' in data) patch.assignedToUid = String(data.assignedToUid || '');
   if ('assignedToName' in data) patch.assignedToName = String(data.assignedToName || '');
+  if ('outboundVoiceLanguage' in data) {
+    patch.outboundVoiceLanguage = String(data.outboundVoiceLanguage || 'auto');
+    patch.outboundVoiceLanguageName = String(data.outboundVoiceLanguageName || '');
+  }
   if (!Object.keys(patch).length) throw new Error('Nothing to update.');
   await getFirestore().collection(CONVERSATIONS).doc(id).set({
     ...patch,
@@ -307,8 +366,25 @@ async function ingestMessages(value, accessToken) {
       createdAt: eventTime(message?.timestamp),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    const shopPatch = {};
+    const shopId = parseSoftwareShopIdFromText(text);
+    if (shopId) {
+      try {
+        const shop = await findSoftwareShopById(shopId);
+        const shopName = String(shop?.name || '').trim() || `Shop ${shopId}`;
+        shopPatch.softwareShopId = shopId;
+        shopPatch.softwareShopDocId = shop?.id || '';
+        shopPatch.softwareShopName = shopName;
+        shopPatch.senderName = shopName;
+      } catch (err) {
+        console.warn('whatsapp software shop lookup failed', shopId, err?.message || err);
+        shopPatch.softwareShopId = shopId;
+        shopPatch.senderName = senderName || `Shop ${shopId}`;
+      }
+    }
     await writeConversation(waId, {
       ...(senderName ? { senderName } : {}),
+      ...shopPatch,
       lastText: previewFor(type, text),
       lastType: type,
       lastDirection: 'inbound',
@@ -319,6 +395,27 @@ async function ingestMessages(value, accessToken) {
       ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
     });
+    const isInboundVoice = type === 'audio' || type === 'voice' || type === 'ptt';
+    if (isInboundVoice) {
+      try {
+        if (await isVoiceTranslateEnabled()) await markVoiceTranslatePending(id);
+        else await markTranscriptionPending(id);
+      } catch (err) {
+        console.warn('whatsapp voice queue failed', err?.message || err);
+      }
+    } else {
+      try {
+        await translateInboundMessage({
+          collectionName: MESSAGES,
+          messageId: id,
+          type,
+          text,
+          waId,
+        });
+      } catch (err) {
+        console.warn('whatsapp translate failed', err?.message || err);
+      }
+    }
   }
 
   const echoes = [
@@ -549,7 +646,9 @@ export async function saveWhatsAppCloudSettings(data) {
   };
 }
 
-async function recordOutbound({ waId, whatsappMessageId, type, text, fileName, mimeType, mediaUrl, sentByUid, sentByName }) {
+async function recordOutbound({
+  waId, whatsappMessageId, type, text, fileName, mimeType, mediaUrl, sentByUid, sentByName, extra = {},
+}) {
   const id = docIdForMessage(whatsappMessageId || randomUUID());
   await getFirestore().collection(MESSAGES).doc(id).set({
     waId,
@@ -563,6 +662,7 @@ async function recordOutbound({ waId, whatsappMessageId, type, text, fileName, m
     fileName: fileName || '',
     mimeType: mimeType || '',
     mediaUrl: mediaUrl || '',
+    ...extra,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
@@ -626,6 +726,38 @@ export async function sendWhatsAppCloudText(data, actor) {
   if (!waId) fail('Enter a WhatsApp number.', 'invalid-argument');
   if (!text) fail('Enter a message.', 'invalid-argument');
   const config = await requireSendConfig();
+  let deliverText = text;
+  const extra = {};
+  const requestedRaw = String(data?.outboundVoiceLanguage ?? '').trim();
+  let target = requestedRaw ? manualOutboundLanguageFromCode(requestedRaw) : null;
+  if (target?.code) {
+    await persistOutboundVoiceLanguage(waId, target.code).catch(() => undefined);
+  } else {
+    target = await loadOutboundVoiceLanguageOverride(waId);
+  }
+  if (!target?.code && await isVoiceTranslateEnabled()) {
+    const customer = await loadCustomerLanguage(waId);
+    if (customer?.code) target = customer;
+  }
+  if (target?.code) {
+    try {
+      const apiKey = await loadSarvamApiKey();
+      if (apiKey) {
+        const result = await sarvamTranslateSmart(text, 'auto', target.code, apiKey);
+        const translated = String(result?.text || '').trim();
+        if (translated && translated !== text) {
+          deliverText = translated;
+          extra.translationStatus = 'done';
+          extra.translationKind = 'text';
+          extra.translatedText = translated;
+          extra.translationTargetLang = target.code;
+          extra.translationTargetName = target.name || '';
+        }
+      }
+    } catch (err) {
+      extra.translationError = String(err?.message || err).slice(0, 300);
+    }
+  }
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
@@ -637,7 +769,7 @@ export async function sendWhatsAppCloudText(data, actor) {
       recipient_type: 'individual',
       to: waId,
       type: 'text',
-      text: { body: text, preview_url: false },
+      text: { body: deliverText, preview_url: false },
     }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -650,8 +782,18 @@ export async function sendWhatsAppCloudText(data, actor) {
     text,
     sentByUid: actor?.uid,
     sentByName: actor?.name,
+    extra,
   });
-  return { ok: true, id: whatsappMessageId };
+  return { ok: true, id: whatsappMessageId, translationError: extra.translationError || '' };
+}
+
+export async function setWhatsAppVoiceTranslate(enabled) {
+  const on = enabled === true;
+  const stamp = FieldValue.serverTimestamp();
+  const db = getFirestore();
+  await db.doc('whatsappSettings/aiAgent').set({ voiceTranslate: on, updatedAt: stamp }, { merge: true });
+  await db.doc('whatsappSettings/voiceTranslate').set({ enabled: on, updatedAt: stamp }, { merge: true });
+  return { ok: true, enabled: on };
 }
 
 function sendTypeForMime(mimeType) {
@@ -734,7 +876,56 @@ export async function sendWhatsAppCloudFile(data, actor) {
   return { ok: true, id: whatsappMessageId };
 }
 
-const TEMPLATE_CATEGORIES = new Set(['UTILITY', 'MARKETING']);
+const TEMPLATE_CATEGORIES = new Set(['UTILITY', 'MARKETING', 'AUTHENTICATION']);
+const MEDIA_HEADER_FORMATS = new Set(['IMAGE', 'VIDEO', 'DOCUMENT']);
+const TEMPLATE_MEDIA_MAX_BYTES = 6 * 1024 * 1024;
+
+function headerFormatOf(value) {
+  const format = String(value ?? '').trim().toUpperCase();
+  if (format === 'TEXT' || MEDIA_HEADER_FORMATS.has(format)) return format;
+  return '';
+}
+
+function mimeForHeaderFormat(format, mimeType) {
+  const mime = String(mimeType ?? '').split(';')[0].trim().toLowerCase();
+  if (format === 'IMAGE' && (mime === 'image/jpeg' || mime === 'image/png')) return mime;
+  if (format === 'VIDEO' && (mime === 'video/mp4' || mime === 'video/3gpp')) return mime;
+  if (format === 'DOCUMENT' && mime === 'application/pdf') return mime;
+  return '';
+}
+
+async function metaAppId(accessToken) {
+  const debug = await graphGet('debug_token', accessToken, { input_token: accessToken });
+  const appId = String(debug?.data?.app_id ?? '').replace(/\D/g, '');
+  if (!appId) fail('Could not read the Meta app id from this token.');
+  return appId;
+}
+
+async function uploadTemplateMediaHandle({ accessToken, buffer, fileName, mimeType }) {
+  const appId = await metaAppId(accessToken);
+  const session = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${appId}/uploads?${new URLSearchParams({
+    file_name: fileName,
+    file_length: String(buffer.length),
+    file_type: mimeType,
+    access_token: accessToken,
+  })}`, { method: 'POST' });
+  const sessionPayload = await session.json().catch(() => ({}));
+  const sessionId = String(sessionPayload?.id ?? '').trim();
+  if (!session.ok || !sessionId) fail(graphErrorMessage(sessionPayload, session.status));
+  const uploaded = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `OAuth ${accessToken}`,
+      file_offset: '0',
+      'Content-Type': 'application/octet-stream',
+    },
+    body: buffer,
+  });
+  const uploadedPayload = await uploaded.json().catch(() => ({}));
+  const handle = String(uploadedPayload?.h ?? '').trim();
+  if (!uploaded.ok || !handle) fail(graphErrorMessage(uploadedPayload, uploaded.status));
+  return handle;
+}
 
 function cleanTemplateText(value, max) {
   return String(value ?? '').replace(/\r/g, '').trim().slice(0, max);
@@ -813,12 +1004,21 @@ function buttonFromInput(button) {
 }
 
 function componentsFromInput(input) {
-  const headerText = cleanTemplateText(input?.headerText, 60);
+  const headerFormat = headerFormatOf(input?.headerFormat) || (cleanTemplateText(input?.headerText, 60) ? 'TEXT' : '');
+  const headerText = headerFormat === 'TEXT' ? cleanTemplateText(input?.headerText, 60) : '';
   const body = cleanTemplateText(input?.body, 1024);
   const footer = cleanTemplateText(input?.footer, 60);
   if (!body) fail('The message body is required.', 'invalid-argument');
   const components = [];
-  if (headerText) {
+  if (MEDIA_HEADER_FORMATS.has(headerFormat)) {
+    const handle = String(input?.headerHandle ?? '').trim();
+    if (!handle) fail('Attach a sample file for the media header.', 'invalid-argument');
+    components.push({
+      type: 'HEADER',
+      format: headerFormat,
+      example: { header_handle: [handle] },
+    });
+  } else if (headerText) {
     const count = placeholderCount(headerText, 'Header');
     if (count > 1) fail('The header can use only {{1}}.', 'invalid-argument');
     const header = { type: 'HEADER', format: 'TEXT', text: headerText };
@@ -866,8 +1066,8 @@ function templateView(row) {
       url: String(button?.url ?? ''),
       phone: String(button?.phone_number ?? ''),
     })),
-    editable: (!headerFormat || headerFormat === 'TEXT')
-      && TEMPLATE_CATEGORIES.has(String(row?.category ?? '')),
+    editable: TEMPLATE_CATEGORIES.has(String(row?.category ?? ''))
+      && (!headerFormat || headerFormat === 'TEXT' || MEDIA_HEADER_FORMATS.has(headerFormat)),
   };
 }
 
@@ -929,9 +1129,35 @@ export async function saveWhatsAppTemplate(input) {
   const id = String(input?.id ?? '').replace(/\D/g, '');
   const category = String(input?.category ?? '').trim().toUpperCase();
   if (!TEMPLATE_CATEGORIES.has(category)) {
-    fail('Category must be Utility or Marketing.', 'invalid-argument');
+    fail('Category must be Utility, Marketing, or Authentication.', 'invalid-argument');
   }
-  const components = componentsFromInput(input);
+  const headerFormat = headerFormatOf(input?.headerFormat) || (cleanTemplateText(input?.headerText, 60) ? 'TEXT' : '');
+  let headerHandle = String(input?.headerHandle ?? '').trim();
+  if (MEDIA_HEADER_FORMATS.has(headerFormat)) {
+    const fileBase64 = String(input?.headerMediaBase64 ?? '').trim();
+    if (!fileBase64) fail('Attach a sample file for the media header.', 'invalid-argument');
+    const buffer = Buffer.from(fileBase64, 'base64');
+    if (!buffer.length || buffer.length > TEMPLATE_MEDIA_MAX_BYTES) {
+      fail('Header media must be under 6 MB.', 'invalid-argument');
+    }
+    const fileName = String(input?.headerMediaName ?? 'header').replace(/[^\w.\- ()]/g, '_').slice(0, 120) || 'header';
+    const mimeType = mimeForHeaderFormat(headerFormat, input?.headerMediaMime);
+    if (!mimeType) {
+      fail(
+        headerFormat === 'IMAGE' ? 'Use a JPEG or PNG image.'
+          : headerFormat === 'VIDEO' ? 'Use an MP4 video.'
+            : 'Use a PDF document.',
+        'invalid-argument',
+      );
+    }
+    headerHandle = await uploadTemplateMediaHandle({
+      accessToken: config.accessToken,
+      buffer,
+      fileName,
+      mimeType,
+    });
+  }
+  const components = componentsFromInput({ ...input, headerFormat, headerHandle });
   if (id) {
     const current = await readWhatsAppTemplate(config, id).catch(() => null);
     if (String(current?.status ?? '').toUpperCase() === 'APPROVED') {

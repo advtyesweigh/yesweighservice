@@ -400,7 +400,14 @@ import {
   saveWhatsAppTemplate,
   sendWhatsAppCloudFile,
   sendWhatsAppCloudText,
+  setWhatsAppVoiceTranslate,
 } from './lib/whatsapp-cloud.js';
+import { handleTranscriptionWrite, retryWhatsAppTranscriptionHandler } from './lib/whatsapp-transcribe.js';
+import {
+  ensureWhatsAppVoiceMalayalamAudioHandler,
+  ensureWhatsAppVoiceMalayalamTextHandler,
+  handleVoiceTranslateWrite,
+} from './lib/whatsapp-voice-translate.js';
 import { handleVoxbayCall } from './lib/voxbay-ingest.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -8381,8 +8388,8 @@ export const listWhatsAppTemplatesFn = onCall(
 export const saveWhatsAppTemplateFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
-    memory: '256MiB',
+    timeoutSeconds: 120,
+    memory: '512MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
@@ -8408,6 +8415,90 @@ export const deleteWhatsAppTemplateFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not delete the WhatsApp template.');
+    }
+  },
+);
+
+export const transcribeWhatsAppVoiceNote = onDocumentWritten(
+  {
+    document: 'whatsappMessages/{messageId}',
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async (event) => {
+    try {
+      if (event.data) await handleTranscriptionWrite(event.data);
+    } catch (err) {
+      console.error('transcribeWhatsAppVoiceNote', err?.message || err);
+    }
+  },
+);
+
+export const voiceTranslateWhatsAppNote = onDocumentWritten(
+  {
+    document: 'whatsappMessages/{messageId}',
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async (event) => {
+    try {
+      if (event.data) await handleVoiceTranslateWrite(event.data);
+    } catch (err) {
+      console.error('voiceTranslateWhatsAppNote', err?.message || err);
+    }
+  },
+);
+
+export const retryWhatsAppTranscriptionFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '1GiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await retryWhatsAppTranscriptionHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not retry transcription.');
+    }
+  },
+);
+
+export const ensureWhatsAppVoiceMalayalamTextFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '1GiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
+    try {
+      return await ensureWhatsAppVoiceMalayalamTextHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not transcribe voice note.');
+    }
+  },
+);
+
+export const ensureWhatsAppVoiceMalayalamAudioFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
+    try {
+      return await ensureWhatsAppVoiceMalayalamAudioHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not play the Malayalam voice.');
+    }
+  },
+);
+
+export const setWhatsAppVoiceTranslateFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    try {
+      return await setWhatsAppVoiceTranslate(request.data?.enabled === true);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save Voice translate.');
     }
   },
 );
