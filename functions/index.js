@@ -5,6 +5,7 @@ import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow, isKotakBankFeedWindow } from './lib/business-hours.js';
+import { SOURCE_ACCOUNT_YESWEIGH, syncSanoftShopsHandler } from './lib/sanoft-shops.js';
 import {
   getAccessToken,
   resolveOrganizationId,
@@ -81,6 +82,12 @@ import {
   writeDealerSetting,
 } from './lib/dealers-api.js';
 import { lookupGstinDetails } from './lib/gstin-lookup.js';
+import {
+  createDealerCreateShareRecord,
+  loadDealerCreateShare,
+  publicCreateDealerForShare,
+  publicLookupGstinForShare,
+} from './lib/dealer-create-share.js';
 import { setDealerCatalogMrp } from './lib/dealer-catalog-mrp.js';
 import {
   importCrmDealerOverlay,
@@ -394,11 +401,19 @@ import {
   getWhatsAppCloudSettings,
   handleWhatsAppCloudWebhook,
   listWhatsAppTemplates,
+  patchWhatsAppConversation,
   saveWhatsAppCloudSettings,
   saveWhatsAppTemplate,
   sendWhatsAppCloudFile,
   sendWhatsAppCloudText,
+  setWhatsAppVoiceTranslate,
 } from './lib/whatsapp-cloud.js';
+import { handleTranscriptionWrite, retryWhatsAppTranscriptionHandler } from './lib/whatsapp-transcribe.js';
+import {
+  ensureWhatsAppVoiceMalayalamAudioHandler,
+  ensureWhatsAppVoiceMalayalamTextHandler,
+  handleVoiceTranslateWrite,
+} from './lib/whatsapp-voice-translate.js';
 import { handleVoxbayCall } from './lib/voxbay-ingest.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -4615,6 +4630,90 @@ export const fetchGstinDetails = onCall(
   },
 );
 
+/** Staff: create a public dealer-registration link for a WhatsApp chat. */
+export const createDealerCreateShareFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    return createDealerCreateShareRecord({
+      waId: request.data?.waId,
+      phone: request.data?.phone,
+      createdByUid: uid,
+      createdByName: name,
+    });
+  },
+);
+
+/** Public: load a dealer-create share (token is the credential). */
+export const getDealerCreateShareFn = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 15,
+    memory: '256MiB',
+  },
+  async request => {
+    const share = await loadDealerCreateShare(request.data?.token);
+    if (!share) throw new HttpsError('not-found', 'This dealer link is invalid or has expired.');
+    return share;
+  },
+);
+
+/** Public GSTIN lookup for a WhatsApp dealer-create share link (token is the credential). */
+export const publicFetchGstinDetails = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 45,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      const accessToken = await getAccessToken(zohoSecrets());
+      const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+      const details = await publicLookupGstinForShare(
+        request.data?.token,
+        request.data?.gstin,
+        { accessToken, organizationId },
+      );
+      return { details };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('not-found', err?.message ?? 'Could not fetch GSTIN details.');
+    }
+  },
+);
+
+/** Public dealer create for a WhatsApp share link (token is the credential). */
+export const publicCreateDealerFromShare = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      return await publicCreateDealerForShare(request.data?.token, request.data ?? {}, {
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not create dealer.');
+    }
+  },
+);
+
 /** Create a dealer in Zoho Books, then store extras in Firestore. */
 export const createDealer = onCall(
   {
@@ -8326,6 +8425,23 @@ export const saveWhatsAppCloudSettingsFn = onCall(
   },
 );
 
+export const patchWhatsAppConversationFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await patchWhatsAppConversation(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update this chat.');
+    }
+  },
+);
+
 export const sendWhatsAppCloudMessage = onCall(
   {
     region: 'asia-south1',
@@ -8365,8 +8481,8 @@ export const listWhatsAppTemplatesFn = onCall(
 export const saveWhatsAppTemplateFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
-    memory: '256MiB',
+    timeoutSeconds: 120,
+    memory: '512MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_ADMIN_ROLES);
@@ -8396,11 +8512,95 @@ export const deleteWhatsAppTemplateFn = onCall(
   },
 );
 
+export const transcribeWhatsAppVoiceNote = onDocumentWritten(
+  {
+    document: 'whatsappMessages/{messageId}',
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async (event) => {
+    try {
+      if (event.data) await handleTranscriptionWrite(event.data);
+    } catch (err) {
+      console.error('transcribeWhatsAppVoiceNote', err?.message || err);
+    }
+  },
+);
+
+export const voiceTranslateWhatsAppNote = onDocumentWritten(
+  {
+    document: 'whatsappMessages/{messageId}',
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async (event) => {
+    try {
+      if (event.data) await handleVoiceTranslateWrite(event.data);
+    } catch (err) {
+      console.error('voiceTranslateWhatsAppNote', err?.message || err);
+    }
+  },
+);
+
+export const retryWhatsAppTranscriptionFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '1GiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await retryWhatsAppTranscriptionHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not retry transcription.');
+    }
+  },
+);
+
+export const ensureWhatsAppVoiceMalayalamTextFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '1GiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await ensureWhatsAppVoiceMalayalamTextHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not transcribe voice note.');
+    }
+  },
+);
+
+export const ensureWhatsAppVoiceMalayalamAudioFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await ensureWhatsAppVoiceMalayalamAudioHandler(request.data ?? {}, { auth: request.auth });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(err?.code || 'internal', err?.message ?? 'Could not play the Malayalam voice.');
+    }
+  },
+);
+
+export const setWhatsAppVoiceTranslateFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_ADMIN_ROLES);
+    try {
+      return await setWhatsAppVoiceTranslate(request.data?.enabled === true);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save Voice translate.');
+    }
+  },
+);
+
 export const sendWhatsAppCloudFileFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 120,
-    memory: '512MiB',
+    timeoutSeconds: 180,
+    memory: '1GiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
@@ -8412,6 +8612,74 @@ export const sendWhatsAppCloudFileFn = onCall(
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not send the WhatsApp file.');
     }
+  },
+);
+
+async function yesweighSanoftAccounts() {
+  let username = String(process.env.SANOFT_YESWEIGH_USERNAME || '').trim();
+  let password = String(process.env.SANOFT_YESWEIGH_PASSWORD || '').trim();
+  if (!username || !password) {
+    const snap = await getFirestore().doc('whatsappSettings/sanoft').get();
+    const data = snap.data() || {};
+    username = username || String(data.username || '').trim();
+    password = password || String(data.password || '').trim();
+  }
+  if (!username || !password) return null;
+  return [{
+    sourceAccount: SOURCE_ACCOUNT_YESWEIGH,
+    username,
+    password,
+  }];
+}
+
+async function runYesweighSanoftShopSync() {
+  const accounts = await yesweighSanoftAccounts();
+  if (!accounts) {
+    throw new Error(
+      'YesWeigh Sanoft dealer credentials are not configured (SANOFT_YESWEIGH_USERNAME / SANOFT_YESWEIGH_PASSWORD).',
+    );
+  }
+  return syncSanoftShopsHandler({ accounts });
+}
+
+const SANOFT_SHOP_SYNC_OPTS = {
+  region: 'asia-south1',
+  timeoutSeconds: 540,
+  memory: '1GiB',
+};
+
+/** Admin refresh of YesWeigh Sanoft dealer shops (admin.sanoft.com / api1.sanoft.com). */
+export const syncSanoftShops = onCall(
+  SANOFT_SHOP_SYNC_OPTS,
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await runYesweighSanoftShopSync();
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not sync Sanoft shops.';
+      if (/not configured/i.test(message)) {
+        throw new HttpsError('failed-precondition', message);
+      }
+      throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** Daily 9:30 AM IST — pull every YesWeigh Sanoft shop and upsert into softwareShops. */
+export const syncSanoftShopsScheduled = onSchedule(
+  {
+    ...SANOFT_SHOP_SYNC_OPTS,
+    schedule: '30 9 * * *',
+    timeZone: 'Asia/Kolkata',
+    retryCount: 2,
+  },
+  async () => {
+    const result = await runYesweighSanoftShopSync();
+    console.log(
+      `Scheduled Sanoft shop sync: fetched ${result.fetched}, upserted ${result.upserted}, renewals ${result.renewals}.`,
+    );
+    return result;
   },
 );
 

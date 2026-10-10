@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
@@ -73,6 +73,7 @@ import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-deliver
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
+import { whatsappInboxChatPath } from '../../lib/whatsappInbox';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import {
@@ -259,6 +260,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
+  const shareToWa = String(searchParams.get('wa') || '').replace(/\D/g, '');
+  const shareToWaNeedle = shareToWa.length >= 10 ? shareToWa.slice(-10) : shareToWa;
+  const inboxPath = shareToWa ? whatsappInboxChatPath(shareToWa) : '';
   const {
     items: cartItems,
     itemCount,
@@ -277,6 +282,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const listPath = pathname.startsWith('/super-admin')
     ? '/super-admin/sales-orders'
     : '/staff/sales-orders';
+  const leavePath = inboxPath || listPath;
 
   const allowedSegments = useMemo(() => staffAllowedOrderSegments(user), [user]);
   const [selectedSegment, setSelectedSegment] = useState<OrderSegment | ''>('');
@@ -357,7 +363,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const stepTitle = `Step ${stepIndex + 1} of ${steps.length}`;
 
   const goBackRef = useRef<() => void>(() => {
-    navigate(listPath);
+    navigate(leavePath);
   });
 
   useCatalogPageHeader({
@@ -1011,6 +1017,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       .slice(0, 40);
   }, [dealers, dealerQuery]);
 
+  useEffect(() => {
+    if (!shareToWaNeedle) return;
+    setDealerQuery(current => current || shareToWaNeedle);
+    if (allowedSegments.includes('product')) setSelectedSegment(current => current || 'product');
+  }, [allowedSegments, shareToWaNeedle]);
+
   const loadAddresses = useCallback(async (customerId: string, dealerHint?: ZohoDealer | null) => {
     setAddressesLoading(true);
     setAddressError('');
@@ -1044,6 +1056,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     setError('');
     void loadAddresses(dealer.id, dealer);
   };
+
+  const autoPickedWaDealer = useRef(false);
+  useEffect(() => {
+    if (autoPickedWaDealer.current || !shareToWaNeedle || selectedDealer) return;
+    if (filteredDealers.length !== 1) return;
+    autoPickedWaDealer.current = true;
+    selectDealer(filteredDealers[0]);
+  }, [filteredDealers, selectedDealer, shareToWaNeedle]);
 
   const canSubmit = Boolean(
     lines.length
@@ -1079,11 +1099,11 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       setStep('dealer');
       return;
     }
-    navigate(listPath);
-  }, [step, navigate, listPath]);
+    navigate(leavePath);
+  }, [step, navigate, leavePath]);
 
   goBackRef.current = createdOrders?.length
-    ? () => navigate(listPath)
+    ? () => navigate(leavePath)
     : goBack;
 
   const selectSegment = (segment: OrderSegment) => {
@@ -1287,13 +1307,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               salespersonName: null,
             }]
           : []);
+      const shareQs = shareToWa ? `?shareToWa=${encodeURIComponent(shareToWa)}` : '';
       if (salesOrders.length > 1) {
         setCreatedOrders(salesOrders);
         return;
       }
       const soId = salesOrders[0]?.zohoSalesOrderId || result.zohoSalesOrderId;
-      if (soId) navigate(`${listPath}/${soId}`);
-      else navigate(listPath);
+      if (soId) navigate(`${listPath}/${soId}${shareQs}`);
+      else navigate(leavePath);
     } catch (err) {
       setError(dealerOrderErrorMessage(err));
     } finally {
@@ -1307,7 +1328,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         <MultiSalesOrderSuccess
           salesOrders={createdOrders}
           detailBasePath={listPath}
-          listPath={listPath}
+          listPath={leavePath}
+          shareToWa={shareToWa || undefined}
         />
       </div>
     );
@@ -1372,6 +1394,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
+      ) : null}
+
+      {shareToWa ? (
+        <p className="text-muted text-sm staff-create-so-page__wa-note">
+          Sales order for this WhatsApp chat. After you create it, it will be sent to that number.
+        </p>
       ) : null}
 
       {step === 'dealer' ? (

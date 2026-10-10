@@ -2,9 +2,10 @@ import { copyFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { sanoftShopsDevPlugin } from './scripts/viteSanoftShopsPlugin';
 
 const require = createRequire(import.meta.url);
 const projectRoot = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,7 @@ function syncPdfjsWorker(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     // Keep pdf.js out of the prebundle so the API and worker resolve from the
     // same package copy. A stale dep cache was serving API 6.2.108 with worker 6.0.227.
@@ -35,6 +36,7 @@ export default defineConfig({
   },
   plugins: [
     syncPdfjsWorker(),
+    sanoftShopsDevPlugin(loadEnv(mode, projectRoot, '')),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -173,4 +175,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

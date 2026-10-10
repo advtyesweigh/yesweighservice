@@ -69,8 +69,14 @@ function initialWizardStep(
   initialIntent?: SupportRequestType | null,
   productDraft?: SupportProductDraft | null,
   resumeDraft?: DealerSupportRequest | null,
+  initialOnBehalfDealer?: SupportOnBehalfDealer | null,
 ): WizardStep {
   if (resumeDraft) return 'details';
+  if (opsCreateMode && initialOnBehalfDealer && initialIntent) {
+    if (productDraft) return 'details';
+    if (initialIntent === 'complaint') return 'details';
+    return 'product';
+  }
   if (opsCreateMode) return 'dealer';
   if (productDraft && initialIntent) return 'details';
   if (initialIntent === 'complaint') return 'details';
@@ -102,6 +108,9 @@ interface SupportWizardProps {
   initialIntent?: SupportRequestType | null;
   resumeDraft?: DealerSupportRequest | null;
   opsCreateMode?: boolean;
+  initialOnBehalfDealer?: SupportOnBehalfDealer | null;
+  initialDealerQuery?: string;
+  dealerLookupStatus?: 'none' | 'multiple' | 'matched' | null;
   onCancel: () => void;
   onSuccess: (requestNumber: string, type: SupportRequestType, requestId: string) => void;
   onDraftSaved?: (requestNumber: string, requestId: string) => void;
@@ -124,12 +133,15 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   initialIntent,
   resumeDraft,
   opsCreateMode = false,
+  initialOnBehalfDealer = null,
+  initialDealerQuery = '',
+  dealerLookupStatus = null,
   onCancel,
   onSuccess,
   onDraftSaved,
 }) => {
   const [step, setStep] = useState<WizardStep>(() =>
-    initialWizardStep(opsCreateMode, initialIntent, productDraft, resumeDraft),
+    initialWizardStep(opsCreateMode, initialIntent, productDraft, resumeDraft, initialOnBehalfDealer),
   );
   const [intent, setIntent] = useState<SupportRequestType | null>(
     resumeDraft?.type ?? initialIntent ?? null,
@@ -151,7 +163,15 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [draftRequestId, setDraftRequestId] = useState(resumeDraft?.id ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    if (dealerLookupStatus === 'none') {
+      return 'No dealer is linked to this WhatsApp number. Search and select one to continue.';
+    }
+    if (dealerLookupStatus === 'multiple') {
+      return 'Several dealers share this number. Select the right one.';
+    }
+    return '';
+  });
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState('');
   const [createdRequestId, setCreatedRequestId] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
@@ -161,6 +181,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
   const [submittedRequest, setSubmittedRequest] = useState<DealerSupportRequest | null>(null);
   const [onBehalfDealer, setOnBehalfDealer] = useState<SupportOnBehalfDealer | null>(() => {
+    if (initialOnBehalfDealer?.zohoCustomerId) return initialOnBehalfDealer;
     if (!resumeDraft?.createdOnBehalfOf || !resumeDraft.zohoCustomerId) return null;
     return {
       zohoCustomerId: resumeDraft.zohoCustomerId,
@@ -661,6 +682,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               value={onBehalfDealer}
               onChange={setOnBehalfDealer}
               disabled={isBusy}
+              initialQuery={initialDealerQuery}
             />
             <div className="form-group">
               <label htmlFor="support-occurred-at">Request date</label>

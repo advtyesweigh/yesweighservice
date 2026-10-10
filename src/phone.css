@@ -1,51 +1,74 @@
+.main-content:has(.call-page) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.content-area:has(.call-page) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .call-page {
-  --phone-bg: #f7f8fa;
-  --phone-card: #ffffff;
-  --phone-line: rgba(15, 23, 42, 0.12);
+  --phone-bg: transparent;
+  --phone-card: rgba(17, 24, 39, 0.88);
+  --phone-line: rgba(255, 255, 255, 0.1);
   --phone-gold: #d4a24a;
-  --phone-gold-text: #6b4510;
-  --phone-green: #15803d;
-  --phone-red: #b91c1c;
-  --phone-blue: #60a5fa;
+  --phone-gold-text: #fdba74;
+  --phone-green: #4ade80;
+  --phone-red: #f87171;
+  --phone-blue: #93c5fd;
   --phone-wa: #25d366;
-  --phone-sales: #008069;
-  --bg-card: #ffffff;
-  --bg-glass: #ffffff;
-  --border-glass: rgba(15, 23, 42, 0.12);
-  --text-main: #111827;
-  --text-secondary: #374151;
-  --text-muted: #4b5563;
+  --phone-sales: #34d399;
+  --bg-card: rgba(17, 24, 39, 0.88);
+  --bg-glass: rgba(8, 12, 20, 0.72);
+  --border-glass: rgba(255, 255, 255, 0.1);
+  --text-main: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
   --accent-primary: #d4a24a;
-  --accent-text: #6b4510;
-  --fill-subtle: rgba(15, 23, 42, 0.04);
-  --status-ok: #15803d;
-  --status-bad: #b91c1c;
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.06);
-  --shadow-glass: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 28px rgba(15, 23, 42, 0.08);
+  --accent-text: #fdba74;
+  --fill-subtle: rgba(255, 255, 255, 0.06);
+  --status-ok: #4ade80;
+  --status-bad: #f87171;
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-glass: 0 8px 24px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
   font-family: Outfit, "Segoe UI", system-ui, sans-serif;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  flex: 1;
+  min-height: 0;
+  gap: 0.5rem;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
-  color: #0f172a;
+  overflow: auto;
+  color: var(--text-main);
   background: var(--phone-bg);
-  border-radius: 16px;
-  padding: 0.7rem 0.7rem 1rem;
+  border-radius: 0;
+  padding: 0;
   box-sizing: border-box;
 }
 
 .call-page__grid {
   display: grid;
-  gap: 0.65rem;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .call-page__main {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.45rem;
   min-width: 0;
+  min-height: 0;
 }
 
 .call-page__loading,
@@ -56,14 +79,14 @@
   align-items: center;
   justify-content: center;
   gap: 0.6rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .call-page__spinner {
   width: 1.4rem;
   height: 1.4rem;
   border-radius: 999px;
-  border: 2px solid rgba(15, 23, 42, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.12);
   border-top-color: var(--phone-gold);
   animation: call-spin 0.7s linear infinite;
 }
@@ -80,8 +103,8 @@
 }
 
 .call-page__empty-inline {
-  color: #64748b;
-  padding: 1rem;
+  color: var(--text-muted);
+  padding: 0.75rem 0;
 }
 
 .phone-rail {
@@ -94,12 +117,13 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(5.4rem, 1.35fr);
   gap: 0;
-  margin-bottom: 0.65rem;
+  margin: 0;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 0;
   background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  box-shadow: var(--shadow-glass);
+  border: none;
+  border-bottom: 1px solid var(--border-glass);
+  box-shadow: none;
 }
 
 .phone-sort__tile {
@@ -175,7 +199,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.phone-sort__dur--in { color: #2563eb; }
+.phone-sort__dur--in { color: #93c5fd; }
 .phone-sort__dur--out { color: var(--status-ok); }
 .phone-sort__dur--total { color: var(--status-bad); }
 
@@ -201,10 +225,11 @@
 .call-list {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
   box-shadow: none;
+  padding: 0 0.55rem 0.55rem;
 }
 
 .call-list__head,
@@ -227,7 +252,7 @@
 .call-list__head > :last-child { text-align: right; }
 
 .call-row {
-  --call-icon: 1.7rem;
+  --call-icon: 2.15rem;
   padding: 0.72rem 0.9rem;
   line-height: 1.25;
   border: 1px solid var(--border-glass);
@@ -298,17 +323,20 @@
 
 .call-row__number-wrap {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   min-width: 0;
   flex: 1 1 auto;
+  gap: 0.12rem;
 }
 
 .call-row__number-line {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.28rem;
   min-width: 0;
   max-width: 100%;
+  width: auto;
 }
 
 .call-row__party {
@@ -360,12 +388,12 @@ button.call-row__number-link,
 }
 
 .call-row__number {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 1.18rem;
+  font-weight: 800;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
   color: var(--text-main);
@@ -432,8 +460,8 @@ button.call-row__number-link,
   background: currentColor;
 }
 
-.call-row__dept--sales { color: #008069; }
-.call-row__dept--service { color: #60a5fa; }
+.call-row__dept--sales { color: #34d399; }
+.call-row__dept--service { color: #93c5fd; }
 
 .call-row__dept-line {
   display: flex;
@@ -502,7 +530,7 @@ button.call-row__number-link,
 }
 
 .call-row__status--incoming {
-  background: rgba(212, 162, 74, 0.12);
+  background: rgba(245, 158, 11, 0.18);
   color: var(--accent-text);
 }
 
@@ -513,13 +541,13 @@ button.call-row__number-link,
 
 .call-row__status--missed,
 .call-row__status--missed.is-attended {
-  background: rgba(185, 28, 28, 0.14);
-  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
 }
 
 .call-row__status--outbound {
-  background: rgba(96, 165, 250, 0.16);
-  color: #1d4ed8;
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
 }
 
 .call-row__tower {
@@ -615,8 +643,8 @@ a.call-row__tower:hover { color: var(--accent-text); }
 }
 
 .call-transcript__turn + .call-transcript__turn { margin-top: 0.55rem; }
-.call-transcript__turn--agent .call-transcript__line { color: #008069; }
-.call-transcript__turn--customer .call-transcript__line { color: #1d7fe0; }
+.call-transcript__turn--agent .call-transcript__line { color: #34d399; }
+.call-transcript__turn--customer .call-transcript__line { color: #93c5fd; }
 
 .call-row__play--stop {
   background: rgba(239, 68, 68, 0.16);
@@ -673,7 +701,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
   padding: 0;
   border: 1px solid var(--border-glass);
   border-radius: 8px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-main);
   cursor: pointer;
 }
@@ -704,7 +732,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .phone-filter select,
@@ -713,8 +741,8 @@ a.call-row__tower:hover { color: var(--accent-text); }
   border-radius: 10px;
   padding: 0.5rem 0.6rem;
   font: inherit;
-  color: #0f172a;
-  background: white;
+  color: var(--text-main);
+  background: rgba(8, 12, 20, 0.92);
 }
 
 .phone-filter__chips {
@@ -727,7 +755,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
 .phone-filter__chips span {
   width: 100%;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .phone-filter__chips button,
@@ -741,14 +769,15 @@ a.call-row__tower:hover { color: var(--accent-text); }
 }
 
 .phone-filter__chips button {
-  background: rgba(15, 23, 42, 0.05);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
 }
 
 .phone-filter__chips button.is-on,
 .phone-filter__apply,
 .phone-filter__clear {
-  background: #001f3f;
-  color: white;
+  background: linear-gradient(135deg, var(--accent-primary), #f59e0b);
+  color: #1a0a00;
 }
 
 .phone-filter__clear:disabled {
@@ -765,9 +794,9 @@ a.call-row__tower:hover { color: var(--accent-text); }
   width: 2.35rem;
   height: 2.35rem;
   border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: #ffffff;
-  color: #0f172a;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -792,10 +821,10 @@ a.call-row__tower:hover { color: var(--accent-text); }
   width: 100%;
   max-height: 88dvh;
   overflow: auto;
-  background: white;
+  background: rgba(8, 12, 20, 0.98);
   border-radius: 16px 16px 0 0;
   padding: 0.9rem 0.9rem 1.2rem;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .phone-sheet__panel header {
@@ -808,6 +837,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
 .phone-sheet__panel header button {
   border: 0;
   background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
 }
 
@@ -834,15 +864,15 @@ a.call-row__tower:hover { color: var(--accent-text); }
   }
 
   .call-row {
-    --call-icon: 1.45rem;
+    --call-icon: 2rem;
     padding: 0.68rem 0.75rem;
   }
 
   .call-row__sl { font-size: 0.8rem; }
   .call-row__day { font-size: 0.68rem; }
   .call-row__clock { font-size: 0.6rem; }
-  .call-row__phone { gap: 0.28rem; }
-  .call-row__number { font-size: 0.82rem; }
+  .call-row__phone { gap: 0.38rem; }
+  .call-row__number { font-size: 1.12rem; }
   .call-row__agent { font-size: 0.88rem; }
   .call-row__tower { font-size: 0.62rem; }
   .call-row__status { padding: 0 0.42rem; font-size: 0.62rem; }
@@ -859,7 +889,13 @@ a.call-row__tower:hover { color: var(--accent-text); }
   .call-row { padding: 0.64rem 0.7rem; }
 }
 
+@media (max-width: 768px) {
+  .content-area:has(.call-page) {
+    padding: 0;
+  }
+}
+
 @media (min-width: 960px) {
-  .call-page { padding: 1rem; }
+  .call-page { padding: 0; }
   .call-page__grid { grid-template-columns: minmax(0, 1fr) 19.75rem; }
 }

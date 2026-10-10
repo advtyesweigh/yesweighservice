@@ -8,6 +8,7 @@ type Props = {
   salesOrders: SegmentSalesOrderResult[];
   detailBasePath: string;
   listPath: string;
+  shareToWa?: string;
   onDone?: () => void;
 };
 
@@ -15,8 +16,10 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
   salesOrders,
   detailBasePath,
   listPath,
+  shareToWa,
   onDone,
 }) => {
+  const shareQs = shareToWa ? `?shareToWa=${encodeURIComponent(shareToWa)}` : '';
   const count = salesOrders.length;
   return (
     <div className="panel glass multi-so-success" role="status">
@@ -49,7 +52,7 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
             </div>
             <Link
               className="btn btn-secondary btn-sm"
-              to={`${detailBasePath}/${so.zohoSalesOrderId}`}
+              to={`${detailBasePath}/${so.zohoSalesOrderId}${shareQs}`}
             >
               Open
             </Link>
@@ -60,7 +63,7 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
         {count === 1 && salesOrders[0] ? (
           <Link
             className="btn btn-primary"
-            to={`${detailBasePath}/${salesOrders[0].zohoSalesOrderId}`}
+            to={`${detailBasePath}/${salesOrders[0].zohoSalesOrderId}${shareQs}`}
           >
             View sales order
           </Link>

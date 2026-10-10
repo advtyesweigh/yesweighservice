@@ -34,6 +34,54 @@ export function dealerContactPhone(dealer: Pick<
   return null;
 }
 
+function phoneDigits(value: string | null | undefined): string {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+/** True when any dealer phone (portal, mobile, WhatsApp, Zoho contacts) matches the needle. */
+export function dealerMatchesPhoneNeedle(dealer: ZohoDealer, needle: string): boolean {
+  const query = phoneDigits(needle);
+  if (query.length < 8) return false;
+  const last = query.length >= 10 ? query.slice(-10) : query;
+  const candidates = [
+    dealer.mobile,
+    dealer.phone,
+    dealer.whatsappNumber,
+    dealer.alternateMobile,
+    dealer.portalLoginId,
+    dealer.zohoPrimaryContact?.mobile,
+    dealer.zohoPrimaryContact?.phone,
+    dealer.zohoBillingAddressRaw?.phone,
+    dealer.zohoShippingAddressRaw?.phone,
+    ...(dealer.zohoContactPersons ?? []).flatMap(person => [person.mobile, person.phone]),
+  ];
+  return candidates.some(value => {
+    const digits = phoneDigits(value);
+    if (digits.length < 8) return false;
+    return digits.includes(last)
+      || (last.length >= 10 && digits.slice(-10) === last);
+  });
+}
+
+export async function findDealersByPhoneNeedle(phoneInput: string): Promise<ZohoDealer[]> {
+  const digits = phoneDigits(phoneInput);
+  const needle = digits.length >= 10 ? digits.slice(-10) : digits;
+  if (needle.length < 8) return [];
+  const res = await fetchDealers({
+    page: 1,
+    limit: 40,
+    q: needle,
+    sortField: 'companyName',
+    sortDir: 'asc',
+  });
+  const seen = new Set<string>();
+  return res.data.filter(dealer => {
+    if (!dealerMatchesPhoneNeedle(dealer, needle) || seen.has(dealer.id)) return false;
+    seen.add(dealer.id);
+    return true;
+  });
+}
+
 function dealerErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const fb = err as { code?: string; message?: string; details?: unknown };

@@ -11,6 +11,13 @@ REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 HTTP_AGENT_FIX="${REPO_ROOT}/scripts/ci-node-http-agent-fix.cjs"
 FIREBASE_CLI="${FIREBASE_CLI:-npx --yes firebase-tools@15.22.1}"
 
+# Remote workflow cannot be updated without GitHub `workflow` scope, so Sanoft /
+# Sarvam GitHub secrets never reach functions/.env. Merge the encrypted runtime
+# file here (and seed Firestore when ADC is present).
+if [ -f "$REPO_ROOT/scripts/merge-functions-runtime-env.mjs" ]; then
+  node "$REPO_ROOT/scripts/merge-functions-runtime-env.mjs" || echo "::warning::Could not merge Sanoft/Sarvam runtime env."
+fi
+
 # --force on functions: delete orphans removed from source (non-interactive) and
 # apply Artifact Registry cleanup policy without prompting (see README).
 FORCE_FLAG=()

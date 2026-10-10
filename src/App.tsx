@@ -73,12 +73,14 @@ import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
 import { IncentiveReportTab } from './pages/admin/settings/IncentiveReportTab';
 import { RcOvReportTab } from './pages/admin/settings/RcOvReportTab';
 import { WhatsAppInboxPage } from './pages/admin/WhatsAppInboxPage';
+import { SoftwarePage } from './pages/admin/SoftwarePage';
 import { PhonePage } from './pages/admin/PhonePage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { HrSalaryPublicSharePage } from './pages/public/HrSalaryPublicSharePage';
 import { HrWorklogPublicSharePage } from './pages/public/HrWorklogPublicSharePage';
+import { DealerCreateSharePage } from './pages/public/DealerCreateSharePage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
 import {
@@ -158,7 +160,8 @@ const superAdminOpsRoutes = (
     <Route path="logistics" element={<DealerMenuPages.Logistics />} />
     <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
-    <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
+    <Route path="software" element={<SoftwarePage />} />
+    <Route path="ai-assistant" element={<Navigate to="software" replace />} />
   </>
 );
 
@@ -294,6 +297,7 @@ const App: React.FC = () => (
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
           <Route path="/s/salary/:token" element={<HrSalaryPublicSharePage />} />
           <Route path="/s/worklog/:token" element={<HrWorklogPublicSharePage />} />
+          <Route path="/s/dealer/:token" element={<DealerCreateSharePage />} />
           <Route path="/admin/phone" element={<AdminPhoneRedirect />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   AlertTriangle,
@@ -86,6 +86,7 @@ import {
 import { playOnlineOrderAlert, unlockOrderAlertAudio } from '../../lib/orderAlertSound';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
+import { sendWhatsAppFile } from '../../lib/whatsappInbox';
 
 function WhatsAppIcon({ size = 16 }: { size?: number }) {
   return (
@@ -109,8 +110,24 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the sales order image.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export const AdminSalesOrderDocumentPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const shareToWa = String(searchParams.get('shareToWa') || '').replace(/\D/g, '');
   const isMobile = useIsMobile();
   const isDealerOwner = user?.role === 'dealer';
   const isDealer = isDealerOwner || user?.role === 'dealer_staff';
@@ -166,6 +183,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const soDetailRef = useRef<HTMLDivElement>(null);
   const warmShotRef = useRef<{ key: string; shot: PreparedScreenshot } | null>(null);
   const warmPromiseRef = useRef<Promise<PreparedScreenshot | null> | null>(null);
+  const autoShareDoneRef = useRef(false);
 
   const stage = String(salesOrder?.yesOneStage || '');
   const showAvailableStock = isOps && (stage === 'review' || stage === 'payment_submitted');
@@ -988,6 +1006,63 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       setSharing(false);
     }
   }, [salesOrder, salesOrderId, sharing, shareWarmKey]);
+
+  useEffect(() => {
+    if (!shareToWa || !salesOrder || !shareWarmKey || autoShareDoneRef.current) return;
+    const shareKey = `so-wa-share:${salesOrderId}:${shareToWa}`;
+    if (sessionStorage.getItem(shareKey)) {
+      autoShareDoneRef.current = true;
+      navigate(`/super-admin/whatsapp?chat=${encodeURIComponent(shareToWa)}`);
+      return;
+    }
+    let cancelled = false;
+    const send = async () => {
+      setSharing(true);
+      try {
+        let shot: PreparedScreenshot | null =
+          warmShotRef.current?.key === shareWarmKey ? warmShotRef.current.shot : null;
+        if (!shot && warmPromiseRef.current) {
+          shot = await warmPromiseRef.current;
+          if (warmShotRef.current?.key !== shareWarmKey) shot = null;
+        }
+        if (!shot) {
+          const el = shareCaptureRef.current;
+          if (!el) return;
+          await new Promise<void>(resolve => { window.setTimeout(resolve, 400); });
+          if (cancelled) return;
+          shot = await prepareElementScreenshot(el, {
+            fileName: `${(salesOrder.salesOrderNumber || salesOrderId || 'sales-order').replace(/[^\w\-]+/g, '-').slice(0, 48)}.png`,
+            backgroundColor: '#13151b',
+          });
+        }
+        if (!shot || cancelled) return;
+        const fileBase64 = shot.dataBase64 || await blobToBase64(shot.blob);
+        if (cancelled) return;
+        await sendWhatsAppFile({
+          waId: shareToWa,
+          fileBase64,
+          mimeType: shot.mimeType || 'image/png',
+          fileName: shot.fileName,
+          caption: salesOrder.salesOrderNumber || 'Sales order',
+        });
+        autoShareDoneRef.current = true;
+        sessionStorage.setItem(shareKey, '1');
+        if (!cancelled) {
+          navigate(`/super-admin/whatsapp?chat=${encodeURIComponent(shareToWa)}`);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          window.alert(err instanceof Error ? err.message : 'Could not send the sales order on WhatsApp.');
+        }
+      } finally {
+        if (!cancelled) setSharing(false);
+      }
+    };
+    void send();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, salesOrder, salesOrderId, shareToWa, shareWarmKey]);
 
   if (!salesOrder) return null;
 

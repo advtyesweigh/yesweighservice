@@ -711,6 +711,22 @@ service cloud.firestore {
       allow delete: if isFullSuperAdmin();
     }
 
+    // Public dealer-create links from WhatsApp (unguessable token as doc id).
+    match /dealerCreateShares/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSuperAdmin()
+        && request.resource.data.keys().hasOnly([
+          'waId', 'phone', 'createdByUid', 'createdByName', 'status', 'createdAt'
+        ])
+        && request.resource.data.status == 'open'
+        && request.resource.data.waId is string
+        && request.resource.data.phone is string
+        && request.resource.data.createdByUid is string
+        && request.resource.data.createdByName is string;
+      allow update, delete: if false;
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;
@@ -1250,10 +1266,90 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /softwareShops/{id} {
+      allow read: if isSuperAdmin();
+      allow update: if isFullSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'whatsappRenewalSentAt',
+              'hasFollowUp',
+              'contactedAt',
+              'lastFollowUpRemarks',
+              'lastFollowUpChannel',
+              'contactedViaCall',
+              'contactedViaWhatsApp',
+              'installationDate',
+              'customerId',
+              'customerName',
+              'customerOrgKey',
+              'isNewCustomer',
+              'trainingScheduledAt',
+              'trainingScheduledByUid',
+              'trainingScheduledByName',
+              'trainingCompletedAt',
+              'pocName',
+              'pocPhone',
+              'pocEmail',
+              'ownerPhone',
+              'supportUsername',
+              'supportPassword',
+              'trainingPoints',
+              'voided',
+              'cancelled',
+              'cancelledAt'
+            ]);
+      allow create, delete: if false;
+
+      match /followUps/{followUpId} {
+        allow read: if isSuperAdmin();
+        allow create: if isFullSuperAdmin()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() > 0
+          && request.resource.data.remarks is string
+          && request.resource.data.remarks.size() > 0
+          && request.resource.data.channel in ['call', 'whatsapp']
+          && request.resource.data.createdAt is timestamp;
+        allow update, delete: if false;
+      }
+
+      match /trainings/{trainingId} {
+        allow read: if isSuperAdmin();
+        allow create: if isFullSuperAdmin()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() > 0
+          && request.resource.data.scheduledAt is string
+          && request.resource.data.trainingPoints is string
+          && request.resource.data.createdAt is timestamp;
+        allow update, delete: if false;
+      }
+    }
+
+    match /softwareShopMeta/{id} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /softwareShopSecrets/{id} {
+      allow read, write: if false;
+    }
+
+    /** Meta WhatsApp inbox. Staff and full-access admins. View-only admins are excluded. */
     match /whatsappConversations/{chatId} {
       allow read: if canUseWhatsApp();
       allow update: if canUseWhatsApp()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount']);
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            'unreadCount',
+            'assignedToUid',
+            'assignedToName',
+            'closed',
+            'outboundVoiceLanguage',
+            'outboundVoiceLanguageCode',
+            'outboundVoiceLanguageName',
+            'outboundVoiceLanguageUpdatedAt',
+          ]);
       allow create, delete: if false;
     }
 
@@ -1263,7 +1359,17 @@ service cloud.firestore {
     }
 
     match /whatsappSettings/{docId} {
-      allow read, write: if false;
+      allow read: if isSuperAdmin() && docId == 'voiceTranslate';
+      allow create: if isFullSuperAdmin()
+        && docId == 'voiceTranslate'
+        && request.resource.data.keys().hasOnly(['enabled', 'updatedAt'])
+        && request.resource.data.enabled is bool;
+      allow update: if isFullSuperAdmin()
+        && docId == 'voiceTranslate'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['enabled', 'updatedAt'])
+        && request.resource.data.enabled is bool;
+      allow delete: if false;
     }
 
     /** Voxbay / staff call log. Webhook writes; staff only mark missed follow-up. */
