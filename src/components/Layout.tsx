@@ -11,6 +11,7 @@ import { navigateBack } from '../lib/navigation';
 import { HrStaffPhoto } from './hr/HrStaffPhoto';
 import {
   canAccessNavFeature,
+  canUseWhatsApp,
   canViewHr,
   isInvoiceAccessOnlyStaff,
   type StaffNavFeature,
@@ -217,6 +218,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     logistics: 'logistics',
     loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
+    whatsapp: 'whatsapp',
     training: 'training',
     settings: 'dashboard',
     hr: 'staff',
@@ -313,7 +315,9 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
-          { path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
+          ...(canUseWhatsApp(user)
+            ? [{ path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' }]
+            : []),
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
@@ -335,6 +339,7 @@ const LayoutShell: React.FC = () => {
         withExtras.splice(
           insertAt,
           0,
+          { path: '/staff/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/staff/invoices', icon: <FileText size={20} />, label: 'Invoices' },
         );

@@ -8261,7 +8261,8 @@ export const yesGatcRcInvoiceReportFn = onCall(
   },
 );
 
-const WHATSAPP_OPS_ROLES = new Set(['super_admin']);
+const WHATSAPP_INBOX_ROLES = new Set(['staff', 'super_admin']);
+const WHATSAPP_ADMIN_ROLES = new Set(['super_admin']);
 
 /** Voxbay call events for the Interweighing trunk. */
 export const ingestVoxbayCall = onRequest(
@@ -8301,8 +8302,10 @@ export const getWhatsAppCloudSettingsFn = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
-    return getWhatsAppCloudSettings();
+    const role = await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    const settings = await getWhatsAppCloudSettings();
+    if (role === 'staff') return { ...settings, verifyToken: '' };
+    return settings;
   },
 );
 
@@ -8313,7 +8316,7 @@ export const saveWhatsAppCloudSettingsFn = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    await requireActiveUser(request.auth?.uid, WHATSAPP_ADMIN_ROLES);
     try {
       return await saveWhatsAppCloudSettings(request.data ?? {});
     } catch (err) {
@@ -8330,7 +8333,7 @@ export const sendWhatsAppCloudMessage = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
     const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
     try {
@@ -8349,7 +8352,7 @@ export const listWhatsAppTemplatesFn = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES, { allowViewOnly: true });
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     try {
       return await listWhatsAppTemplates();
     } catch (err) {
@@ -8366,7 +8369,7 @@ export const saveWhatsAppTemplateFn = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    await requireActiveUser(request.auth?.uid, WHATSAPP_ADMIN_ROLES);
     try {
       return await saveWhatsAppTemplate(request.data ?? {});
     } catch (err) {
@@ -8383,7 +8386,7 @@ export const deleteWhatsAppTemplateFn = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    await requireActiveUser(request.auth?.uid, WHATSAPP_ADMIN_ROLES);
     try {
       return await deleteWhatsAppTemplate(request.data ?? {});
     } catch (err) {
@@ -8400,7 +8403,7 @@ export const sendWhatsAppCloudFileFn = onCall(
     memory: '512MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, WHATSAPP_OPS_ROLES);
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
     const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
     try {

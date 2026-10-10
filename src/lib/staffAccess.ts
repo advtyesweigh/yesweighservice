@@ -65,6 +65,14 @@ export function canSuperAdminWrite(
   return isFullSuperAdmin(user);
 }
 
+/** Inbox: every staff account, and super admins with full access. */
+export function canUseWhatsApp(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  if (user?.role === 'staff') return true;
+  return isFullSuperAdmin(user);
+}
+
 export function isViewOnlySuperAdmin(
   user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
 ): boolean {
@@ -305,7 +313,8 @@ export type StaffNavFeature =
   | 'ai-assistant'
   | 'training'
   | 'reports'
-  | 'staff';
+  | 'staff'
+  | 'whatsapp';
 
 const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'always'> = {
   dashboard: 'always',
@@ -330,6 +339,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'ai-assistant': 'always',
   training: 'always',
   reports: 'always',
+  whatsapp: 'always',
   staff: ['staff.manage', 'hr.view', 'hr.manage'],
 };
 
@@ -352,8 +362,8 @@ export function canAccessNavFeature(user: User | null | undefined, feature: Staf
 
   const rule = NAV_FEATURE_PERMISSIONS[feature];
   if (rule === 'always') {
-    // Invoice-only staff: Dashboard stays; hide AI / training / reports.
-    if (feature === 'dashboard') return true;
+    // Invoice-only staff: Dashboard and WhatsApp stay; hide AI / training / reports.
+    if (feature === 'dashboard' || feature === 'whatsapp') return true;
     if (isInvoiceAccessOnlyStaff(user)) return false;
     return true;
   }

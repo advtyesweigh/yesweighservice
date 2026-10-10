@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Briefcase,
@@ -19,9 +19,10 @@ import {
   X,
 } from 'lucide-react';
 import { FIRM_PHONE } from '../../constants/brand';
+import { homePathForRole } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
-import { canSuperAdminWrite } from '../../lib/staffAccess';
+import { canSuperAdminWrite, canUseWhatsApp } from '../../lib/staffAccess';
 import {
   formatWhatsAppNumber,
   loadWhatsAppSettings,
@@ -254,6 +255,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const sessionOpen = active ? whatsAppSessionOpen(active.lastInboundAtMs) : false;
   const { user } = useAuth();
   const canWriteTemplates = canSuperAdminWrite(user);
+  const allowed = canUseWhatsApp(user);
   const filtersDiffer = filters.date !== 'all' || filters.kind !== 'all';
   const headerActions = useMemo(() => (
     <>
@@ -334,6 +336,10 @@ export const WhatsAppInboxPage: React.FC = () => {
     }
   };
 
+  if (user && !allowed) {
+    return <Navigate to={homePathForRole(user.role)} replace />;
+  }
+
   if (!settings && !settingsError) {
     return (
       <div className="wa-inbox-page wa-inbox-page--setup">
@@ -346,7 +352,9 @@ export const WhatsAppInboxPage: React.FC = () => {
     return (
       <div className="wa-inbox-page wa-inbox-page--setup">
         <p className="wa-inbox-note">{settingsError || 'WhatsApp is not connected.'}</p>
-        <Link to="/super-admin/settings/integration?section=whatsapp">Open Integration settings</Link>
+        {canWriteTemplates ? (
+          <Link to="/super-admin/settings/integration?section=whatsapp">Open Integration settings</Link>
+        ) : null}
       </div>
     );
   }

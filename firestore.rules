@@ -33,6 +33,11 @@ service cloud.firestore {
       return signedIn() && userExists() && role() == 'staff';
     }
 
+    /** Inbox: staff and full-access admins. View-only admins are excluded. */
+    function canUseWhatsApp() {
+      return isStaff() || isFullSuperAdmin();
+    }
+
     function isWarehouse() {
       return signedIn() && userExists() && role() == 'warehouse';
     }
@@ -1245,16 +1250,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    /** Meta WhatsApp inbox. Messages are written by the Cloud webhook only. */
     match /whatsappConversations/{chatId} {
-      allow read: if isSuperAdmin();
-      allow update: if isFullSuperAdmin()
+      allow read: if canUseWhatsApp();
+      allow update: if canUseWhatsApp()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount']);
       allow create, delete: if false;
     }
 
     match /whatsappMessages/{messageId} {
-      allow read: if isSuperAdmin();
+      allow read: if canUseWhatsApp();
       allow write: if false;
     }
 
