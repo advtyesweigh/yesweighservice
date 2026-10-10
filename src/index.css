@@ -16029,6 +16029,169 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 18rem;
 }
 
+.stock-ledger__invoice-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.stock-ledger__invoice-count-label {
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+}
+
+.stock-ledger__sales-tile-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+}
+
+button.stock-ledger__invoice-count:hover,
+button.stock-ledger__invoice-count:focus-visible {
+  text-decoration: underline;
+}
+
+.stock-ledger__invoice-count.is-empty {
+  color: #94a3b8;
+  font-weight: 600;
+  cursor: default;
+}
+
+.stock-ledger__invoices-dialog {
+  width: min(44rem, calc(100vw - 1.5rem));
+  max-height: min(85vh, 36rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 1.1rem;
+  overflow: hidden;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+}
+
+.stock-ledger__invoices-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.stock-ledger__invoices-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stock-ledger__invoices-dialog-header h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.stock-ledger__invoices-dialog-header p {
+  margin: 0;
+}
+
+.stock-ledger__invoices-empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.stock-ledger__invoices-table-wrap {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+}
+
+.stock-ledger__invoices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.stock-ledger__invoices-table th,
+.stock-ledger__invoices-table td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid #eef2f7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.stock-ledger__invoices-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  z-index: 1;
+}
+
+.stock-ledger__invoices-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.stock-ledger__invoices-table td strong {
+  display: block;
+  color: #0f172a;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.stock-ledger__invoices-table td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.stock-ledger__invoices-status {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.stock-ledger__invoices-num {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-ledger__invoices-num span {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.stock-ledger__invoices-price {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
 .stock-ledger__pagination {
   display: flex;
   flex-wrap: wrap;

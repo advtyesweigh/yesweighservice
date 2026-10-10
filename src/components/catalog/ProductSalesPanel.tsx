@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ShoppingCart } from 'lucide-react';
-import { formatStockQuantity } from '../../lib/catalog';
+import { createPortal } from 'react-dom';
+import { RefreshCw, ShoppingCart, X } from 'lucide-react';
+import { formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { loadCatalogProductStockLedger, isBrokenStockLedger } from '../../lib/catalogProductAudit/loadStockLedger';
 import {
   formatPeriodLabel,
@@ -18,6 +19,18 @@ import {
   useLedgerPagination,
 } from './StockLedgerPagination';
 
+interface CustomerInvoiceLine {
+  key: string;
+  documentNumber: string;
+  date: string;
+  status: string;
+  quantity: number;
+  itemPrice: number | null;
+  itemTotal: number | null;
+  currencyCode: string | null;
+  currencySymbol: string | null;
+}
+
 interface CustomerSalesRow {
   customerKey: string;
   customerName: string;
@@ -27,6 +40,7 @@ interface CustomerSalesRow {
   qtyReturned: number;
   netQty: number;
   lastSaleDate: string;
+  invoices: CustomerInvoiceLine[];
 }
 
 function isVoidRow(row: CatalogStockMovement): boolean {
@@ -40,6 +54,54 @@ function isSalesMovement(row: CatalogStockMovement): boolean {
 function soldQty(row: CatalogStockMovement): number {
   if (isVoidRow(row)) return 0;
   return Math.abs(Number(row.quantity) || Math.abs(Number(row.displayQtyDelta ?? row.qtyDelta) || 0));
+}
+
+function finiteAmount(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  return Number(value);
+}
+
+function invoiceLineFromMovement(row: CatalogStockMovement, index: number): CustomerInvoiceLine {
+  return {
+    key: `${row.documentId || row.documentNumber}:${row.date}:${index}`,
+    documentNumber: String(row.documentNumber || '').trim() || 'Invoice',
+    date: String(row.date || '').slice(0, 10),
+    status: String(row.status || '').trim(),
+    quantity: soldQty(row),
+    itemPrice: finiteAmount(row.itemPrice),
+    itemTotal: finiteAmount(row.itemTotal),
+    currencyCode: row.currencyCode ?? null,
+    currencySymbol: row.currencySymbol ?? null,
+  };
+}
+
+function formatInvoiceMoney(
+  amount: number | null,
+  currencyCode: string | null,
+  currencySymbol: string | null,
+): string {
+  if (amount == null) return '—';
+  if (currencyCode) return formatCurrency(amount, currencyCode);
+  if (currencySymbol) {
+    const formatted = amount.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${currencySymbol}${formatted}`;
+  }
+  return formatCurrency(amount, 'INR');
+}
+
+function invoiceLineAmount(line: CustomerInvoiceLine): number | null {
+  if (line.itemTotal != null) return line.itemTotal;
+  if (line.itemPrice != null) return line.itemPrice * line.quantity;
+  return null;
+}
+
+function formatInvoiceStatus(status: string): string {
+  const trimmed = status.trim();
+  if (!trimmed) return '';
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
 function aggregateSalesByCustomer(rows: CatalogStockMovement[]): CustomerSalesRow[] {
@@ -59,6 +121,7 @@ function aggregateSalesByCustomer(rows: CatalogStockMovement[]): CustomerSalesRo
       qtyReturned: 0,
       netQty: 0,
       lastSaleDate: '',
+      invoices: [],
     };
 
     const qty = soldQty(row);
@@ -68,6 +131,7 @@ function aggregateSalesByCustomer(rows: CatalogStockMovement[]): CustomerSalesRo
       if (!isVoidRow(row)) {
         existing.invoiceCount += 1;
         existing.qtySold += qty;
+        existing.invoices.push(invoiceLineFromMovement(row, existing.invoices.length));
         if (date && date > existing.lastSaleDate) existing.lastSaleDate = date;
       }
     } else if (qty > 0) {
@@ -82,6 +146,10 @@ function aggregateSalesByCustomer(rows: CatalogStockMovement[]): CustomerSalesRo
     .map(row => ({
       ...row,
       netQty: row.qtySold - row.qtyReturned,
+      invoices: [...row.invoices].sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return b.documentNumber.localeCompare(a.documentNumber);
+      }),
     }))
     .filter(row => row.invoiceCount > 0 || row.returnCount > 0)
     .sort((a, b) => {
@@ -117,23 +185,161 @@ function formatCustomerDisplayName(name: string): string {
   return trimmed;
 }
 
+function InvoiceCountButton({
+  count,
+  onClick,
+  labelled = false,
+}: {
+  count: number;
+  onClick: () => void;
+  labelled?: boolean;
+}) {
+  const label = `${count.toLocaleString('en-IN')} invoice${count === 1 ? '' : 's'}`;
+  if (count <= 0) {
+    return (
+      <span className="stock-ledger__invoice-count is-empty">
+        0
+        {labelled ? <span className="stock-ledger__invoice-count-label">inv</span> : null}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="stock-ledger__invoice-count"
+      onClick={onClick}
+      aria-label={label}
+    >
+      {count.toLocaleString('en-IN')}
+      {labelled ? <span className="stock-ledger__invoice-count-label">inv</span> : null}
+    </button>
+  );
+}
+
 function SalesCustomerTile({
   row,
   unit,
+  onOpenInvoices,
 }: {
   row: CustomerSalesRow;
   unit: string;
+  onOpenInvoices: () => void;
 }) {
   return (
     <article className="stock-ledger__sales-tile">
       <strong className="stock-ledger__sales-tile-name">
         {formatCustomerDisplayName(row.customerName)}
       </strong>
-      <span className="stock-ledger__sales-tile-sold">
-        <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
-        <span>{unit}</span>
+      <span className="stock-ledger__sales-tile-end">
+        <InvoiceCountButton count={row.invoiceCount} onClick={onOpenInvoices} labelled />
+        <span className="stock-ledger__sales-tile-sold">
+          <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
+          <span>{unit}</span>
+        </span>
       </span>
     </article>
+  );
+}
+
+function DealerInvoicesDialog({
+  dealer,
+  productName,
+  unit,
+  onClose,
+}: {
+  dealer: CustomerSalesRow;
+  productName: string;
+  unit: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const titleId = 'dealer-invoices-title';
+
+  return createPortal(
+    <div
+      className="spare-link-editor-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="stock-ledger__invoices-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={event => event.stopPropagation()}
+      >
+        <header className="stock-ledger__invoices-dialog-header">
+          <div>
+            <h2 id={titleId}>{dealer.customerName}</h2>
+            <p className="text-muted text-sm">
+              {productName}
+              {' · '}
+              {dealer.invoiceCount.toLocaleString('en-IN')} invoice{dealer.invoiceCount === 1 ? '' : 's'}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="stock-ledger__invoices-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </header>
+
+        {dealer.invoices.length === 0 ? (
+          <p className="stock-ledger__invoices-empty">No invoices for this dealer.</p>
+        ) : (
+          <div className="stock-ledger__invoices-table-wrap">
+            <table className="stock-ledger__invoices-table">
+              <thead>
+                <tr>
+                  <th scope="col">Invoice</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Qty</th>
+                  <th scope="col">Price</th>
+                  <th scope="col">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dealer.invoices.map(line => (
+                  <tr key={line.key}>
+                    <td>
+                      <strong>{line.documentNumber}</strong>
+                      {line.status ? (
+                        <span className="stock-ledger__invoices-status">
+                          {formatInvoiceStatus(line.status)}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>{formatSaleDate(line.date)}</td>
+                    <td className="stock-ledger__invoices-num">
+                      {line.quantity.toLocaleString('en-IN')}
+                      <span>{unit}</span>
+                    </td>
+                    <td className="stock-ledger__invoices-num stock-ledger__invoices-price">
+                      {formatInvoiceMoney(line.itemPrice, line.currencyCode, line.currencySymbol)}
+                      {line.itemPrice != null ? <span>/ {unit}</span> : null}
+                    </td>
+                    <td className="stock-ledger__invoices-num">
+                      {formatInvoiceMoney(invoiceLineAmount(line), line.currencyCode, line.currencySymbol)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -148,6 +354,7 @@ export const ProductSalesPanel: React.FC<{
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('lifetime');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [invoiceCustomerKey, setInvoiceCustomerKey] = useState<string | null>(null);
 
   const unit = product.unit || 'nos';
 
@@ -176,6 +383,7 @@ export const ProductSalesPanel: React.FC<{
     setPeriodPreset('lifetime');
     setCustomFrom('');
     setCustomTo('');
+    setInvoiceCustomerKey(null);
     void load();
   }, [product.id, active, load]);
 
@@ -194,6 +402,20 @@ export const ProductSalesPanel: React.FC<{
     () => aggregateSalesByCustomer(periodSalesRows),
     [periodSalesRows],
   );
+
+  const invoiceDealer = useMemo(
+    () => customerRows.find(row => row.customerKey === invoiceCustomerKey) ?? null,
+    [customerRows, invoiceCustomerKey],
+  );
+
+  const closeInvoices = useCallback(() => setInvoiceCustomerKey(null), []);
+
+  useEffect(() => {
+    if (!invoiceCustomerKey) return;
+    if (!customerRows.some(row => row.customerKey === invoiceCustomerKey)) {
+      setInvoiceCustomerKey(null);
+    }
+  }, [invoiceCustomerKey, customerRows]);
 
   const paginationResetKey = `${product.id}:${periodPreset}:${period.from ?? ''}:${period.to ?? ''}`;
   const {
@@ -364,7 +586,12 @@ export const ProductSalesPanel: React.FC<{
             <>
               <div className="stock-ledger__sales-tiles" aria-label="Sales by dealer">
                 {paginatedRows.map(row => (
-                  <SalesCustomerTile key={row.customerKey} row={row} unit={unit} />
+                  <SalesCustomerTile
+                    key={row.customerKey}
+                    row={row}
+                    unit={unit}
+                    onOpenInvoices={() => setInvoiceCustomerKey(row.customerKey)}
+                  />
                 ))}
               </div>
 
@@ -391,7 +618,12 @@ export const ProductSalesPanel: React.FC<{
                             <strong>{row.customerName}</strong>
                           </div>
                         </td>
-                        <td>{row.invoiceCount.toLocaleString('en-IN')}</td>
+                        <td>
+                          <InvoiceCountButton
+                            count={row.invoiceCount}
+                            onClick={() => setInvoiceCustomerKey(row.customerKey)}
+                          />
+                        </td>
                         <td>{formatSaleDate(row.lastSaleDate)}</td>
                         <td className="stock-ledger__qty is-out">
                           <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
@@ -422,6 +654,15 @@ export const ProductSalesPanel: React.FC<{
             onPageChange={setPage}
             label="Sales pagination"
           />
+
+          {invoiceDealer ? (
+            <DealerInvoicesDialog
+              dealer={invoiceDealer}
+              productName={product.name}
+              unit={unit}
+              onClose={closeInvoices}
+            />
+          ) : null}
 
           <footer className="stock-ledger__footer">
             <p>Sorted by net quantity bought — highest first. Void invoices excluded.</p>
