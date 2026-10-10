@@ -33,9 +33,13 @@ service cloud.firestore {
       return signedIn() && userExists() && role() == 'staff';
     }
 
-    /** Inbox: staff and full-access admins. View-only admins are excluded. */
+    /** Inbox and call log: staff and full-access admins. View-only admins are excluded. */
     function canUseWhatsApp() {
       return isStaff() || isFullSuperAdmin();
+    }
+
+    function canUsePhone() {
+      return canUseWhatsApp();
     }
 
     function isWarehouse() {
@@ -1374,8 +1378,8 @@ service cloud.firestore {
 
     /** Voxbay / staff call log. Webhook writes; staff only mark missed follow-up. */
     match /phoneEvents/{eventId} {
-      allow read: if isSuperAdmin();
-      allow update: if isFullSuperAdmin()
+      allow read: if canUsePhone();
+      allow update: if canUsePhone()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['missedFollowedUp', 'missedFollowedUpBy', 'missedFollowedUpAt']);
       allow create, delete: if false;

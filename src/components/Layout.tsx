@@ -11,6 +11,7 @@ import { navigateBack } from '../lib/navigation';
 import { HrStaffPhoto } from './hr/HrStaffPhoto';
 import {
   canAccessNavFeature,
+  canUsePhone,
   canUseWhatsApp,
   canViewHr,
   isInvoiceAccessOnlyStaff,
@@ -215,6 +216,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
     whatsapp: 'whatsapp',
+    phone: 'phone',
     training: 'training',
     settings: 'dashboard',
     hr: 'staff',
@@ -257,11 +259,14 @@ const LayoutShell: React.FC = () => {
   const topBarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (user?.role !== 'super_admin') return undefined;
+    if (!canUsePhone(user)) {
+      setMissedCalls(0);
+      return undefined;
+    }
     return subscribePhoneEvents(rows => {
       setMissedCalls(openMissedLast24h(rows));
     }, () => undefined);
-  }, [user?.role]);
+  }, [user?.role, user?.superAdminAccess]);
 
   useEffect(() => {
     if (!isMobile || !headerSlot) return undefined;
@@ -320,7 +325,9 @@ const LayoutShell: React.FC = () => {
           ...(canUseWhatsApp(user)
             ? [{ path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' }]
             : []),
-          { path: '/super-admin/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls },
+          ...(canUsePhone(user)
+            ? [{ path: '/super-admin/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls }]
+            : []),
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
@@ -342,6 +349,7 @@ const LayoutShell: React.FC = () => {
           insertAt,
           0,
           { path: '/staff/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
+          { path: '/staff/phone', icon: <Phone size={20} />, label: 'Phone', badge: missedCalls },
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/staff/invoices', icon: <FileText size={20} />, label: 'Invoices' },
         );

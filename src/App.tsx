@@ -406,6 +406,7 @@ const App: React.FC = () => (
               {staffInvoiceRoutes}
               {staffGoodsReceiptRoutes}
               <Route path="whatsapp" element={<WhatsAppInboxPage />} />
+              <Route path="phone" element={<PhonePage />} />
               <Route path="spare-indents" element={<AdminSpareIndentsPage />} />
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />

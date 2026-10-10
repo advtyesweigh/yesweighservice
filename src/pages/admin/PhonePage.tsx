@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
-import { canSuperAdminWrite } from '../../lib/staffAccess';
+import { canUsePhone } from '../../lib/staffAccess';
+import { homePathForRole } from '../../types';
 import { collection, limit, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { markMissedFollowedUp, subscribePhoneEvents } from '../../lib/phoneEvents';
@@ -181,7 +182,7 @@ function FilterFields({
 
 export const PhonePage: React.FC = () => {
   const { user } = useAuth();
-  const canWrite = canSuperAdminWrite(user);
+  const canWrite = canUsePhone(user);
   const desktop = useDesktop();
   const [params, setParams] = useSearchParams();
   const initialStatus = params.get('status');
@@ -356,6 +357,10 @@ export const PhonePage: React.FC = () => {
       onClear={clearFilters}
     />
   );
+
+  if (user && !canUsePhone(user)) {
+    return <Navigate to={homePathForRole(user.role)} replace />;
+  }
 
   return (
     <div className="call-page">

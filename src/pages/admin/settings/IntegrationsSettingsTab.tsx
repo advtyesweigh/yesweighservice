@@ -5,7 +5,7 @@ import { FIRM_NAME, FIRM_PHONE } from '../../../constants/brand';
 import { useAuth } from '../../../context/AuthContext';
 import { copyTextToClipboard } from '../../../lib/clipboard';
 import { COMPANY_DID } from '../../../lib/phoneLog';
-import { canSuperAdminWrite, canUseWhatsApp } from '../../../lib/staffAccess';
+import { canSuperAdminWrite, canUsePhone, canUseWhatsApp } from '../../../lib/staffAccess';
 import {
   formatWhatsAppNumber,
   loadWhatsAppSettings,
@@ -226,8 +226,14 @@ function VoxbayIntegration() {
 export const IntegrationsSettingsTab: React.FC = () => {
   const { user } = useAuth();
   const canOpenWhatsApp = canUseWhatsApp(user);
+  const canOpenPhone = canUsePhone(user);
   const [params, setParams] = useSearchParams();
-  const section = canOpenWhatsApp && params.get('section') !== 'voxbay' ? 'whatsapp' : 'voxbay';
+  const requested = params.get('section') === 'voxbay' ? 'voxbay' : 'whatsapp';
+  const section = requested === 'whatsapp' && canOpenWhatsApp
+    ? 'whatsapp'
+    : canOpenPhone
+      ? 'voxbay'
+      : 'whatsapp';
 
   const choose = (next: 'whatsapp' | 'voxbay') => {
     const query = new URLSearchParams(params);
@@ -246,12 +252,15 @@ export const IntegrationsSettingsTab: React.FC = () => {
             WhatsApp
           </button>
         ) : null}
-        <button type="button" className={section === 'voxbay' ? 'is-active' : ''} onClick={() => choose('voxbay')}>
-          <Phone size={15} />
-          Voxbay
-        </button>
+        {canOpenPhone ? (
+          <button type="button" className={section === 'voxbay' ? 'is-active' : ''} onClick={() => choose('voxbay')}>
+            <Phone size={15} />
+            Voxbay
+          </button>
+        ) : null}
       </nav>
-      {section === 'whatsapp' ? <WhatsAppIntegration /> : <VoxbayIntegration />}
+      {section === 'whatsapp' && canOpenWhatsApp ? <WhatsAppIntegration /> : null}
+      {section === 'voxbay' && canOpenPhone ? <VoxbayIntegration /> : null}
     </section>
   );
 };

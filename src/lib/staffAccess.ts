@@ -73,6 +73,13 @@ export function canUseWhatsApp(
   return isFullSuperAdmin(user);
 }
 
+/** Call log: every staff account, and super admins with full access. */
+export function canUsePhone(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  return canUseWhatsApp(user);
+}
+
 export function isViewOnlySuperAdmin(
   user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
 ): boolean {
@@ -314,7 +321,8 @@ export type StaffNavFeature =
   | 'training'
   | 'reports'
   | 'staff'
-  | 'whatsapp';
+  | 'whatsapp'
+  | 'phone';
 
 const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'always'> = {
   dashboard: 'always',
@@ -340,6 +348,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   training: 'always',
   reports: 'always',
   whatsapp: 'always',
+  phone: 'always',
   staff: ['staff.manage', 'hr.view', 'hr.manage'],
 };
 
@@ -362,8 +371,8 @@ export function canAccessNavFeature(user: User | null | undefined, feature: Staf
 
   const rule = NAV_FEATURE_PERMISSIONS[feature];
   if (rule === 'always') {
-    // Invoice-only staff: Dashboard and WhatsApp stay; hide AI / training / reports.
-    if (feature === 'dashboard' || feature === 'whatsapp') return true;
+    // Invoice-only staff: Dashboard, WhatsApp, and Phone stay; hide AI / training / reports.
+    if (feature === 'dashboard' || feature === 'whatsapp' || feature === 'phone') return true;
     if (isInvoiceAccessOnlyStaff(user)) return false;
     return true;
   }
