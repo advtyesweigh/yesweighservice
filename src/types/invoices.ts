@@ -111,8 +111,10 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   shippingAddress?: string | null;
   /** Billing address when distinct from shipping (invoice mirror or customer). */
   billingAddress?: string | null;
-  /** Customer GSTIN from zohoCustomers. */
+  /** Customer GSTIN from zohoCustomers (invoice-to / billing). */
   customerGstin?: string | null;
+  /** GSTIN on the ship-to address. Null when that address is blank or URP. */
+  shippingGstin?: string | null;
   customerPhone?: string | null;
   /** Phone on the invoice Ship To / shipping address (not Invoice To). */
   shippingPhone?: string | null;

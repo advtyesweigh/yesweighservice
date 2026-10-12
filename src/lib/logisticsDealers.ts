@@ -38,6 +38,33 @@ function cleanPhone(value: string | null | undefined): string | null {
   return trimmed;
 }
 
+const SHIP_GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+/**
+ * GSTIN that belongs on a ship-to. Blank and URP are unregistered — no GSTIN.
+ * A customer billing GSTIN is not accepted here; callers must pass the ship-to value.
+ */
+export function shipToGstinOrNull(value: string | null | undefined): string | null {
+  const text = String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
+  if (!text || text === 'URP') return null;
+  return SHIP_GSTIN_RE.test(text) ? text : null;
+}
+
+/**
+ * First ship-to GSTIN. An explicit URP stops the search so a later billing
+ * GSTIN cannot fill an unregistered address.
+ */
+export function firstShipToGstin(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const raw = String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
+    if (!raw) continue;
+    if (raw === 'URP') return null;
+    const gstin = shipToGstinOrNull(raw);
+    if (gstin) return gstin;
+  }
+  return null;
+}
+
 /** Digits-only phone for courier APIs; null when missing / placeholder. */
 export function phoneDigitsForCourier(value: string | null | undefined): string | null {
   const cleaned = cleanPhone(value);

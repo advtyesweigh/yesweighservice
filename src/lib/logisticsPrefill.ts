@@ -20,7 +20,7 @@ import {
   isPipelineEnabledPartner,
 } from './logisticsBooking';
 import { partnerIdForFreightSku } from './orderFreight';
-import { extractPhoneFromText, phoneDigitsForCourier, preferShippingPhone } from './logisticsDealers';
+import { extractPhoneFromText, phoneDigitsForCourier, preferShippingPhone, shipToGstinOrNull } from './logisticsDealers';
 import { cartonizeCartLine } from './stCourierCartFreight';
 
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
@@ -288,7 +288,7 @@ export function buildInvoiceBookingDraftPatch(
 
   const invoiceValue = Number(invoice.total);
   const salesOrderNumber = invoice.salesOrderNumber?.trim() || null;
-  const customerGstin = invoice.customerGstin?.trim() || null;
+  const customerGstin = shipToGstinOrNull(invoice.shippingGstin);
   const deliveryAddress = invoice.shippingAddress?.trim() || null;
   const shippingPhone = preferShippingPhone(
     [

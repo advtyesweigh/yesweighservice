@@ -110,6 +110,7 @@ function blueDartAlnum(raw, maxLen) {
 
 function gstin15(raw) {
   const value = String(raw || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (!value || value === 'URP') return '';
   return value.length === 15 ? value : '';
 }
 

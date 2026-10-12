@@ -114,20 +114,27 @@ function normalizeGstin(value) {
   return /^[0-9A-Z]{15}$/.test(text) ? text : null;
 }
 
+/** Drop a GSTIN that was previously concatenated into a street line. */
+function stripEmbeddedGstin(address) {
+  return String(address || '')
+    .replace(/,?\s*GSTIN:\s*[0-9A-Z]{15}\b/gi, '')
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
- * Delhivery Shipper Copy leaves labeled phone/GSTIN blanks even when API fields
- * are set (verified). Embedding them in the address line is what actually prints.
+ * Delhivery Shipper Copy leaves the labeled phone blank even when the API
+ * field is set. Phone is embedded in the street. GSTIN stays in gst_number
+ * only, and only when the ship-to itself has one.
  */
-function addressWithContactPrintFields(address, phone, gstin) {
-  let text = String(address || '').replace(/\s+/g, ' ').trim();
+function addressWithContactPrintFields(address, phone) {
+  let text = stripEmbeddedGstin(address);
   if (!text) return text;
   const phoneValue = phoneDigits(phone);
   if (phoneValue && !text.replace(/\D/g, '').includes(phoneValue)) {
     text = `${text}, Ph: ${phoneValue}`;
-  }
-  const gst = normalizeGstin(gstin);
-  if (gst && !text.toUpperCase().includes(gst)) {
-    text = `${text}, GSTIN: ${gst}`;
   }
   return text;
 }
@@ -291,22 +298,18 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const DEFAULT_GSTIN = '32AAFCI1950F1ZZ';
   const sellerGstin = normalizeGstin(input.sellerGstin) || DEFAULT_GSTIN;
   const consigneeGstin = normalizeGstin(consignee.gstin);
-  if (!consigneeGstin) {
-    throw new Error('Consignee GSTIN is required (15-character GSTIN).');
-  }
 
   const dropoff_location = {
     consignee_name: name,
-    address: addressWithContactPrintFields(address, phone, consigneeGstin),
+    address: addressWithContactPrintFields(address, phone),
     city: nonEmpty(consignee.city) || 'NA',
     state: nonEmpty(consignee.state) || 'NA',
     zip: pin,
     // Docs type this as INTEGER; portal stores it, but Shipper Copy phone field stays blank.
     phone: Number(phone) || phone,
     email: nonEmpty(consignee.email) || '',
-    // Accepted by /manifest (probed); labeled GSTIN on Shipper Copy still blank — also embedded in address.
-    gst_number: consigneeGstin,
-    consignee_gst: consigneeGstin,
+    // Ship-to GST only. Blank / URP omits the field — never the customer billing GSTIN.
+    ...(consigneeGstin ? { gst_number: consigneeGstin, consignee_gst: consigneeGstin } : {}),
   };
 
   // Keep shipment_details minimal — extra keys (waybills/master) break list parsing
@@ -331,7 +334,6 @@ export function buildDelhiveryB2bManifestPayload(input) {
       address: addressWithContactPrintFields(
         nonEmpty(ret.address),
         returnPhone,
-        sellerGstin,
       ),
       city: nonEmpty(ret.city) || 'NA',
       state: nonEmpty(ret.state) || 'NA',

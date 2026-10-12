@@ -21,7 +21,7 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
 import { parseDealerCustomerInvoice, toSalesOrderDateKey } from './admin-sales-orders';
-import { preferShippingPhone } from './logisticsDealers';
+import { firstShipToGstin, preferShippingPhone } from './logisticsDealers';
 import { buildContactLinks } from './phoneLinks';
 import { parseInvoiceMachineQcImages } from './invoiceMachineQc';
 import {
@@ -2801,6 +2801,13 @@ export async function fetchAdminInvoiceDetail(
     shippingAddress: contact.address,
     billingAddress: billingFromInvoice || contact.billingAddress || contact.address,
     customerGstin: contact.gstin,
+    shippingGstin: firstShipToGstin([
+      data.shippingGstin,
+      data.shipping_gst_no,
+      soData?.shippingGstin,
+      soData?.shipping_gst_no,
+      contact.shippingGstin,
+    ]),
     customerPhone: contact.phone,
     shippingPhone,
     customerTelHref: shipLinks?.tel ?? contact.telHref,

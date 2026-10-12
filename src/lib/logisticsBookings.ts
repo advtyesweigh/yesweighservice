@@ -32,9 +32,11 @@ import {
   extractPhoneFromText,
   isPlaceholderLogisticsAddress,
   phoneDigitsForCourier,
+  preferShippingPhone,
   resolveDeliveryAddress,
   resolveDraftDeliveryAddress,
   resolveReceiverPhoneFromSnapshot,
+  resolveShippingConsigneePhone,
   zohoDealerToSnapshot,
 } from './logisticsDealers';
 import {
@@ -879,6 +881,31 @@ function firestoreStringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+/** Keep the contact mobile, and store the ship-to phone separately for courier APIs. */
+function dealerSnapshotPayload(
+  dealer: LogisticsDealerSnapshot,
+  shipToPhone?: string | null,
+) {
+  const shippingPhone = phoneDigitsForCourier(shipToPhone)
+    || phoneDigitsForCourier(dealer.shippingPhone);
+  const billingPhone = phoneDigitsForCourier(dealer.billingPhone);
+  return {
+    zohoCustomerId: dealer.zohoCustomerId,
+    dealerId: dealer.dealerId,
+    name: dealer.name,
+    code: dealer.code,
+    contactPerson: dealer.contactPerson,
+    mobile: dealer.mobile,
+    ...(shippingPhone ? { shippingPhone } : {}),
+    ...(billingPhone ? { billingPhone } : {}),
+    shippingAddress: dealer.shippingAddress,
+    billingAddress: dealer.billingAddress,
+    ...(dealer.destinationCity?.trim()
+      ? { destinationCity: dealer.destinationCity.trim() }
+      : {}),
+  };
+}
+
 async function dealerCustomerInvoiceForInvoiceId(invoiceId: string | null | undefined) {
   const id = String(invoiceId || '').trim();
   if (!id) return null;
@@ -983,19 +1010,10 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     // Top-level dealer keys are immutable in Firestore update rules — keep the stored values.
     zohoCustomerId: existingZohoCustomerId || draft.zohoCustomerId,
     dealerId: existingDealerId || draft.dealerId,
-    dealerSnapshot: {
-      zohoCustomerId: dealer.zohoCustomerId,
-      dealerId: dealer.dealerId,
-      name: dealer.name,
-      code: dealer.code,
-      contactPerson: dealer.contactPerson,
-      mobile: dealer.mobile,
-      shippingAddress: dealer.shippingAddress,
-      billingAddress: dealer.billingAddress,
-      ...(dealer.destinationCity?.trim()
-        ? { destinationCity: dealer.destinationCity.trim() }
-        : {}),
-    },
+    dealerSnapshot: dealerSnapshotPayload(
+      dealer,
+      resolveShippingConsigneePhone(draft, dealer),
+    ),
     deliveryAddressKind: draft.deliveryAddressKind,
     deliveryAddress,
     shipFromSite,
@@ -1170,19 +1188,10 @@ async function ensureDraftBookingStub(input: {
     bookingDate: input.draft.bookingDate || now.slice(0, 10),
     zohoCustomerId: input.draft.zohoCustomerId,
     dealerId: input.draft.dealerId,
-    dealerSnapshot: {
-      zohoCustomerId: input.dealer.zohoCustomerId,
-      dealerId: input.dealer.dealerId,
-      name: input.dealer.name,
-      code: input.dealer.code,
-      contactPerson: input.dealer.contactPerson,
-      mobile: input.dealer.mobile,
-      shippingAddress: input.dealer.shippingAddress,
-      billingAddress: input.dealer.billingAddress,
-      ...(input.dealer.destinationCity?.trim()
-        ? { destinationCity: input.dealer.destinationCity.trim() }
-        : {}),
-    },
+    dealerSnapshot: dealerSnapshotPayload(
+      input.dealer,
+      resolveShippingConsigneePhone(input.draft, input.dealer),
+    ),
     deliveryAddressKind: input.draft.deliveryAddressKind,
     deliveryAddress: resolveDraftDeliveryAddress(input.dealer, input.draft),
     shipFromSite: input.draft.shipFromSite,
@@ -1447,19 +1456,10 @@ export async function persistLogisticsBookingDraft(
       bookingDate: draft.bookingDate || now.slice(0, 10),
       zohoCustomerId: draft.zohoCustomerId,
       dealerId: draft.dealerId,
-      dealerSnapshot: {
-        zohoCustomerId: dealer.zohoCustomerId,
-        dealerId: dealer.dealerId,
-        name: dealer.name,
-        code: dealer.code,
-        contactPerson: dealer.contactPerson,
-        mobile: dealer.mobile,
-        shippingAddress: dealer.shippingAddress,
-        billingAddress: dealer.billingAddress,
-        ...(dealer.destinationCity?.trim()
-          ? { destinationCity: dealer.destinationCity.trim() }
-          : {}),
-      },
+      dealerSnapshot: dealerSnapshotPayload(
+        dealer,
+        resolveShippingConsigneePhone(draft, dealer),
+      ),
       deliveryAddressKind: draft.deliveryAddressKind,
       deliveryAddress,
       shipFromSite,
@@ -2363,9 +2363,17 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
     throw new Error('Consignee pincode is missing on the delivery address.');
   }
 
-  const consigneePhone = phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(booking.dealer))
-    || phoneDigitsForCourier(booking.dealer.mobile)
-    || phoneDigitsForCourier(extractPhoneFromText(booking.deliveryAddress));
+  const contactPhone = phoneDigitsForCourier(booking.dealer.billingPhone)
+    || phoneDigitsForCourier(booking.dealer.mobile);
+  const consigneePhone = preferShippingPhone(
+    [
+      extractPhoneFromText(booking.deliveryAddress),
+      booking.dealer.shippingPhone,
+      extractPhoneFromText(booking.dealer.shippingAddress),
+    ],
+    contactPhone,
+  ) || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(booking.dealer))
+    || phoneDigitsForCourier(booking.dealer.mobile);
   if (!consigneePhone) {
     throw new Error('Consignee phone is required before creating a Blue Dart AWB.');
   }
@@ -2884,19 +2892,7 @@ export async function recordInvoiceLogisticsBooking(
     bookingDate,
     zohoCustomerId: dealer.zohoCustomerId,
     dealerId: dealer.dealerId,
-    dealerSnapshot: {
-      zohoCustomerId: dealer.zohoCustomerId,
-      dealerId: dealer.dealerId,
-      name: dealer.name,
-      code: dealer.code,
-      contactPerson: dealer.contactPerson,
-      mobile: dealer.mobile,
-      shippingAddress: dealer.shippingAddress,
-      billingAddress: dealer.billingAddress,
-      ...(dealer.destinationCity?.trim()
-        ? { destinationCity: dealer.destinationCity.trim() }
-        : {}),
-    },
+    dealerSnapshot: dealerSnapshotPayload(dealer, dealer.shippingPhone),
     deliveryAddressKind: 'shipping',
     deliveryAddress,
     shipFromSite,

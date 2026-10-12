@@ -1,6 +1,6 @@
 import { doc, getDoc, type DocumentData } from 'firebase/firestore';
 import { db } from '../firebase';
-import { logisticsAddressKey, preferShippingPhone } from './logisticsDealers';
+import { firstShipToGstin, logisticsAddressKey, preferShippingPhone } from './logisticsDealers';
 import { buildContactLinks } from './phoneLinks';
 
 export type ZohoCustomerDisplayContact = {
@@ -12,6 +12,8 @@ export type ZohoCustomerDisplayContact = {
   phone: string | null;
   /** Phone on the shipping / Ship To address when available. */
   shippingPhone: string | null;
+  /** GSTIN stored on the ship-to address. Null when that address is blank or URP. */
+  shippingGstin: string | null;
   telHref: string | null;
   whatsappHref: string | null;
 };
@@ -144,6 +146,36 @@ function phonesForAddress(
   return phones;
 }
 
+/** GSTIN saved on this ship-to row. Customer billing GSTIN is not used. */
+function shippingGstinForAddress(
+  data: DocumentData,
+  preferredAddress?: string | null,
+  preferredAddressId?: string | null,
+): string | null {
+  const remembered = data.zohoAddressGstins && typeof data.zohoAddressGstins === 'object'
+    ? data.zohoAddressGstins as Record<string, unknown>
+    : null;
+  const preferredId = trimStr(preferredAddressId);
+  const key = logisticsAddressKey(preferredAddress);
+  const rows = Array.isArray(data.zohoAddresses) ? data.zohoAddresses : [];
+  const candidates: Array<string | null> = [];
+  if (preferredId && remembered) {
+    candidates.push(trimStr(remembered[preferredId]));
+  }
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const record = row as Record<string, unknown>;
+    const rowId = trimStr(record.addressId);
+    const text = trimStr(record.formatted) || formatRawAddress(record);
+    const matches = (preferredId && rowId === preferredId)
+      || (key && logisticsAddressKey(text) === key);
+    if (!matches) continue;
+    candidates.push(trimStr(record.gstin));
+    if (rowId && remembered) candidates.push(trimStr(remembered[rowId]));
+  }
+  return firstShipToGstin(candidates);
+}
+
 function billingAddressFromCustomer(data: DocumentData): string | null {
   return (
     trimStr(data.zohoBillingAddress)
@@ -174,6 +206,9 @@ export function contactFromCustomerData(
     ],
     phone,
   );
+  const shippingGstin = data
+    ? shippingGstinForAddress(data, preferredAddress, preferredAddressId)
+    : null;
   const links = phone ? buildContactLinks(phone) : null;
   return {
     address,
@@ -181,6 +216,7 @@ export function contactFromCustomerData(
     gstin,
     phone,
     shippingPhone,
+    shippingGstin,
     telHref: links?.tel ?? null,
     whatsappHref: links?.whatsapp ?? null,
   };

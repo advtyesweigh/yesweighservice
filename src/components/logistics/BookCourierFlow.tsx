@@ -78,8 +78,8 @@ import {
   preferShippingPhone,
   reconcileDocumentDeliveryAddress,
   resolveDraftDeliveryAddress,
-  resolveReceiverPhoneFromSnapshot,
   resolveShippingConsigneePhone,
+  shipToGstinOrNull,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
@@ -327,7 +327,6 @@ type DeliveryTileKind = DeliveryAddressKind | 'selected';
 function applyDealerDeliveryToDraft(
   prev: LogisticsBookingDraft,
   snapshot: LogisticsDealerSnapshot,
-  gstin?: string | null,
 ): LogisticsBookingDraft {
   const reconciled = reconcileDocumentDeliveryAddress(
     snapshot,
@@ -342,10 +341,7 @@ function applyDealerDeliveryToDraft(
   return {
     ...nextDraft,
     customerPhone: resolveShippingConsigneePhone(nextDraft, snapshot),
-    customerGstin: normalizeGstinForCourier(prev.customerGstin)
-      || normalizeGstinForCourier(gstin)
-      || prev.customerGstin
-      || null,
+    customerGstin: shipToGstinOrNull(prev.customerGstin),
   };
 }
 
@@ -428,21 +424,19 @@ function normalizeGstinForCourier(value: string | null | undefined): string | nu
   return /^[0-9A-Z]{15}$/.test(text) ? text : null;
 }
 
-/** Delhivery Shipper Copy ignores labeled phone/GSTIN fields; embed for print. */
+/** Keep the street as the address. Phone is embedded for the Delhivery print copy. */
 function addressWithPrintContacts(
   address: string,
   phone: string | null | undefined,
-  gstin: string | null | undefined,
 ): string {
-  let text = address.replace(/\s+/g, ' ').trim();
+  let text = address
+    .replace(/,?\s*GSTIN:\s*[0-9A-Z]{15}\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return text;
   const phoneValue = phoneDigitsForCourier(phone);
   if (phoneValue && !text.replace(/\D/g, '').includes(phoneValue)) {
     text = `${text}, Ph: ${phoneValue}`;
-  }
-  const gst = normalizeGstinForCourier(gstin);
-  if (gst && !text.toUpperCase().includes(gst)) {
-    text = `${text}, GSTIN: ${gst}`;
   }
   return text;
 }
@@ -695,7 +689,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         const snapshot = zohoDealerToSnapshot(dealer);
         setDraft(prev => {
           if (prev.zohoCustomerId !== dealer.id) return prev;
-          const next = applyDealerDeliveryToDraft(prev, snapshot, dealer.zohoGstNo);
+          const next = applyDealerDeliveryToDraft(prev, snapshot);
           if (
             next.deliveryAddressKind === prev.deliveryAddressKind
             && (next.deliveryAddress ?? null) === (prev.deliveryAddress ?? null)
@@ -947,10 +941,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           const customerPhone = shippingPhone && (!prior || prior === billing)
             ? shippingPhone
             : (prev.customerPhone ?? null);
+          const customerGstin = shipToGstinOrNull(invoice.shippingGstin);
           const next = {
             ...prev,
             freightBillingMode: mode,
             customerPhone,
+            customerGstin,
             ...(Number.isFinite(invoiceTotal) && invoiceTotal > 0
               ? { invoiceValueInr: invoiceTotal }
               : {}),
@@ -959,6 +955,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             prev.freightBillingMode === next.freightBillingMode
             && prev.invoiceValueInr === next.invoiceValueInr
             && (prev.customerPhone ?? null) === (next.customerPhone ?? null)
+            && (prev.customerGstin ?? null) === (next.customerGstin ?? null)
           ) {
             return prev;
           }
@@ -1080,7 +1077,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return next;
     });
     setDraft(prev => ({
-      ...applyDealerDeliveryToDraft(prev, snapshot, dealer.zohoGstNo),
+      ...applyDealerDeliveryToDraft(prev, snapshot),
       zohoCustomerId: dealer.id,
       dealerId: dealer.portalUserId?.trim() || dealer.id,
     }));
@@ -1099,7 +1096,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           const detailedSnap = zohoDealerToSnapshot(detailed);
           setDraft(prev => {
             if (prev.zohoCustomerId !== detailed.id) return prev;
-            return applyDealerDeliveryToDraft(prev, detailedSnap, detailed.zohoGstNo);
+            return applyDealerDeliveryToDraft(prev, detailedSnap);
           });
         })
         .catch(() => undefined);
@@ -1265,10 +1262,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       if (!consigneePhone) {
         throw new Error('Consignee phone is required before creating a Delhivery LR.');
       }
-      const consigneeGstin = normalizeGstinForCourier(draftRef.current.customerGstin);
-      if (!consigneeGstin) {
-        throw new Error('Consignee GSTIN is required before creating a Delhivery LR (15 characters).');
-      }
+      const consigneeGstin = shipToGstinOrNull(draftRef.current.customerGstin);
 
       const deliveryPlace = cityStateFromAddress(address);
       const shipFromPlace = cityStateFromAddress(fromAddress);
@@ -1325,18 +1319,18 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         consignee: {
           name: selectedDealer.name,
           phone: consigneePhone,
-          address: addressWithPrintContacts(address, consigneePhone, consigneeGstin),
+          address: addressWithPrintContacts(address, consigneePhone),
           city: selectedDealer.destinationCity?.trim() || deliveryPlace.city,
           state: deliveryPlace.state,
           pincode: pin,
           country: 'India',
-          gstin: consigneeGstin,
+          ...(consigneeGstin ? { gstin: consigneeGstin } : {}),
         },
         returnAddress: fromAddress
           ? {
             name: siteLabel,
             phone: shipperPhone,
-            address: addressWithPrintContacts(fromAddress, shipperPhone, shipperGstin),
+            address: addressWithPrintContacts(fromAddress, shipperPhone),
             city: shipFromPlace.city,
             state: shipFromPlace.state,
             pincode: shipFromPin,
@@ -1348,7 +1342,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             name: FIRM_NAME,
             company: FIRM_NAME,
             consignor: siteLabel,
-            address: addressWithPrintContacts(fromAddress, shipperPhone, shipperGstin),
+            address: addressWithPrintContacts(fromAddress, shipperPhone),
             city: shipFromPlace.city || 'NA',
             state: shipFromPlace.state || 'NA',
             pin: shipFromPin,
@@ -1462,13 +1456,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       if (!shipperPhone) {
         throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites.');
       }
-      const consigneePhone = phoneDigitsForCourier(draftRef.current.customerPhone)
-        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
-        || phoneDigitsForCourier(selectedDealer.mobile);
+      const consigneePhone = resolveShippingConsigneePhone(draftRef.current, selectedDealer);
       if (!consigneePhone) {
         throw new Error('Consignee phone is required before creating a Blue Dart AWB.');
       }
-      const consigneeGstin = normalizeGstinForCourier(draftRef.current.customerGstin);
+      const consigneeGstin = shipToGstinOrNull(draftRef.current.customerGstin);
       const deliveryPlace = cityStateFromAddress(address);
       const shipFromPlace = cityStateFromAddress(fromAddress);
       const shipFromPin = blueDartPickupPinForSite(draftRef.current.shipFromSite)
@@ -1606,7 +1598,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         return next;
       });
       const snapshot = zohoDealerToSnapshot(detailed);
-      const nextDraft = applyDealerDeliveryToDraft(draftRef.current, snapshot, detailed.zohoGstNo);
+      const nextDraft = applyDealerDeliveryToDraft(draftRef.current, snapshot);
       if (
         nextDraft.deliveryAddressKind !== draftRef.current.deliveryAddressKind
         || (nextDraft.deliveryAddress ?? null) !== (draftRef.current.deliveryAddress ?? null)
@@ -1615,7 +1607,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       ) {
         setDraft(prev => (
           prev.zohoCustomerId === detailed.id
-            ? applyDealerDeliveryToDraft(prev, snapshot, detailed.zohoGstNo)
+            ? applyDealerDeliveryToDraft(prev, snapshot)
             : prev
         ));
         draftRef.current = nextDraft;
@@ -1924,7 +1916,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const shipperGstin = normalizeGstinForCourier(siteContact.gstin)
       || normalizeGstinForCourier(FIRM_GSTIN);
     const consigneePhone = resolveShippingConsigneePhone(draft, selectedDealer);
-    const consigneeGstin = normalizeGstinForCourier(draft.customerGstin);
+    const consigneeGstin = shipToGstinOrNull(draft.customerGstin);
     return { shipperPhone, shipperGstin, consigneePhone, consigneeGstin };
   }, [
     draft.customerGstin,
@@ -1948,9 +1940,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       issues.push('Select a delivery address.');
     } else if (!delhiveryResolvedContacts.consigneePhone) {
       issues.push('Consignee phone is missing — enter it below or add it on the dealer / invoice.');
-    }
-    if (!delhiveryResolvedContacts.consigneeGstin) {
-      issues.push('Consignee GSTIN is missing or invalid — enter a 15-character GSTIN below.');
     }
     return issues;
   }, [delhiveryResolvedContacts, isDelhivery, selectedDealer]);
@@ -1978,7 +1967,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const confirmDelhiveryFromReview = useCallback(async () => {
     if (!canCreateDelhiveryLrn) {
       setDelhiveryBookError(
-        delhiveryContactIssues[0] || 'Phone and GSTIN are required before booking.',
+        delhiveryContactIssues[0] || 'Phone is required before booking.',
       );
       return;
     }
@@ -3219,11 +3208,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       />
                     </label>
                     <label>
-                      <span>Consignee GSTIN</span>
+                      <span>Ship-to GSTIN</span>
                       <input
                         type="text"
                         value={draft.customerGstin ?? ''}
-                        placeholder="15-character GSTIN"
+                        placeholder="Leave blank if unregistered"
                         autoCapitalize="characters"
                         maxLength={15}
                         disabled={bookingDelhivery}
