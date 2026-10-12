@@ -74,7 +74,7 @@ export const SoLineInlineEditor: React.FC<Props> = ({
                 onChange({
                   ...line,
                   catalogRate,
-                  rate: combinedCartRate(catalogRate, line.gatcFeePerUnit),
+                  rate: combinedCartRate(catalogRate, line.gatcFeePerUnit, line.qcFeePerUnit ?? 0),
                 });
               }}
               aria-label={`Base rate for ${line.name}`}
@@ -144,7 +144,7 @@ export const SoLineInlineEditor: React.FC<Props> = ({
               gatcStampingRange: gatcStampingPriceId
                 ? (choice.gatcStampingRange?.trim() || null)
                 : null,
-              rate: combinedCartRate(line.catalogRate, gatcFeePerUnit),
+              rate: combinedCartRate(line.catalogRate, gatcFeePerUnit, line.qcFeePerUnit ?? 0),
             });
           }}
           onAddSibling={onAddSibling}

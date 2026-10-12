@@ -33,10 +33,15 @@ export function gatcFeeForId(
   return Math.round(Number(entry.price) * 100) / 100;
 }
 
-export function combinedCartRate(baseRate: number, gatcFeePerUnit: number): number {
+export function combinedCartRate(
+  baseRate: number,
+  gatcFeePerUnit: number,
+  qcFeePerUnit = 0,
+): number {
   const base = Number.isFinite(baseRate) ? baseRate : 0;
-  const fee = Number.isFinite(gatcFeePerUnit) ? gatcFeePerUnit : 0;
-  return Math.round((base + fee) * 100) / 100;
+  const gatc = Number.isFinite(gatcFeePerUnit) ? gatcFeePerUnit : 0;
+  const qc = Number.isFinite(qcFeePerUnit) ? qcFeePerUnit : 0;
+  return Math.round((base + gatc + qc) * 100) / 100;
 }
 
 export function formatGatcOptionLabel(

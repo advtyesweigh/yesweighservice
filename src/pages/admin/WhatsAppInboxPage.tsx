@@ -1372,6 +1372,9 @@ export const WhatsAppInboxPage: React.FC = () => {
                   key={message.id}
                   className={`wa-inbox-bubble wa-inbox-bubble--${message.direction}`}
                 >
+                  {message.direction === 'outbound' && message.sentByName ? (
+                    <span className="wa-inbox-bubble__from">{message.sentByName}</span>
+                  ) : null}
                   <MessageBody message={message} onOpenImage={setLightboxUrl} />
                   <footer>
                     <time>{clock(message.createdAtMs)}</time>

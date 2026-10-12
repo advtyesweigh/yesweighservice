@@ -70,8 +70,9 @@ export function resolveGatcFeeForProduct(product, gatcStampingPriceId, gatcMap) 
   };
 }
 
-export function mergeKeyForLine(productId, gatcStampingPriceId, baseRate) {
+export function mergeKeyForLine(productId, gatcStampingPriceId, baseRate, qcEnabled = false) {
   const gatc = String(gatcStampingPriceId ?? '').trim() || '-';
   const base = Math.round(Number(baseRate) * 100);
-  return `${productId}::${gatc}::${base}`;
+  const qc = qcEnabled ? 'qc' : '-';
+  return `${productId}::${gatc}::${qc}::${base}`;
 }

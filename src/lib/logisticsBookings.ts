@@ -18,6 +18,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { parseDealerCustomerInvoice } from './admin-sales-orders';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
   isBlueDartLogisticsPartnerId,
@@ -773,6 +774,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     updatedAt: String(data.updatedAt ?? data.createdAt ?? ''),
     createdByUid: String(data.createdByUid ?? ''),
     createdByName: String(data.createdByName ?? ''),
+    dealerCustomerInvoice: parseDealerCustomerInvoice(data.dealerCustomerInvoice),
   };
 }
 
@@ -877,6 +879,20 @@ function firestoreStringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+async function dealerCustomerInvoiceForInvoiceId(invoiceId: string | null | undefined) {
+  const id = String(invoiceId || '').trim();
+  if (!id) return null;
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'salesOrders'), where('zohoInvoiceId', '==', id), limit(1)),
+    );
+    if (snap.empty) return null;
+    return parseDealerCustomerInvoice(snap.docs[0].data()?.dealerCustomerInvoice);
+  } catch {
+    return null;
+  }
+}
+
 async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   bookingId: string;
   status: LogisticsBookingStatus;
@@ -940,6 +956,8 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     deliveryAddress,
     existingDeliveryOffice,
   );
+  const dealerCustomerInvoice = parseDealerCustomerInvoice(existingData?.dealerCustomerInvoice)
+    || await dealerCustomerInvoiceForInvoiceId(draft.invoiceId);
 
   return {
     orderRef,
@@ -1044,6 +1062,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     ...(typeof existingData?.complaintResolvedAt === 'string' && existingData.complaintResolvedAt.trim()
       ? { complaintResolvedAt: existingData.complaintResolvedAt.trim() }
       : {}),
+    ...(dealerCustomerInvoice ? { dealerCustomerInvoice } : {}),
     createdAt,
     updatedAt: now,
     createdByUid: existingCreatedByUid || createdBy.uid,

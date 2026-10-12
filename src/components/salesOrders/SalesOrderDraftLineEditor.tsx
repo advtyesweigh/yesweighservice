@@ -51,7 +51,7 @@ export interface DraftEditLine {
   sku: string | null;
   description: string | null;
   imageUrl: string | null;
-  /** Combined unit rate = baseRate + gatcFeePerUnit (shown as line total rate). */
+  /** Combined unit rate = catalogRate + gatcFeePerUnit + qcFeePerUnit. */
   rate: number;
   /** Editable product base rate (staff). Catalog list price when added. */
   catalogRate: number;
@@ -59,6 +59,8 @@ export interface DraftEditLine {
   gatcFeePerUnit: number;
   gatcStampingPriceId?: string | null;
   gatcStampingRange?: string | null;
+  qcEnabled?: boolean;
+  qcFeePerUnit?: number;
   unit: string;
   quantity: number;
   stockStatus: string | null;
@@ -156,7 +158,9 @@ export function draftEditLineFromProduct(
     gatcStampingRange: gatcStampingPriceId
       ? (choice?.gatcStampingRange?.trim() || null)
       : null,
-    rate: combinedCartRate(catalogRate, gatcFeePerUnit),
+    qcEnabled: false,
+    qcFeePerUnit: 0,
+    rate: combinedCartRate(catalogRate, gatcFeePerUnit, 0),
     unit: product.unit || 'pcs',
     quantity,
     stockStatus: product.stockStatus ?? null,
@@ -459,7 +463,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         ? {
             ...line,
             catalogRate: nextBase,
-            rate: combinedCartRate(nextBase, line.gatcFeePerUnit),
+            rate: combinedCartRate(nextBase, line.gatcFeePerUnit, line.qcFeePerUnit ?? 0),
           }
         : line
     )));
@@ -536,7 +540,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                   gatcFeePerUnit: nextFee,
                   gatcStampingPriceId: nextGatcId,
                   gatcStampingRange: nextRange,
-                  rate: combinedCartRate(line.catalogRate, nextFee),
+                  rate: combinedCartRate(line.catalogRate, nextFee, line.qcFeePerUnit ?? 0),
                 }
               : line
           )),
@@ -551,7 +555,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             gatcFeePerUnit: nextFee,
             gatcStampingPriceId: nextGatcId,
             gatcStampingRange: nextRange,
-            rate: combinedCartRate(line.catalogRate, nextFee),
+            rate: combinedCartRate(line.catalogRate, nextFee, line.qcFeePerUnit ?? 0),
           }
         : line
     )));
@@ -952,6 +956,8 @@ export async function draftLinesFromSalesOrderItems(
     quantity?: number;
     unit?: string | null;
     stockStatus?: string | null;
+    qcEnabled?: boolean;
+    qcFeePerUnit?: number;
   }>,
 ): Promise<DraftEditLine[]> {
   const catalog = await fetchCatalog().catch(() => null);
@@ -1011,7 +1017,9 @@ export async function draftLinesFromSalesOrderItems(
       gatcFeePerUnit,
       gatcStampingPriceId,
       gatcStampingRange,
-      rate: combinedCartRate(baseRate, gatcFeePerUnit),
+      qcEnabled: item.qcEnabled === true,
+      qcFeePerUnit: Number(item.qcFeePerUnit) || 0,
+      rate: combinedCartRate(baseRate, gatcFeePerUnit, Number(item.qcFeePerUnit) || 0),
       unit: item.unit || product?.unit || 'pcs',
       quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
       stockStatus: item.stockStatus ?? product?.stockStatus ?? null,

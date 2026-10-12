@@ -825,6 +825,7 @@ export function applyDealerCartPricing<T extends {
   categoryId?: string | null;
   categoryName?: string | null;
   gatcFeePerUnit?: number;
+  qcFeePerUnit?: number;
   priceLevelMode?: DealerUnitPrice['mode'] | null;
   priceLevelSlabs?: PriceLevelQtySlab[] | null;
   rate: number;
@@ -860,7 +861,8 @@ export function applyDealerCartPricing<T extends {
       ? priced.slabs
       : null;
     const gatcFee = Number(item.gatcFeePerUnit) || 0;
-    const rate = Math.round((baseRate + gatcFee) * 100) / 100;
+    const qcFee = Number(item.qcFeePerUnit) || 0;
+    const rate = Math.round((baseRate + gatcFee + qcFee) * 100) / 100;
     const slabsKey = JSON.stringify(priceLevelSlabs ?? []);
     const prevSlabsKey = JSON.stringify(item.priceLevelSlabs ?? []);
     if (

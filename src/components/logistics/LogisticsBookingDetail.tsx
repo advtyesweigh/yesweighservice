@@ -1023,11 +1023,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const sharedDocCards = useMemo((): LogisticsDocCard[] => {
     const cards: LogisticsDocCard[] = [];
-    if (hasLinkedInvoice) {
+    if (hasLinkedInvoice || booking.dealerCustomerInvoice?.url) {
       cards.push({
         id: 'invoice',
         kind: 'invoice',
-        label: 'Invoice',
+        label: booking.dealerCustomerInvoice?.url ? 'Dealer invoice' : 'Invoice',
         enabled: true,
       });
     }
@@ -1067,6 +1067,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     ewayInvoiceRows.length,
     ewayRequired,
     hasLinkedInvoice,
+    booking.dealerCustomerInvoice?.url,
     isDelhivery,
     isOps,
     booking.delhiveryEwaySync?.ok,
@@ -1377,7 +1378,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const openLinkedInvoiceDocument = useCallback(async () => {
     const invoiceId = booking.invoiceId?.trim();
-    if (!invoiceId) {
+    const dealerInvoice = booking.dealerCustomerInvoice;
+    if (!invoiceId && !dealerInvoice?.url) {
       setDelhiveryDocsError('No invoice linked to this shipment.');
       return;
     }
@@ -1385,9 +1387,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setDelhiveryDocOpening('invoice');
     setDelhiveryDocsError('');
     try {
+      if (dealerInvoice?.url) {
+        const res = await fetch(dealerInvoice.url);
+        if (!res.ok) throw new Error('Could not open dealer sales invoice PDF.');
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        setDelhiveryDocDialog({
+          title: 'Dealer invoice',
+          contentType: 'application/pdf',
+          pdfBytes: bytes,
+          fileName: dealerInvoice.fileName || `${booking.invoiceNumber || invoiceId || 'dealer-invoice'}.pdf`,
+          downloadBlob: blob,
+        });
+        return;
+      }
       const doc = isOps && customerId
-        ? await downloadAdminInvoiceDocument(customerId, invoiceId, 'invoice')
-        : await downloadDealerInvoiceDocument(invoiceId, 'invoice');
+        ? await downloadAdminInvoiceDocument(customerId, invoiceId!, 'invoice')
+        : await downloadDealerInvoiceDocument(invoiceId!, 'invoice');
       const bytes = base64ToUint8Array(doc.contentBase64);
       const blob = invoiceDocumentToBlob(doc);
       setDelhiveryDocDialog({
@@ -1406,6 +1422,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     }
   }, [
     booking.dealer.zohoCustomerId,
+    booking.dealerCustomerInvoice,
     booking.invoiceId,
     booking.invoiceNumber,
     isOps,
@@ -2139,12 +2156,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 onClick={() => openLogisticsDocCard(doc)}
                 disabled={disabled}
                 title={doc.disabledReason ?? meta.subtitle}
-                aria-label={meta.title}
+                aria-label={doc.label || meta.title}
               >
                 <span className="invoice-detail-top__card-icon" aria-hidden>
                   <meta.Icon size={28} strokeWidth={1.75} />
                 </span>
-                <span className="invoice-detail-top__card-label">{meta.title}</span>
+                <span className="invoice-detail-top__card-label">{doc.label || meta.title}</span>
                 {statusLabel ? (
                   <span className="invoice-detail-top__card-sub">{statusLabel}</span>
                 ) : null}

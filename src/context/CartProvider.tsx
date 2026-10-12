@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { combinedCartRate } from '../lib/gatcCart';
+import { resolveMachineQc } from '../lib/machineQc';
 import {
   applyDealerCartPricing,
   resolveDealerUnitPrice,
@@ -28,7 +29,7 @@ import {
   writeDealerCartRemarks,
 } from '../lib/dealerSharedCart';
 import { useAuth } from './AuthContext';
-import { CartContext, type UpdateCartStampingInput } from './cart-context';
+import { CartContext, type UpdateCartQcInput, type UpdateCartStampingInput } from './cart-context';
 import { DealerPriceLevelContext } from './dealer-price-level-context';
 import { isDealerPortalUser } from '../lib/dealerAccess';
 import { isCatalogProductSalesRestricted } from '../lib/catalogSalesRestriction';
@@ -111,6 +112,7 @@ function parseAddOptions(options?: number | AddCartItemOptions): Required<
     gatcStampingPriceId: options?.gatcStampingPriceId,
     gatcFeePerUnit: options?.gatcFeePerUnit,
     gatcStampingRange: options?.gatcStampingRange,
+    qcEnabled: options?.qcEnabled === true,
     insertAfterCartLineId: options?.insertAfterCartLineId,
     baseRateOverride: options?.baseRateOverride,
     listRate: options?.listRate,
@@ -246,6 +248,7 @@ export const CartProvider: React.FC<{
     const gatcFeePerUnit = gatcStampingPriceId
       ? Math.round(Number(opts.gatcFeePerUnit ?? 0) * 100) / 100
       : 0;
+    const qc = resolveMachineQc(product.categoryName, opts.qcEnabled === true);
 
     let baseRate = opts.baseRateOverride != null && Number.isFinite(Number(opts.baseRateOverride))
       ? Math.round(Number(opts.baseRateOverride) * 100) / 100
@@ -273,6 +276,7 @@ export const CartProvider: React.FC<{
       const existing = prev.find(
         item => item.productId === product.id
           && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId)
+          && Boolean(item.qcEnabled) === qc.qcEnabled
           && sameAddedBy(item.addedByUid, attribution?.addedByUid),
       );
       let next: CartItem[];
@@ -289,7 +293,9 @@ export const CartProvider: React.FC<{
           gatcStampingRange: gatcStampingPriceId
             ? (opts.gatcStampingRange?.trim() || existing.gatcStampingRange || null)
             : null,
-          rate: combinedCartRate(baseRate, gatcFeePerUnit),
+          qcEnabled: qc.qcEnabled,
+          qcFeePerUnit: qc.qcFeePerUnit,
+          rate: combinedCartRate(baseRate, gatcFeePerUnit, qc.qcFeePerUnit),
           stockStatus,
           hsn: product.hsn ?? existing.hsn ?? null,
           name: product.name,
@@ -304,6 +310,7 @@ export const CartProvider: React.FC<{
           gatcStampingPriceId,
           gatcFeePerUnit,
           gatcStampingRange: opts.gatcStampingRange,
+          qcEnabled: qc.qcEnabled,
           baseRateOverride: baseRate,
           listRate,
           priceLevelMode,
@@ -383,6 +390,7 @@ export const CartProvider: React.FC<{
         item => item.cartLineId !== cartLineId
           && item.productId === target.productId
           && sameGatcKey(item.gatcStampingPriceId, nextGatcId)
+          && Boolean(item.qcEnabled) === Boolean(target.qcEnabled)
           && sameAddedBy(item.addedByUid, target.addedByUid),
       );
 
@@ -399,7 +407,7 @@ export const CartProvider: React.FC<{
                   gatcFeePerUnit: nextFee,
                   gatcStampingPriceId: nextGatcId,
                   gatcStampingRange: nextRange,
-                  rate: combinedCartRate(target.baseRate, nextFee),
+                  rate: combinedCartRate(target.baseRate, nextFee, Number(target.qcFeePerUnit) || 0),
                 }
               : item
           ));
@@ -418,13 +426,72 @@ export const CartProvider: React.FC<{
               gatcFeePerUnit: nextFee,
               gatcStampingPriceId: nextGatcId,
               gatcStampingRange: nextRange,
-              rate: combinedCartRate(item.baseRate, nextFee),
+              rate: combinedCartRate(item.baseRate, nextFee, Number(item.qcFeePerUnit) || 0),
             }
           : item
       ));
       const priced = dealerId
         ? applyDealerCartPricing(stamped, priceLevelsRef.current, dealerId)
         : stamped;
+      const updated = priced.find(item => item.cartLineId === cartLineId);
+      if (updated) persistSharedItem(sharedUid, updated);
+      return priced;
+    });
+  }, [dealerId, sharedUid]);
+
+  const updateQc = useCallback((cartLineId: string, input: UpdateCartQcInput) => {
+    setAllItems(prev => {
+      const target = prev.find(item => item.cartLineId === cartLineId);
+      if (!target) return prev;
+
+      const qc = resolveMachineQc(target.categoryName, input.qcEnabled);
+      const gatcFee = Number(target.gatcFeePerUnit) || 0;
+
+      const mergeInto = prev.find(
+        item => item.cartLineId !== cartLineId
+          && item.productId === target.productId
+          && sameGatcKey(item.gatcStampingPriceId, target.gatcStampingPriceId)
+          && Boolean(item.qcEnabled) === qc.qcEnabled
+          && sameAddedBy(item.addedByUid, target.addedByUid),
+      );
+
+      if (mergeInto) {
+        persistSharedDelete(sharedUid, cartLineId);
+        const merged = prev
+          .filter(item => item.cartLineId !== cartLineId)
+          .map(item => (
+            item.cartLineId === mergeInto.cartLineId
+              ? {
+                  ...item,
+                  quantity: item.quantity + target.quantity,
+                  baseRate: target.baseRate,
+                  qcEnabled: qc.qcEnabled,
+                  qcFeePerUnit: qc.qcFeePerUnit,
+                  rate: combinedCartRate(target.baseRate, gatcFee, qc.qcFeePerUnit),
+                }
+              : item
+          ));
+        const priced = dealerId
+          ? applyDealerCartPricing(merged, priceLevelsRef.current, dealerId)
+          : merged;
+        const updated = priced.find(item => item.cartLineId === mergeInto.cartLineId);
+        if (updated) persistSharedItem(sharedUid, updated);
+        return priced;
+      }
+
+      const next = prev.map(item => (
+        item.cartLineId === cartLineId
+          ? {
+              ...item,
+              qcEnabled: qc.qcEnabled,
+              qcFeePerUnit: qc.qcFeePerUnit,
+              rate: combinedCartRate(item.baseRate, gatcFee, qc.qcFeePerUnit),
+            }
+          : item
+      ));
+      const priced = dealerId
+        ? applyDealerCartPricing(next, priceLevelsRef.current, dealerId)
+        : next;
       const updated = priced.find(item => item.cartLineId === cartLineId);
       if (updated) persistSharedItem(sharedUid, updated);
       return priced;
@@ -486,6 +553,7 @@ export const CartProvider: React.FC<{
       removeItem,
       setQuantity,
       updateStamping,
+      updateQc,
       setRemarks,
       clearCart,
       isInCart,
@@ -501,6 +569,7 @@ export const CartProvider: React.FC<{
       removeItem,
       setQuantity,
       updateStamping,
+      updateQc,
       setRemarks,
       clearCart,
       isInCart,

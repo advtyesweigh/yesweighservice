@@ -35,6 +35,7 @@ import {
   filterRowsBySalespersonScope,
 } from './salespersonScope';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
+import { appendMachineQcDescription, productHasMachineQc } from './machineQc';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -122,6 +123,32 @@ export interface AdminFirestoreSalesOrder {
   yesOnePriceCustomized?: boolean;
 }
 
+/** Meezan / dealer sales invoice PDF packed with drop-ship parcels. */
+export interface DealerCustomerInvoice {
+  storagePath: string;
+  url: string;
+  fileName: string;
+  uploadedAt: string | null;
+  uploadedByUid: string | null;
+  uploadedByName: string | null;
+}
+
+export function parseDealerCustomerInvoice(raw: unknown): DealerCustomerInvoice | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const storagePath = String(data.storagePath ?? '').trim();
+  const url = String(data.url ?? '').trim();
+  if (!storagePath && !url) return null;
+  return {
+    storagePath,
+    url,
+    fileName: String(data.fileName ?? 'dealer-invoice.pdf').trim() || 'dealer-invoice.pdf',
+    uploadedAt: data.uploadedAt ? String(data.uploadedAt) : null,
+    uploadedByUid: data.uploadedByUid ? String(data.uploadedByUid) : null,
+    uploadedByName: data.uploadedByName ? String(data.uploadedByName) : null,
+  };
+}
+
 export interface AdminSalesOrderDetail {
   id: string;
   salesOrderNumber: string;
@@ -183,6 +210,7 @@ export interface AdminSalesOrderDetail {
   paymentNotes?: string | null;
   paymentScreenshotStoragePath?: string | null;
   paymentScreenshotUrl?: string | null;
+  dealerCustomerInvoice?: DealerCustomerInvoice | null;
   paymentSubmittedAt?: string | null;
   paymentVerifiedAt?: string | null;
   readyForPaymentAt?: string | null;
@@ -229,13 +257,24 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     id: String(raw.id ?? ''),
     itemId: raw.itemId ? String(raw.itemId) : null,
     name: String(raw.name ?? 'Item'),
-    description: raw.description ? String(raw.description) : null,
+    description: appendMachineQcDescription(
+      raw.description ? String(raw.description) : null,
+      {
+        qcEnabled: raw.qcEnabled === true || productHasMachineQc({
+          categoryName: raw.categoryName ? String(raw.categoryName) : null,
+        }),
+      },
+    ),
     sku: raw.sku ? String(raw.sku) : null,
     quantity: Number(raw.quantity ?? 0),
     rate: Number(raw.rate ?? 0),
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
     hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
+    categoryName: raw.categoryName ? String(raw.categoryName) : null,
+    categoryId: raw.categoryId ? String(raw.categoryId) : null,
+    qcEnabled: raw.qcEnabled === true,
+    qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
   };
 }
 
@@ -1021,6 +1060,7 @@ export function mapAdminSalesOrderDetail(
       ? String(data.paymentScreenshotStoragePath)
       : null,
     paymentScreenshotUrl: data.paymentScreenshotUrl ? String(data.paymentScreenshotUrl) : null,
+    dealerCustomerInvoice: parseDealerCustomerInvoice(data.dealerCustomerInvoice),
     paymentSubmittedAt: data.paymentSubmittedAt ? String(data.paymentSubmittedAt) : null,
     paymentVerifiedAt: data.paymentVerifiedAt ? String(data.paymentVerifiedAt) : null,
     readyForPaymentAt: data.readyForPaymentAt ? String(data.readyForPaymentAt) : null,

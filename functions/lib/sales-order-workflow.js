@@ -50,6 +50,11 @@ import {
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
 import {
+  appendMachineQcDescription,
+  parseQcEnabled,
+  resolveMachineQc,
+} from './machine-qc.js';
+import {
   appendWeighingScaleDescription,
   loadWeighingScaleCategoryIdSet,
 } from './weighing-scale-description.js';
@@ -318,6 +323,8 @@ export async function backfillOpenSalesOrdersSalespersonForCustomer(
 }
 
 const MAX_PAYMENT_BYTES = 8 * 1024 * 1024;
+const MAX_DEALER_INVOICE_BYTES = 8 * 1024 * 1024;
+const DEALER_INVOICE_PREFIX = 'sales-order-dealer-invoices';
 
 function nowIso() {
   return new Date().toISOString();
@@ -497,6 +504,7 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) 
       throw new HttpsError('invalid-argument', 'Each line needs a product and quantity ≥ 1.');
     }
     const gatcStampingPriceId = String(row?.gatcStampingPriceId ?? '').trim() || null;
+    const qcEnabled = parseQcEnabled(row?.qcEnabled);
     let baseOverride = null;
     if (allowRateOverride && row?.rate != null && row.rate !== '') {
       const parsed = Number(row.rate);
@@ -506,11 +514,12 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) 
       baseOverride = Math.round(parsed * 100) / 100;
     }
     const tentativeBase = baseOverride != null ? baseOverride : '__catalog__';
-    const key = mergeKeyForLine(productId, gatcStampingPriceId, tentativeBase);
+    const key = mergeKeyForLine(productId, gatcStampingPriceId, tentativeBase, qcEnabled);
     const prev = merged.get(key) || {
       productId,
       quantity: 0,
       gatcStampingPriceId,
+      qcEnabled,
       baseOverride,
     };
     merged.set(key, {
@@ -531,9 +540,10 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) 
     }
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
+    const qc = resolveMachineQc(product, entry.qcEnabled);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;
     const baseRate = entry.baseOverride != null ? entry.baseOverride : catalogBase;
-    const rate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
+    const rate = Math.round((baseRate + gatc.gatcFeePerUnit + qc.qcFeePerUnit) * 100) / 100;
 
     const isWeighingScale = Boolean(
       product.categoryId && weighingScaleCategoryIds.has(product.categoryId),
@@ -547,6 +557,7 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) 
       isWeighingScale,
       hasStamping: Boolean(gatc.gatcStampingPriceId),
     });
+    description = appendMachineQcDescription(description, qc);
 
     lines.push({
       productId: product.productId,
@@ -566,6 +577,8 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) 
       gatcStampingPriceId: gatc.gatcStampingPriceId,
       gatcFeePerUnit: gatc.gatcFeePerUnit,
       gatcStampingRange: gatc.gatcStampingRange,
+      qcEnabled: qc.qcEnabled,
+      qcFeePerUnit: qc.qcFeePerUnit,
       isWeighingScale,
     });
 
@@ -622,6 +635,39 @@ function extFromContentType(type, fileName) {
   return 'jpg';
 }
 
+function mapDealerCustomerInvoice(raw, extra = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const storagePath = String(raw.storagePath || '').trim();
+  const url = String(extra.url || raw.url || '').trim();
+  const fileName = String(raw.fileName || '').trim();
+  if (!storagePath && !url) return null;
+  return {
+    storagePath: storagePath || '',
+    url: url || '',
+    fileName: fileName || 'dealer-invoice.pdf',
+    uploadedAt: raw.uploadedAt ? String(raw.uploadedAt) : null,
+    uploadedByUid: raw.uploadedByUid ? String(raw.uploadedByUid) : null,
+    uploadedByName: raw.uploadedByName ? String(raw.uploadedByName) : null,
+  };
+}
+
+async function mirrorDealerCustomerInvoiceToBookings(soData, invoice) {
+  const invoiceId = String(soData?.zohoInvoiceId || '').trim();
+  if (!invoiceId) return;
+  const db = getFirestore();
+  const snap = await db.collection('logisticsBookings').where('invoiceId', '==', invoiceId).get();
+  if (snap.empty) return;
+  const batch = db.batch();
+  const at = nowIso();
+  for (const row of snap.docs) {
+    batch.set(row.ref, {
+      dealerCustomerInvoice: invoice || FieldValue.delete(),
+      updatedAt: at,
+    }, { merge: true });
+  }
+  await batch.commit();
+}
+
 async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
   const mapped = await withCatalogLineImages(
     await withResolvedShippingAddress(mapSalesOrderDoc(id, data)),
@@ -632,6 +678,15 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
       paymentScreenshotUrl = await durableReadUrl(String(data.paymentScreenshotStoragePath));
     } catch {
       paymentScreenshotUrl = null;
+    }
+  }
+  let dealerCustomerInvoiceUrl = String(data.dealerCustomerInvoice?.url || '').trim() || null;
+  const dealerInvoicePath = String(data.dealerCustomerInvoice?.storagePath || '').trim();
+  if (dealerInvoicePath) {
+    try {
+      dealerCustomerInvoiceUrl = await durableReadUrl(dealerInvoicePath);
+    } catch {
+      /* keep stored url */
     }
   }
   return {
@@ -646,6 +701,9 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
     paymentNotes: data.paymentNotes ? String(data.paymentNotes) : null,
     paymentScreenshotStoragePath: data.paymentScreenshotStoragePath ?? null,
     paymentScreenshotUrl,
+    dealerCustomerInvoice: mapDealerCustomerInvoice(data.dealerCustomerInvoice, {
+      url: dealerCustomerInvoiceUrl,
+    }),
     paymentSubmittedAt: data.paymentSubmittedAt ?? null,
     paymentVerifiedAt: data.paymentVerifiedAt ?? null,
     readyForPaymentAt: data.readyForPaymentAt ?? null,
@@ -1112,6 +1170,98 @@ export async function uploadSalesOrderPaymentScreenshot(uid, input = {}) {
 
   const url = firebaseDownloadUrl(bucket.name, storagePath, token);
   return { storagePath, url };
+}
+
+async function assertCanManageDealerCustomerInvoice(user, data) {
+  if (OPS_ROLES.has(user.role)) return;
+  await assertDealerOwnsSo(user, data);
+}
+
+export async function uploadSalesOrderDealerCustomerInvoice(uid, input = {}) {
+  const user = await loadUser(uid);
+  const { ref, id, data } = await loadSoOrThrow(input.salesOrderId);
+  await assertCanManageDealerCustomerInvoice(user, data);
+  if (yesOneStageOf(data) === 'void') {
+    throw new HttpsError('failed-precondition', 'This sales order is void.');
+  }
+
+  if (input.remove === true) {
+    const prevPath = String(data.dealerCustomerInvoice?.storagePath || '').trim();
+    if (prevPath && prevPath.startsWith(`${DEALER_INVOICE_PREFIX}/${id}/`)) {
+      try {
+        await getStorage().bucket().file(prevPath).delete({ ignoreNotFound: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    await ref.set({
+      dealerCustomerInvoice: FieldValue.delete(),
+      yesOneUpdatedAt: nowIso(),
+    }, { merge: true });
+    await mirrorDealerCustomerInvoiceToBookings(data, null);
+    const snap = await ref.get();
+    return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+  }
+
+  const contentType = String(input.contentType || 'application/pdf').trim().toLowerCase();
+  if (contentType !== 'application/pdf' && contentType !== 'application/octet-stream') {
+    throw new HttpsError('invalid-argument', 'Upload a PDF sales invoice.');
+  }
+  const dataBase64 = String(input.dataBase64 || '').replace(/^data:[^;]+;base64,/, '');
+  if (!dataBase64) throw new HttpsError('invalid-argument', 'PDF data is required.');
+  const buffer = Buffer.from(dataBase64, 'base64');
+  if (!buffer.length) throw new HttpsError('invalid-argument', 'PDF data is empty.');
+  if (buffer.length > MAX_DEALER_INVOICE_BYTES) {
+    throw new HttpsError('invalid-argument', 'PDF must be 8 MB or smaller.');
+  }
+  if (buffer.slice(0, 4).toString('utf8') !== '%PDF') {
+    throw new HttpsError('invalid-argument', 'File is not a PDF.');
+  }
+
+  const token = randomUUID();
+  const storagePath = `${DEALER_INVOICE_PREFIX}/${id}/${Date.now()}_${token.slice(0, 8)}.pdf`;
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  await file.save(buffer, {
+    resumable: false,
+    contentType: 'application/pdf',
+    metadata: {
+      metadata: {
+        firebaseStorageDownloadTokens: token,
+        uploadedByUid: uid,
+        salesOrderId: id,
+        kind: 'dealer_customer_invoice',
+      },
+    },
+  });
+  const url = firebaseDownloadUrl(bucket.name, storagePath, token);
+  const rawName = String(input.fileName || 'dealer-invoice.pdf').trim() || 'dealer-invoice.pdf';
+  const fileName = rawName.replace(/[^\w.\-() ]+/g, '_').slice(0, 120);
+  const invoice = {
+    storagePath,
+    url,
+    fileName: fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`,
+    uploadedAt: nowIso(),
+    uploadedByUid: uid,
+    uploadedByName: displayName(user),
+  };
+
+  const prevPath = String(data.dealerCustomerInvoice?.storagePath || '').trim();
+  if (prevPath && prevPath.startsWith(`${DEALER_INVOICE_PREFIX}/${id}/`) && prevPath !== storagePath) {
+    try {
+      await bucket.file(prevPath).delete({ ignoreNotFound: true });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  await ref.set({
+    dealerCustomerInvoice: invoice,
+    yesOneUpdatedAt: invoice.uploadedAt,
+  }, { merge: true });
+  await mirrorDealerCustomerInvoiceToBookings(data, invoice);
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
 }
 
 export async function submitSalesOrderPayment(uid, role, payload = {}) {

@@ -423,6 +423,15 @@ export interface LogisticsBooking {
   /** ISO or ST delivery timestamp when booking was marked delivered via sync. */
   deliveredAt?: string | null;
   inTransitAt?: string | null;
+  /** Meezan / dealer sales invoice PDF to pack instead of the YESWEIGH invoice. */
+  dealerCustomerInvoice?: {
+    storagePath: string;
+    url: string;
+    fileName: string;
+    uploadedAt: string | null;
+    uploadedByUid: string | null;
+    uploadedByName: string | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
   createdByUid: string;

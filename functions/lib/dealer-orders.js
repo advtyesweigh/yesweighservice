@@ -71,6 +71,11 @@ import {
   mergeKeyForLine,
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
+import {
+  appendMachineQcDescription,
+  parseQcEnabled,
+  resolveMachineQc,
+} from './machine-qc.js';
 import { staffUserHasPermission } from './staff-permissions.js';
 import { assertDealerGoodsLinesOrderable } from './dealer-order-stock.js';
 import { isDealerAdminStaff } from './dealer-staff-team.js';
@@ -303,6 +308,7 @@ async function buildLinesFromInput(rawLines, {
       throw new HttpsError('invalid-argument', 'Each line needs a product and quantity ≥ 1.');
     }
     const gatcStampingPriceId = String(row?.gatcStampingPriceId ?? '').trim() || null;
+    const qcEnabled = parseQcEnabled(row?.qcEnabled);
     let baseOverride = null;
     if (allowRateOverride && row?.rate != null && row.rate !== '') {
       const parsed = Number(row.rate);
@@ -314,11 +320,12 @@ async function buildLinesFromInput(rawLines, {
 
     // Tentative merge key uses override or placeholder; refined after product load.
     const tentativeBase = baseOverride != null ? baseOverride : '__catalog__';
-    const key = mergeKeyForLine(productId, gatcStampingPriceId, tentativeBase);
+    const key = mergeKeyForLine(productId, gatcStampingPriceId, tentativeBase, qcEnabled);
     const prev = merged.get(key) || {
       productId,
       quantity: 0,
       gatcStampingPriceId,
+      qcEnabled,
       baseOverride,
     };
     merged.set(key, {
@@ -354,6 +361,7 @@ async function buildLinesFromInput(rawLines, {
     }
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
+    const qc = resolveMachineQc(product, entry.qcEnabled);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;
     let levelBase = null;
     let levelId = null;
@@ -374,14 +382,16 @@ async function buildLinesFromInput(rawLines, {
     }
     // Catalog-equal client rates mean "default" (staff UI always sends a rate,
     // including catalog + GATC fee). Only a rate ≠ list and ≠ list+fee is an override.
-    const combinedCatalog = Math.round((catalogBase + gatc.gatcFeePerUnit) * 100) / 100;
+    const combinedCatalog = Math.round(
+      (catalogBase + gatc.gatcFeePerUnit + qc.qcFeePerUnit) * 100,
+    ) / 100;
     const overrideDiffersFromCatalog = entry.baseOverride != null
       && Math.round(entry.baseOverride * 100) !== Math.round(catalogBase * 100)
       && Math.round(entry.baseOverride * 100) !== Math.round(combinedCatalog * 100);
     const baseRate = overrideDiffersFromCatalog
       ? entry.baseOverride
       : (levelBase != null ? levelBase : catalogBase);
-    const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
+    const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit + qc.qcFeePerUnit) * 100) / 100;
 
     const isWeighingScale = Boolean(
       product.categoryId && weighingScaleCategoryIds.has(product.categoryId),
@@ -391,6 +401,8 @@ async function buildLinesFromInput(rawLines, {
     line.gatcStampingPriceId = gatc.gatcStampingPriceId;
     line.gatcFeePerUnit = gatc.gatcFeePerUnit;
     line.gatcStampingRange = gatc.gatcStampingRange;
+    line.qcEnabled = qc.qcEnabled;
+    line.qcFeePerUnit = qc.qcFeePerUnit;
     line.isWeighingScale = isWeighingScale;
     if (gatc.gatcStampingPriceId) {
       const stampNote = `Stamping: ${gatc.gatcStampingRange}`;
@@ -402,6 +414,7 @@ async function buildLinesFromInput(rawLines, {
       isWeighingScale,
       hasStamping: Boolean(gatc.gatcStampingPriceId),
     });
+    line.description = appendMachineQcDescription(line.description, qc);
     lines.push(line);
 
     // Audit customizes base only — not the fixed GATC fee.

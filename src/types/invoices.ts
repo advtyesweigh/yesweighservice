@@ -84,6 +84,9 @@ export interface DealerInvoiceLineItem {
   imageUrl: string | null;
   /** HSN / SAC from Zoho line or catalog (used to exclude freight SAC). */
   hsn?: string | null;
+  /** Extra QC per machine (Weighing Scale Import / Bill Printing Scales). */
+  qcEnabled?: boolean;
+  qcFeePerUnit?: number;
   serialNumbers?: string[];
   /** Catalog Zoho category when resolved (support picker filters software/spares). */
   categoryId?: string | null;

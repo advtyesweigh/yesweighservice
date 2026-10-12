@@ -367,6 +367,51 @@ service firebase.storage {
       allow delete: if isOpsUser();
     }
 
+    function salesOrderDocPath(salesOrderId) {
+      return /databases/(default)/documents/salesOrders/$(salesOrderId);
+    }
+
+    function canAccessSalesOrderDealerInvoice(salesOrderId) {
+      return firestore.exists(salesOrderDocPath(salesOrderId))
+        && isActivePortalUser()
+        && (
+          isOpsUser()
+          || isWarehouse()
+          || (
+            userDoc().keys().hasAny(['zohoCustomerId'])
+            && firestore.get(salesOrderDocPath(salesOrderId)).data.customerId == userDoc().zohoCustomerId
+          )
+        );
+    }
+
+    function canWriteSalesOrderDealerInvoice(salesOrderId) {
+      return canAccessSalesOrderDealerInvoice(salesOrderId)
+        && (
+          isOpsUser()
+          || isDealer()
+          || role() == 'dealer_staff'
+          || role() == 'director_staff'
+        );
+    }
+
+    function validDealerCustomerInvoicePdf() {
+      return request.resource.size < 9 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
+    // Meezan / dealer customer sales invoice PDF packed with drop-ship parcels.
+    match /sales-order-dealer-invoices/{salesOrderId}/{fileName} {
+      allow read: if canAccessSalesOrderDealerInvoice(salesOrderId);
+      allow create, update: if canWriteSalesOrderDealerInvoice(salesOrderId)
+        && validDealerCustomerInvoicePdf();
+      allow delete: if canWriteSalesOrderDealerInvoice(salesOrderId);
+    }
+
     // Flat legacy paths: logistics/{bookingId}/{fileName}
     match /logistics/{bookingId}/{fileName} {
       allow read: if isOpsUser() || canAccessLogisticsBooking(bookingId);

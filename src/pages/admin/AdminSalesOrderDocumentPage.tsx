@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Upload,
   UserRound,
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
@@ -69,7 +70,13 @@ import {
   updateDraftSalesOrderSparePackaging,
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
+  uploadSalesOrderDealerCustomerInvoice,
 } from '../../lib/salesOrderWorkflow';
+import {
+  appendMachineQcDescription,
+  lineSupportsDealerInvoicePdf,
+  linesHaveMachineQc,
+} from '../../lib/machineQc';
 import type { SpareFreightPackaging } from '../../lib/spareFreightQuote';
 import {
   formatInvoiceDate,
@@ -153,6 +160,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [sparePackaging, setSparePackaging] = useState<SpareFreightPackaging[] | null>(null);
   const [savingLines, setSavingLines] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [dealerInvoiceBusy, setDealerInvoiceBusy] = useState(false);
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [editingShip, setEditingShip] = useState(false);
@@ -304,6 +312,22 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     );
   }, [showAvailableStock, catalogById, availableQtyByProductId]);
 
+  const renderItemWarehouseMeta = useCallback((item: DealerInvoiceLineItem) => {
+    const catalog = catalogById[item.itemId || ''] || catalogById[item.id];
+    const qcRequested = !isFreightInvoiceLineItem(item)
+      && lineSupportsDealerInvoicePdf(item, catalog);
+    const stock = renderItemStockMeta(item);
+    if (!qcRequested && !stock) return null;
+    return (
+      <div className="invoice-detail-item__meta-stack">
+        {qcRequested ? (
+          <p className="invoice-detail-item__qc-requested">QC requested</p>
+        ) : null}
+        {stock}
+      </div>
+    );
+  }, [catalogById, renderItemStockMeta]);
+
   const hasFreightLine = useMemo(
     () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
     [salesOrder?.lineItems],
@@ -355,12 +379,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const documentInvoice = useMemo(() => {
     if (!salesOrder) return null;
     const withDesc = salesOrder.lineItems.map(line => {
-      if (line.description?.trim()) return line;
       const fromCatalog = catalogDescByItemId[line.itemId || '']
         || catalogDescByItemId[line.id]
         || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
         || null;
-      return fromCatalog ? { ...line, description: fromCatalog } : line;
+      const catalog = catalogById[line.itemId || ''] || catalogById[line.id];
+      const description = appendMachineQcDescription(
+        line.description?.trim() || fromCatalog || null,
+        { qcEnabled: lineSupportsDealerInvoicePdf(line, catalog) },
+      );
+      return description !== line.description ? { ...line, description } : line;
     });
 
     if (!editLines.length) {
@@ -442,8 +470,19 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       });
     }
 
-    return { ...salesOrder, lineItems: moveFreightLinesToEnd(mapped) };
-  }, [salesOrder, catalogDescByItemId, editLines, baselineFingerprint]);
+    return {
+      ...salesOrder,
+      lineItems: moveFreightLinesToEnd(mapped).map(line => ({
+        ...line,
+        description: appendMachineQcDescription(line.description, {
+          qcEnabled: lineSupportsDealerInvoicePdf(
+            line,
+            catalogById[line.itemId || ''] || catalogById[line.id],
+          ),
+        }),
+      })),
+    };
+  }, [salesOrder, catalogById, catalogDescByItemId, editLines, baselineFingerprint]);
 
   const portalRemarks = useMemo(
     () => (salesOrder ? portalSalesOrderRemarks(salesOrder) : null),
@@ -665,6 +704,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           quantity: line.quantity,
           rate,
           gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+          qcEnabled: line.qcEnabled === true,
         };
       });
     if (!lines.length) {
@@ -745,7 +785,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       gatcStampingRange: gatcStampingPriceId
         ? (choice.gatcStampingRange?.trim() || null)
         : null,
-      rate: combinedCartRate(source.catalogRate, gatcFeePerUnit),
+      rate: combinedCartRate(source.catalogRate, gatcFeePerUnit, source.qcFeePerUnit ?? 0),
       quantity: 1,
     };
     setEditLines(prev => {
@@ -830,6 +870,28 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       window.alert(err instanceof Error ? err.message : 'Could not fetch Kotak bank feeds.');
     } finally {
       if (gen === bankFeedFetchGen.current) setFetchingBankFeeds(false);
+    }
+  };
+
+  const handleDealerInvoiceFile = async (file: File | null) => {
+    if (!salesOrderId || dealerInvoiceBusy || !file) return;
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      window.alert('Upload a PDF sales invoice.');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      window.alert('PDF must be 8 MB or smaller.');
+      return;
+    }
+    setDealerInvoiceBusy(true);
+    try {
+      const invoice = await uploadSalesOrderDealerCustomerInvoice(salesOrderId, file);
+      setSalesOrder(prev => (prev ? { ...prev, dealerCustomerInvoice: invoice } : prev));
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setDealerInvoiceBusy(false);
     }
   };
 
@@ -1093,6 +1155,84 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const showPriceChanges = Boolean(
     !hideCommercials && salesOrder.yesOnePriceCustomized && priceChanges.length,
   );
+
+  const dealerInvoice = salesOrder.dealerCustomerInvoice ?? null;
+  const orderHasQc = linesHaveMachineQc(salesOrder.lineItems)
+    || salesOrder.lineItems.some(line => lineSupportsDealerInvoicePdf(
+      line,
+      catalogById[line.itemId || ''] || catalogById[line.id],
+    ));
+  const canManageDealerInvoice = orderHasQc
+    && stage !== 'void'
+    && ((isDealer && !hideCommercials) || canManageOrders);
+
+  const renderDealerInvoiceMedia = (item: DealerInvoiceLineItem) => {
+    if (isFreightInvoiceLineItem(item)) return null;
+    const catalog = catalogById[item.itemId || ''] || catalogById[item.id];
+    if (!lineSupportsDealerInvoicePdf(item, catalog)) return null;
+    const hasPdf = Boolean(dealerInvoice?.url || dealerInvoice?.storagePath);
+    const stopItemSelect = (event: React.SyntheticEvent) => {
+      event.stopPropagation();
+    };
+    if (canManageDealerInvoice) {
+      return (
+        <label
+          className="machine-qc-inline__pdf"
+          data-enabled={dealerInvoiceBusy ? 'false' : 'true'}
+          data-uploaded={hasPdf ? 'true' : 'false'}
+          data-capture-ignore="1"
+          aria-label={hasPdf ? 'Dealer invoice PDF uploaded' : 'Upload invoice PDF'}
+          title={hasPdf ? (dealerInvoice?.fileName || 'Invoice PDF uploaded') : 'Upload invoice PDF'}
+          onClick={stopItemSelect}
+          onPointerDown={stopItemSelect}
+        >
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            hidden
+            disabled={dealerInvoiceBusy}
+            onChange={event => {
+              const file = event.target.files?.[0] ?? null;
+              event.target.value = '';
+              void handleDealerInvoiceFile(file);
+            }}
+          />
+          {hasPdf
+            ? <Check size={16} strokeWidth={2.5} aria-hidden />
+            : <Upload size={16} strokeWidth={2.4} aria-hidden />}
+        </label>
+      );
+    }
+    if (hasPdf && dealerInvoice?.url) {
+      return (
+        <a
+          className="machine-qc-inline__pdf"
+          data-enabled="true"
+          data-uploaded="true"
+          data-capture-ignore="1"
+          href={dealerInvoice.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Open dealer invoice PDF"
+          title={dealerInvoice.fileName || 'Invoice PDF uploaded'}
+          onClick={stopItemSelect}
+          onPointerDown={stopItemSelect}
+        >
+          <Check size={16} strokeWidth={2.5} aria-hidden />
+        </a>
+      );
+    }
+    return (
+      <span
+        className="machine-qc-inline__pdf"
+        data-enabled="false"
+        data-uploaded="false"
+        aria-hidden
+      >
+        <Upload size={16} strokeWidth={2.4} />
+      </span>
+    );
+  };
 
   const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
   // Picking / order list is ops-only (super admin + staff) — never dealers.
@@ -1476,7 +1616,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           selectedLineItemId={canEditLines ? expandedLineId : null}
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
           renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
-          itemMeta={showAvailableStock ? renderItemStockMeta : undefined}
+          itemMeta={renderItemWarehouseMeta}
+          itemMediaExtra={renderDealerInvoiceMedia}
           afterItems={
             canEditLines && allowFreightEdit && editLines.length > 0 ? (
               <section

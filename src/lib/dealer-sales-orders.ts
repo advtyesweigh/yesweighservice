@@ -1,6 +1,11 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
-import type { AdminFirestoreSalesOrder, AdminSalesOrderDetail } from './admin-sales-orders';
+import {
+  parseDealerCustomerInvoice,
+  type AdminFirestoreSalesOrder,
+  type AdminSalesOrderDetail,
+} from './admin-sales-orders';
+import { appendMachineQcDescription, productHasMachineQc } from './machineQc';
 import {
   invoiceErrorMessage,
   normalizeInvoiceCategories,
@@ -19,13 +24,24 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     id: String(raw.id ?? ''),
     itemId: raw.itemId ? String(raw.itemId) : null,
     name: String(raw.name ?? 'Item'),
-    description: raw.description ? String(raw.description) : null,
+    description: appendMachineQcDescription(
+      raw.description ? String(raw.description) : null,
+      {
+        qcEnabled: raw.qcEnabled === true || productHasMachineQc({
+          categoryName: raw.categoryName ? String(raw.categoryName) : null,
+        }),
+      },
+    ),
     sku: raw.sku ? String(raw.sku) : null,
     quantity: Number(raw.quantity ?? 0),
     rate: Number(raw.rate ?? 0),
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
     hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
+    categoryName: raw.categoryName ? String(raw.categoryName) : null,
+    categoryId: raw.categoryId ? String(raw.categoryId) : null,
+    qcEnabled: raw.qcEnabled === true,
+    qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
   };
 }
 
@@ -117,6 +133,7 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
       ? String(raw.paymentScreenshotStoragePath)
       : null,
     paymentScreenshotUrl: raw.paymentScreenshotUrl ? String(raw.paymentScreenshotUrl) : null,
+    dealerCustomerInvoice: parseDealerCustomerInvoice(raw.dealerCustomerInvoice),
     paymentSubmittedAt: raw.paymentSubmittedAt ? String(raw.paymentSubmittedAt) : null,
     paymentVerifiedAt: raw.paymentVerifiedAt ? String(raw.paymentVerifiedAt) : null,
     readyForPaymentAt: raw.readyForPaymentAt ? String(raw.readyForPaymentAt) : null,

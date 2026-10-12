@@ -5,6 +5,8 @@ export interface SubmitDealerOrderLineInput {
   quantity: number;
   /** Selected GATC stamping fee id; omit/null = without stamping. */
   gatcStampingPriceId?: string | null;
-  /** Staff only: base product rate (server adds GATC fee). */
+  /** Extra QC per machine; server adds the category fee to unit rate. */
+  qcEnabled?: boolean;
+  /** Staff only: base product rate (server adds GATC / QC fees). */
   rate?: number;
 }

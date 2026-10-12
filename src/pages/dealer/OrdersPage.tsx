@@ -11,6 +11,7 @@ import {
   type GatcStampingChoice,
 } from '../../components/catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
+import { MachineQcInlineControl } from '../../components/catalog/MachineQcInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { DealerStaffApprovalQueue } from '../../components/dealers/DealerStaffApprovalQueue';
@@ -39,6 +40,8 @@ import {
   priceLevelSkipsOpsReview,
 } from '../../lib/priceLevels';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
+import { appendMachineQcDescription, linesHaveMachineQc, productHasMachineQc } from '../../lib/machineQc';
+import { attachDealerCustomerInvoiceToSalesOrders } from '../../lib/salesOrderWorkflow';
 import {
   dealerOrderErrorMessage,
   submitDealerOrder,
@@ -113,6 +116,7 @@ const DealerCartPage: React.FC = () => {
     removeItem,
     addItem,
     updateStamping,
+    updateQc,
     clearCart,
     cartReady,
   } = useCart();
@@ -129,6 +133,7 @@ const DealerCartPage: React.FC = () => {
   const dealerStock = useDealerOrderStockGate();
   const skipsOpsReview = priceLevelSkipsOpsReview(dealerPriceLevel);
   const [submitting, setSubmitting] = useState(false);
+  const [dealerInvoicePdf, setDealerInvoicePdf] = useState<File | null>(null);
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
   const [submittedForApproval, setSubmittedForApproval] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<DealerStaffOrderApproval[]>([]);
@@ -147,6 +152,11 @@ const DealerCartPage: React.FC = () => {
   const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const [freightAdjustAgreed, setFreightAdjustAgreed] = useState(true);
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
+  const cartHasQc = linesHaveMachineQc(checkoutItems);
+
+  useEffect(() => {
+    if (!cartHasQc) setDealerInvoicePdf(null);
+  }, [cartHasQc]);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/products`;
@@ -436,6 +446,7 @@ const DealerCartPage: React.FC = () => {
         productId: item.productId,
         quantity: item.quantity,
         gatcStampingPriceId: item.gatcStampingPriceId ?? null,
+        qcEnabled: item.qcEnabled === true,
       }));
 
       if (isDealerStaffUser) {
@@ -475,6 +486,23 @@ const DealerCartPage: React.FC = () => {
           ? freightBillingMode
           : undefined,
       );
+      if (dealerInvoicePdf) {
+        const createdIds = (
+          Array.isArray(order.salesOrders) && order.salesOrders.length > 0
+            ? order.salesOrders.map(row => row.zohoSalesOrderId)
+            : [order.zohoSalesOrderId]
+        ).filter((id): id is string => Boolean(id));
+        try {
+          await attachDealerCustomerInvoiceToSalesOrders(createdIds, dealerInvoicePdf);
+        } catch (pdfErr) {
+          window.alert(
+            pdfErr instanceof Error
+              ? `Order placed, but the customer invoice PDF could not be attached: ${pdfErr.message}`
+              : 'Order placed, but the customer invoice PDF could not be attached.',
+          );
+        }
+        setDealerInvoicePdf(null);
+      }
       clearCart();
       setFreightBillingMode('btc');
       const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
@@ -727,19 +755,35 @@ const DealerCartPage: React.FC = () => {
                   key={item.cartLineId}
                   className={`orders-page__item panel glass ${!canOrderLine ? 'orders-page__item--unavailable' : ''}`}
                 >
-                  <div className="orders-page__item-media">
-                    {item.imageUrl ? (
-                      <CategoryThumbnail src={item.imageUrl} knockout={false} />
-                    ) : (
-                      <Package size={28} aria-hidden />
-                    )}
+                  <div className="orders-page__item-aside">
+                    <div className="orders-page__item-media">
+                      {item.imageUrl ? (
+                        <CategoryThumbnail src={item.imageUrl} knockout={false} />
+                      ) : (
+                        <Package size={28} aria-hidden />
+                      )}
+                    </div>
+                    {catalogProduct && productHasMachineQc(catalogProduct) ? (
+                      <MachineQcInlineControl
+                        compact
+                        product={catalogProduct}
+                        qcEnabled={item.qcEnabled === true}
+                        disabled={submitting}
+                        onChange={next => updateQc(item.cartLineId, { qcEnabled: next })}
+                        pdfFile={dealerInvoicePdf}
+                        onPdfFileChange={setDealerInvoicePdf}
+                      />
+                    ) : null}
                   </div>
 
                   <DocumentLineItemSpec
                     className="orders-page__item-info invoice-detail-item__body"
                     name={item.name}
                     sku={item.sku}
-                    description={item.description || descByProductId[item.productId] || null}
+                    description={appendMachineQcDescription(
+                      item.description || descByProductId[item.productId] || null,
+                      { qcEnabled: item.qcEnabled === true },
+                    )}
                   >
                     {isStaffAttributedCartLine(item) && item.addedByName ? (
                       <p className="orders-page__added-by">
@@ -793,12 +837,15 @@ const DealerCartPage: React.FC = () => {
                         <span className="text-muted text-sm">/ {item.unit}</span>
                       )}
                     </div>
-                    {showLineDealerPrice && item.gatcFeePerUnit > 0 ? (
+                    {showLineDealerPrice && (item.gatcFeePerUnit > 0 || (item.qcFeePerUnit ?? 0) > 0) ? (
                       <span className="orders-page__item-price-breakdown text-muted">
                         {item.baseRate.toLocaleString('en-IN')}
-                        {' + '}
-                        {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
-                        {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
+                        {item.gatcFeePerUnit > 0
+                          ? ` + ${item.gatcFeePerUnit.toLocaleString('en-IN')} stamping${item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}`
+                          : ''}
+                        {(item.qcFeePerUnit ?? 0) > 0
+                          ? ` + ${(item.qcFeePerUnit ?? 0).toLocaleString('en-IN')} QC`
+                          : ''}
                       </span>
                     ) : showLineDealerPrice && canEditStamp ? null : showLineDealerPrice ? (
                       <span className="orders-page__item-price-breakdown text-muted">
@@ -819,6 +866,7 @@ const DealerCartPage: React.FC = () => {
                             addItem(catalogProduct, {
                               quantity: 1,
                               insertAfterCartLineId: item.cartLineId,
+                              qcEnabled: item.qcEnabled === true,
                             });
                             return;
                           }
@@ -828,6 +876,7 @@ const DealerCartPage: React.FC = () => {
                             gatcStampingPriceId: choice.gatcStampingPriceId,
                             gatcFeePerUnit: choice.gatcFeePerUnit,
                             gatcStampingRange: choice.gatcStampingRange,
+                            qcEnabled: item.qcEnabled === true,
                           });
                         }}
                       />

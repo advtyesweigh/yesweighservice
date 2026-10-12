@@ -9,6 +9,10 @@ export type UpdateCartStampingInput = {
   gatcStampingRange?: string | null;
 };
 
+export type UpdateCartQcInput = {
+  qcEnabled: boolean;
+};
+
 export interface CartContextType {
   items: CartItem[];
   itemCount: number;
@@ -21,6 +25,7 @@ export interface CartContextType {
   removeItem: (cartLineId: string) => void;
   setQuantity: (cartLineId: string, quantity: number) => void;
   updateStamping: (cartLineId: string, input: UpdateCartStampingInput) => void;
+  updateQc: (cartLineId: string, input: UpdateCartQcInput) => void;
   setRemarks: (remarks: string) => void;
   clearCart: () => void;
   isInCart: (productId: string) => boolean;

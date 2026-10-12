@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { combinedCartRate, newCartLineId } from './gatcCart';
+import { resolveMachineQc } from './machineQc';
 import { dealerPortalStaffTeams, dealerStaffTeam, resolveDealerAccountUid } from './dealerAccess';
 import { isCatalogSparePartProduct } from './catalog';
 import { normalizePriceLevelSlabs } from './priceLevels';
@@ -91,6 +92,10 @@ export function parseStoredCartItem(raw: Partial<CartItem> & { productId?: strin
   const gatcFeePerUnit = gatcStampingPriceId && Number.isFinite(feeRaw)
     ? Math.round(feeRaw * 100) / 100
     : 0;
+  const qc = resolveMachineQc(
+    raw.categoryName != null ? String(raw.categoryName) : null,
+    raw.qcEnabled === true,
+  );
   const addedByTeam = raw.addedByTeam === 'sales' || raw.addedByTeam === 'service' || raw.addedByTeam === 'dealer'
     ? raw.addedByTeam
     : null;
@@ -119,7 +124,9 @@ export function parseStoredCartItem(raw: Partial<CartItem> & { productId?: strin
     gatcStampingRange: gatcStampingPriceId
       ? (raw.gatcStampingRange?.trim() || null)
       : null,
-    rate: combinedCartRate(baseRate, gatcFeePerUnit),
+    qcEnabled: qc.qcEnabled,
+    qcFeePerUnit: qc.qcFeePerUnit,
+    rate: combinedCartRate(baseRate, gatcFeePerUnit, qc.qcFeePerUnit),
     unit: String(raw.unit ?? 'pcs'),
     stockStatus: effectiveCatalogStockStatus(raw.stockStatus, raw.hsn),
     categoryName: raw.categoryName != null ? String(raw.categoryName) : null,
@@ -147,6 +154,8 @@ export function serializeCartItem(item: CartItem): Record<string, unknown> {
     gatcFeePerUnit: item.gatcFeePerUnit,
     gatcStampingPriceId: item.gatcStampingPriceId ?? null,
     gatcStampingRange: item.gatcStampingRange ?? null,
+    qcEnabled: item.qcEnabled === true,
+    qcFeePerUnit: Number(item.qcFeePerUnit) || 0,
     rate: item.rate,
     unit: item.unit,
     stockStatus: item.stockStatus,

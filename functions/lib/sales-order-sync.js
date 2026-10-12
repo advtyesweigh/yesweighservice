@@ -937,6 +937,22 @@ export function mapSalesOrderDoc(id, data) {
     paymentScreenshotUrl: data.paymentScreenshotUrl
       ? String(data.paymentScreenshotUrl)
       : null,
+    dealerCustomerInvoice: data.dealerCustomerInvoice && typeof data.dealerCustomerInvoice === 'object'
+      ? {
+        storagePath: String(data.dealerCustomerInvoice.storagePath || ''),
+        url: String(data.dealerCustomerInvoice.url || ''),
+        fileName: String(data.dealerCustomerInvoice.fileName || 'dealer-invoice.pdf'),
+        uploadedAt: data.dealerCustomerInvoice.uploadedAt
+          ? String(data.dealerCustomerInvoice.uploadedAt)
+          : null,
+        uploadedByUid: data.dealerCustomerInvoice.uploadedByUid
+          ? String(data.dealerCustomerInvoice.uploadedByUid)
+          : null,
+        uploadedByName: data.dealerCustomerInvoice.uploadedByName
+          ? String(data.dealerCustomerInvoice.uploadedByName)
+          : null,
+      }
+      : null,
     paymentSubmittedAt: data.paymentSubmittedAt ?? null,
     paymentVerifiedAt: data.paymentVerifiedAt ?? null,
     readyForPaymentAt: data.readyForPaymentAt ?? null,

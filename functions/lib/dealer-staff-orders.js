@@ -46,6 +46,7 @@ function parseLines(raw) {
     productId: String(line?.productId ?? '').trim(),
     quantity: Math.max(1, Math.floor(Number(line?.quantity) || 0)),
     gatcStampingPriceId: String(line?.gatcStampingPriceId ?? '').trim() || null,
+    qcEnabled: line?.qcEnabled === true,
   })).filter(line => line.productId);
   if (!lines.length) {
     throw new HttpsError('invalid-argument', 'Add at least one item before submitting.');
@@ -67,6 +68,8 @@ function parseDisplayLines(raw) {
     gatcFeePerUnit: Number(line?.gatcFeePerUnit) || 0,
     gatcStampingPriceId: line?.gatcStampingPriceId != null ? String(line.gatcStampingPriceId) : null,
     gatcStampingRange: line?.gatcStampingRange != null ? String(line.gatcStampingRange) : null,
+    qcEnabled: line?.qcEnabled === true,
+    qcFeePerUnit: Number(line?.qcFeePerUnit) || 0,
     rate: Number(line?.rate) || 0,
     unit: String(line?.unit ?? 'pcs'),
     stockStatus: line?.stockStatus != null ? String(line.stockStatus) : 'in_stock',

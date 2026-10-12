@@ -31,6 +31,8 @@ interface InvoiceDocumentBodyProps {
   renderExpanded?: (item: DealerInvoiceLineItem) => React.ReactNode;
   /** Optional meta under each line (e.g. available stock for staff review). */
   itemMeta?: (item: DealerInvoiceLineItem) => React.ReactNode;
+  /** Optional control under the product thumbnail (e.g. dealer invoice PDF upload). */
+  itemMediaExtra?: (item: DealerInvoiceLineItem) => React.ReactNode;
   /** Rendered after the items list (before totals when totalsAfterItems). */
   afterItems?: React.ReactNode;
 }
@@ -51,6 +53,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   selectFreightOnly = false,
   renderExpanded,
   itemMeta,
+  itemMediaExtra,
   afterItems = null,
 }) => {
   const selectable = Boolean(onSelectLineItem);
@@ -114,7 +117,10 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     role="button"
                     tabIndex={0}
                     className="invoice-detail-item__select"
-                    onClick={() => onSelectLineItem?.(item)}
+                    onClick={event => {
+                      if ((event.target as HTMLElement).closest('[data-capture-ignore="1"]')) return;
+                      onSelectLineItem?.(item);
+                    }}
                     onKeyDown={e => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
@@ -132,6 +138,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                       onNext={onConfirmLineItem}
                       alert={showFreightAlert ? freightAlert : null}
                       meta={itemMeta?.(item)}
+                      mediaExtra={itemMediaExtra?.(item)}
                     />
                     {isSelected ? (
                       <ChevronDown size={20} className="invoice-detail-item__chevron" aria-hidden />
@@ -146,6 +153,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     hideAmounts={hideAmounts}
                     alert={showFreightAlert ? freightAlert : null}
                     meta={itemMeta?.(item)}
+                    mediaExtra={itemMediaExtra?.(item)}
                   />
                 )}
                 {expanded ? (
@@ -190,6 +198,7 @@ function ItemContent({
   onNext,
   alert = null,
   meta = null,
+  mediaExtra = null,
 }: {
   item: DealerInvoiceLineItem;
   currencyCode?: string;
@@ -198,17 +207,21 @@ function ItemContent({
   onNext?: () => void;
   alert?: string | null;
   meta?: React.ReactNode;
+  mediaExtra?: React.ReactNode;
 }) {
   return (
     <>
-      <div className="invoice-detail-item__image-wrap">
-        {item.imageUrl ? (
-          <FastRemoteImage src={item.imageUrl} alt="" className="invoice-detail-item__image" />
-        ) : (
-          <span className="invoice-detail-item__placeholder" aria-hidden>
-            <Package size={22} />
-          </span>
-        )}
+      <div className="invoice-detail-item__media">
+        <div className="invoice-detail-item__image-wrap">
+          {item.imageUrl ? (
+            <FastRemoteImage src={item.imageUrl} alt="" className="invoice-detail-item__image" />
+          ) : (
+            <span className="invoice-detail-item__placeholder" aria-hidden>
+              <Package size={22} />
+            </span>
+          )}
+        </div>
+        {mediaExtra}
       </div>
       <DocumentLineItemSpec
         name={item.name}

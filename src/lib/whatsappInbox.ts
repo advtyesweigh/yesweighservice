@@ -103,6 +103,7 @@ export type WhatsAppChatMessage = {
   malayalamAudioUrl: string;
   translatedMediaUrl: string;
   voiceTranslateError: string;
+  sentByName: string;
 };
 
 function callableError(err: unknown, fallback: string): Error {
@@ -459,6 +460,7 @@ export function subscribeWhatsAppMessages(
         malayalamAudioUrl: String(data.malayalamAudioUrl ?? ''),
         translatedMediaUrl: String(data.translatedMediaUrl ?? ''),
         voiceTranslateError: String(data.voiceTranslateError ?? ''),
+        sentByName: String(data.sentByName ?? data.senderName ?? '').trim(),
       };
     }));
   }, err => onError(err));

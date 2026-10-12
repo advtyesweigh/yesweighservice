@@ -13631,6 +13631,113 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.35rem 0 0;
 }
 
+.machine-qc-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.28rem;
+  width: 100%;
+}
+
+.machine-qc-inline {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: linear-gradient(
+    135deg,
+    rgba(14, 165, 233, 0.16) 0%,
+    rgba(14, 165, 233, 0.05) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.08);
+}
+
+.machine-qc-inline__pdf {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: 0 auto;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px dashed rgba(251, 146, 60, 0.55);
+  background: rgba(251, 146, 60, 0.1);
+  color: #fdba74;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.machine-qc-inline__pdf[data-enabled='false'],
+.machine-qc-inline__pdf:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.machine-qc-inline__pdf[data-enabled='true']:hover {
+  border-color: rgba(251, 146, 60, 0.85);
+  background: rgba(251, 146, 60, 0.18);
+}
+
+.machine-qc-inline__pdf[data-uploaded='true'],
+.machine-qc-inline__pdf[data-uploaded='true']:disabled {
+  border-style: solid;
+  border-color: rgba(52, 211, 153, 0.75);
+  background: rgba(16, 185, 129, 0.22);
+  color: #34d399;
+  opacity: 1;
+  cursor: pointer;
+}
+
+.machine-qc-inline__pdf[data-uploaded='true']:hover {
+  border-color: #34d399;
+  background: rgba(16, 185, 129, 0.32);
+}
+
+.machine-qc-inline--check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.machine-qc-inline--compact {
+  width: 100%;
+  margin: 0;
+  padding: 0.28rem 0.2rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.15rem;
+  text-align: center;
+}
+
+.machine-qc-inline--compact .gatc-stamp-inline__label {
+  font-size: 0.64rem;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.machine-qc-inline__checkbox {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: #38bdf8;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.machine-qc-inline__checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.machine-qc-inline .gatc-stamp-inline__label {
+  color: #7dd3fc;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.78rem;
+}
+
 .gatc-stamp-inline__status--error {
   color: var(--accent-red, #ef4444);
 }
@@ -18123,8 +18230,16 @@ button.stock-ledger__invoice-count:focus-visible {
   opacity: 0.88;
 }
 
+.orders-page__item-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  width: 100%;
+}
+
 .orders-page__item-media {
-  width: 72px;
+  width: 100%;
   height: 72px;
   border-radius: 10px;
   background: #f8fafc;
@@ -20160,7 +20275,7 @@ button.stock-ledger__invoice-count:focus-visible {
   }
 
   .orders-page__item-media {
-    width: 56px;
+    width: 100%;
     height: 56px;
   }
 }
@@ -22087,6 +22202,14 @@ button.stock-ledger__invoice-count:focus-visible {
   border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(15, 23, 42, 0.28);
+}
+
+.staff-create-so-page__cart-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  width: 100%;
 }
 
 .staff-create-so-page__cart-media {
@@ -40448,6 +40571,14 @@ button.invoice-detail-top__card {
   margin-top: 0.55rem;
 }
 
+.invoice-detail-item__media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
 .invoice-detail-item__image-wrap {
   flex-shrink: 0;
   width: 4.5rem;
@@ -41725,6 +41856,27 @@ button.invoice-detail-top__card {
 
 .goods-receipt-receive__diff.is-under {
   color: #f87171;
+}
+
+.invoice-detail-item__meta-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.invoice-detail-item__qc-requested {
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.22);
+  border: 1px solid rgba(52, 211, 153, 0.7);
+  color: #6ee7b7;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
 }
 
 .invoice-detail-item__avail-chip {

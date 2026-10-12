@@ -23,6 +23,7 @@ import {
   type GatcStampingChoice,
 } from '../../components/catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
+import { MachineQcInlineControl } from '../../components/catalog/MachineQcInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { StaffSoProductPeek } from '../../components/salesOrders/StaffSoProductPeek';
@@ -87,6 +88,7 @@ import {
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { combinedCartRate, productHasLinkedGatc } from '../../lib/gatcCart';
+import { appendMachineQcDescription, linesHaveMachineQc, productHasMachineQc } from '../../lib/machineQc';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -121,7 +123,10 @@ import {
   SHIBIN_SALESPERSON_NAME,
 } from '../../constants/shibinSalesperson';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
-import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
+import {
+  attachDealerCustomerInvoiceToSalesOrders,
+  createStaffSalesOrder,
+} from '../../lib/salesOrderWorkflow';
 import {
   addressesFromDealerCache,
   listCustomerShippingAddresses,
@@ -271,6 +276,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     removeItem,
     addItem,
     updateStamping,
+    updateQc,
     clearCart,
     remarks: cartRemarks,
     setRemarks: setCartRemarks,
@@ -314,6 +320,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [segmentSpMap, setSegmentSpMap] = useState<Partial<Record<OrderSegment, SalespersonPreview>>>({});
   const [spLoading, setSpLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dealerInvoicePdf, setDealerInvoicePdf] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
   const [rateOverrides, setRateOverrides] = useState<Record<string, number>>({});
@@ -440,10 +447,15 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return {
         ...item,
         catalogRate,
-        rate: combinedCartRate(catalogRate, item.gatcFeePerUnit),
+        rate: combinedCartRate(catalogRate, item.gatcFeePerUnit, item.qcFeePerUnit ?? 0),
       };
     })
   ), [allowedItems, rateOverrides]);
+
+  const cartHasQc = linesHaveMachineQc(lines);
+  useEffect(() => {
+    if (!cartHasQc) setDealerInvoicePdf(null);
+  }, [cartHasQc]);
 
   const segmentsRequiringSp = useMemo((): OrderSegment[] => {
     const inCart = summarizeSegments(lines.map(line => ({
@@ -517,6 +529,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         quantity: line.quantity,
         rate: line.catalogRate,
         gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+        qcEnabled: line.qcEnabled === true,
         name: line.name,
         sku: line.sku,
         categoryId: line.categoryId,
@@ -1251,6 +1264,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           quantity: line.quantity,
           rate: line.rate,
           gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+          qcEnabled: line.qcEnabled === true,
         })),
         shipping,
         stage,
@@ -1285,6 +1299,23 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           ? { salespersonId: salespersonId.trim() }
           : {}),
       });
+      if (dealerInvoicePdf) {
+        const createdIds = (
+          Array.isArray(result.salesOrders) && result.salesOrders.length > 0
+            ? result.salesOrders.map(row => row.zohoSalesOrderId)
+            : [result.zohoSalesOrderId]
+        ).filter((id): id is string => Boolean(id));
+        try {
+          await attachDealerCustomerInvoiceToSalesOrders(createdIds, dealerInvoicePdf);
+        } catch (pdfErr) {
+          window.alert(
+            pdfErr instanceof Error
+              ? `Order created, but the customer invoice PDF could not be attached: ${pdfErr.message}`
+              : 'Order created, but the customer invoice PDF could not be attached.',
+          );
+        }
+        setDealerInvoicePdf(null);
+      }
       clearCart();
       setRateOverrides({});
       setCourierBySite({});
@@ -1700,12 +1731,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       onQuantity={qty => setQuantity(item.cartLineId, qty)}
                       onRate={rate => setLineBaseRate(item.cartLineId, rate)}
                       onStamping={choice => applyLineStamping(item.cartLineId, choice)}
+                      onQc={next => updateQc(item.cartLineId, { qcEnabled: next })}
+                      pdfFile={dealerInvoicePdf}
+                      onPdfFileChange={setDealerInvoicePdf}
                       onAddSibling={choice => {
                         if (!catalogProduct) return;
                         if (!choice.withStamping) {
                           addItem(catalogProduct, {
                             quantity: 1,
                             insertAfterCartLineId: item.cartLineId,
+                            qcEnabled: item.qcEnabled === true,
                           });
                           return;
                         }
@@ -1715,6 +1750,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                           gatcStampingPriceId: choice.gatcStampingPriceId,
                           gatcFeePerUnit: choice.gatcFeePerUnit,
                           gatcStampingRange: choice.gatcStampingRange,
+                          qcEnabled: item.qcEnabled === true,
                         });
                       }}
                       onRemove={() => {
@@ -1980,6 +2016,9 @@ function StaffCartLine({
   onQuantity,
   onRate,
   onStamping,
+  onQc,
+  pdfFile,
+  onPdfFileChange,
   onAddSibling,
   onRemove,
 }: {
@@ -1993,23 +2032,41 @@ function StaffCartLine({
   onQuantity: (qty: number) => void;
   onRate: (rate: number) => void;
   onStamping: (choice: GatcStampingChoice) => void;
+  onQc: (qcEnabled: boolean) => void;
+  pdfFile?: File | null;
+  onPdfFileChange?: (file: File | null) => void;
   onAddSibling: (choice: GatcStampingChoice) => void;
   onRemove: () => void;
 }) {
   return (
     <li className="staff-create-so-page__cart-item">
-      <div className="staff-create-so-page__cart-media">
-        {item.imageUrl ? (
-          <CategoryThumbnail src={item.imageUrl} knockout={false} />
-        ) : (
-          <Package size={24} aria-hidden />
-        )}
+      <div className="staff-create-so-page__cart-aside">
+        <div className="staff-create-so-page__cart-media">
+          {item.imageUrl ? (
+            <CategoryThumbnail src={item.imageUrl} knockout={false} />
+          ) : (
+            <Package size={24} aria-hidden />
+          )}
+        </div>
+        {catalogProduct && productHasMachineQc(catalogProduct) ? (
+          <MachineQcInlineControl
+            compact
+            product={catalogProduct}
+            qcEnabled={item.qcEnabled === true}
+            disabled={disabled}
+            onChange={onQc}
+            pdfFile={pdfFile}
+            onPdfFileChange={onPdfFileChange}
+          />
+        ) : null}
       </div>
       <DocumentLineItemSpec
         className="staff-create-so-page__cart-info"
         name={item.name}
         sku={item.sku}
-        description={item.description}
+        description={appendMachineQcDescription(item.description, {
+          qcEnabled: item.qcEnabled === true,
+        })}
       >
         <label className="staff-create-so-page__rate">
           <span className="text-muted text-sm">Base rate</span>
@@ -2026,10 +2083,14 @@ function StaffCartLine({
             aria-label={`Base rate for ${item.name}`}
           />
         </label>
-        {item.gatcFeePerUnit > 0 ? (
+        {item.gatcFeePerUnit > 0 || (item.qcFeePerUnit ?? 0) > 0 ? (
           <span className="staff-create-so-page__stamp-breakdown text-muted text-sm">
-            + {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
-            {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
+            {item.gatcFeePerUnit > 0
+              ? `+ ${item.gatcFeePerUnit.toLocaleString('en-IN')} stamping${item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}`
+              : ''}
+            {(item.qcFeePerUnit ?? 0) > 0
+              ? `${item.gatcFeePerUnit > 0 ? ' · ' : '+ '}${(item.qcFeePerUnit ?? 0).toLocaleString('en-IN')} QC`
+              : ''}
           </span>
         ) : canEditStamp ? null : (
           <span className="staff-create-so-page__stamp-breakdown text-muted text-sm">

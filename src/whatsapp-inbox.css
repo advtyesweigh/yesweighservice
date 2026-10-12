@@ -455,6 +455,20 @@
   word-break: break-word;
 }
 
+.wa-inbox-bubble__from {
+  display: block;
+  margin: 0 0 0.18rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: #fbbf24;
+}
+
+.wa-inbox-bubble--outbound .wa-inbox-bubble__from {
+  text-align: left;
+}
+
 .wa-inbox-bubble--inbound {
   align-self: flex-start;
   background: #1e293b;

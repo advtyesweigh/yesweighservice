@@ -1,5 +1,6 @@
 import type { CatalogProduct, StockStatus } from './catalog';
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
+import { resolveMachineQc } from '../lib/machineQc';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { PriceLevelQtySlab } from './priceLevels';
 
@@ -13,11 +14,11 @@ export interface CartItem {
   description: string | null;
   imageUrl: string | null;
   /**
-   * Unit rate charged on the SO line = baseRate + gatcFeePerUnit.
-   * (Accounting: stamping is rolled into product price, not a separate line.)
+   * Unit rate charged on the SO line = baseRate + gatcFeePerUnit + qcFeePerUnit.
+   * (Accounting: stamping and QC are rolled into product price, not separate lines.)
    */
   rate: number;
-  /** Catalog / staff-editable product rate before stamping fee. */
+  /** Catalog / staff-editable product rate before stamping / QC fees. */
   baseRate: number;
   /**
    * Catalog list rate when a price-level discount applies (dealer portal).
@@ -34,6 +35,9 @@ export interface CartItem {
   gatcStampingPriceId?: string | null;
   /** Snapshot of stamping range label for cart display. */
   gatcStampingRange?: string | null;
+  /** Extra QC per machine; rolled into unit rate. */
+  qcEnabled?: boolean;
+  qcFeePerUnit?: number;
   unit: string;
   stockStatus: StockStatus;
   categoryName: string | null;
@@ -52,8 +56,10 @@ export type AddCartItemOptions = {
   gatcStampingPriceId?: string | null;
   gatcFeePerUnit?: number;
   gatcStampingRange?: string | null;
-  /** When set, insert the new line immediately after this cart line (sibling stamping). */
+  /** When set, insert the new line immediately after this cart line (sibling stamping / QC). */
   insertAfterCartLineId?: string | null;
+  /** Extra QC per machine for Weighing Scale Import / Bill Printing Scales. */
+  qcEnabled?: boolean;
   /** Override catalog rate (e.g. dealer price level charge rate). */
   baseRateOverride?: number | null;
   /** List rate to show alongside a discount charge rate. */
@@ -73,6 +79,7 @@ export function cartItemFromProduct(
     : catalogRate;
   const gatcFeePerUnit = Math.round(Number(options.gatcFeePerUnit ?? 0) * 100) / 100;
   const gatcStampingPriceId = options.gatcStampingPriceId?.trim() || null;
+  const qc = resolveMachineQc(product.categoryName, options.qcEnabled === true);
   const priceLevelMode = options.priceLevelMode ?? null;
   const listRate = options.listRate != null && Number.isFinite(Number(options.listRate))
     ? Math.round(Number(options.listRate) * 100) / 100
@@ -96,7 +103,9 @@ export function cartItemFromProduct(
     gatcStampingRange: gatcStampingPriceId
       ? (options.gatcStampingRange?.trim() || null)
       : null,
-    rate: combinedCartRate(baseRate, gatcStampingPriceId ? gatcFeePerUnit : 0),
+    qcEnabled: qc.qcEnabled,
+    qcFeePerUnit: qc.qcFeePerUnit,
+    rate: combinedCartRate(baseRate, gatcStampingPriceId ? gatcFeePerUnit : 0, qc.qcFeePerUnit),
     unit: product.unit,
     stockStatus: effectiveCatalogStockStatus(product.stockStatus, product.hsn),
     categoryName: product.categoryName,

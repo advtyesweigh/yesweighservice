@@ -313,6 +313,7 @@ import {
   markSalesOrderInvoicedManually as markSalesOrderInvoicedManuallyRecord,
   repairSalesOrderInvoicingMismatch as repairSalesOrderInvoicingMismatchRecord,
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
+  uploadSalesOrderDealerCustomerInvoice as uploadSalesOrderDealerCustomerInvoiceRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
   reserveKotakFeedForSalesOrder as reserveKotakFeedForSalesOrderRecord,
@@ -5750,6 +5751,20 @@ export const uploadSalesOrderPaymentScreenshotFn = onCall(
   },
 );
 
+export const uploadSalesOrderDealerCustomerInvoiceFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']));
+    try {
+      return await uploadSalesOrderDealerCustomerInvoiceRecord(uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload dealer sales invoice PDF.');
+    }
+  },
+);
+
 export const submitSalesOrderPayment = onCall(
   {
     region: 'asia-south1',
@@ -8451,7 +8466,9 @@ export const sendWhatsAppCloudMessage = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
-    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    const name = String(
+      userSnap.data()?.name ?? userSnap.data()?.displayName ?? userSnap.data()?.loginId ?? '',
+    ).trim() || 'Staff';
     try {
       return await sendWhatsAppCloudText(request.data ?? {}, { uid: request.auth.uid, name });
     } catch (err) {
@@ -8605,7 +8622,9 @@ export const sendWhatsAppCloudFileFn = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
-    const name = String(userSnap.data()?.name ?? userSnap.data()?.displayName ?? '').trim();
+    const name = String(
+      userSnap.data()?.name ?? userSnap.data()?.displayName ?? userSnap.data()?.loginId ?? '',
+    ).trim() || 'Staff';
     try {
       return await sendWhatsAppCloudFile(request.data ?? {}, { uid: request.auth.uid, name });
     } catch (err) {

@@ -1,12 +1,18 @@
+import { deleteField, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from '../firebase';
-import type { AdminSalesOrderDetail } from './admin-sales-orders';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { app, auth, db, storage } from '../firebase';
+import type { AdminSalesOrderDetail, DealerCustomerInvoice } from './admin-sales-orders';
 import { dealerOrderErrorMessage } from './dealerOrders';
+import { formatStorageUploadError } from './storageErrors';
 import {
   shippingSelectionPayload,
   type ShippingSelection,
 } from './shippingAddresses';
 import type { SpareFreightPackaging } from './spareFreightQuote';
+
+const DEALER_INVOICE_PREFIX = 'sales-order-dealer-invoices';
+const MAX_DEALER_INVOICE_BYTES = 8 * 1024 * 1024;
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -192,6 +198,7 @@ export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {
   paymentNotes: string | null;
   paymentScreenshotStoragePath: string | null;
   paymentScreenshotUrl: string | null;
+  dealerCustomerInvoice?: DealerCustomerInvoice | null;
   paymentSubmittedAt: string | null;
   paymentVerifiedAt: string | null;
   readyForPaymentAt: string | null;
@@ -213,9 +220,10 @@ export async function updateDraftSalesOrderLines(
   lines: Array<{
     productId: string;
     quantity: number;
-    /** Staff: base product rate (server adds GATC fee). */
+    /** Staff: base product rate (server adds GATC / QC fees). */
     rate?: number;
     gatcStampingPriceId?: string | null;
+    qcEnabled?: boolean;
   }>,
 ): Promise<SalesOrderWorkflowDetail> {
   try {
@@ -230,9 +238,10 @@ export async function createStaffSalesOrder(input: {
   lines: Array<{
     productId: string;
     quantity: number;
-    /** Staff: base product rate (server adds GATC fee). */
+    /** Staff: base product rate (server adds GATC / QC fees). */
     rate?: number;
     gatcStampingPriceId?: string | null;
+    qcEnabled?: boolean;
   }>;
   shipping: ShippingSelection;
   stage: 'review' | 'ready_for_payment';
@@ -367,6 +376,103 @@ export async function uploadSalesOrderPaymentScreenshot(
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }
+}
+
+function sanitizeDealerInvoiceFileName(name: string): string {
+  const raw = String(name || 'dealer-invoice.pdf').trim() || 'dealer-invoice.pdf';
+  const fileName = raw.replace(/[^\w.\-() ]+/g, '_').slice(0, 120);
+  return fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+}
+
+async function assertDealerInvoicePdf(file: File): Promise<void> {
+  const isPdf = file.type === 'application/pdf'
+    || file.type === 'application/octet-stream'
+    || file.name.toLowerCase().endsWith('.pdf');
+  if (!isPdf) throw new Error('Upload a PDF sales invoice.');
+  if (file.size > MAX_DEALER_INVOICE_BYTES) throw new Error('PDF must be 8 MB or smaller.');
+  const header = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer());
+  if (!header.startsWith('%PDF')) throw new Error('File is not a PDF.');
+}
+
+export async function uploadSalesOrderDealerCustomerInvoice(
+  salesOrderId: string,
+  file: File,
+): Promise<DealerCustomerInvoice> {
+  const id = String(salesOrderId || '').trim();
+  if (!id) throw new Error('Sales order is required.');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in to upload the invoice PDF.');
+  await assertDealerInvoicePdf(file);
+
+  const token = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID().replace(/-/g, '').slice(0, 8)
+    : Date.now().toString(36);
+  const storagePath = `${DEALER_INVOICE_PREFIX}/${id}/${Date.now()}_${token}.pdf`;
+  try {
+    await uploadBytes(ref(storage, storagePath), file, { contentType: 'application/pdf' });
+  } catch (err) {
+    throw new Error(formatStorageUploadError(err, 'Could not upload the invoice PDF.'));
+  }
+
+  let url = '';
+  try {
+    url = await getDownloadURL(ref(storage, storagePath));
+  } catch (err) {
+    throw new Error(formatStorageUploadError(err, 'Could not read the uploaded invoice PDF.'));
+  }
+
+  const uploadedAt = new Date().toISOString();
+  const invoice: DealerCustomerInvoice = {
+    storagePath,
+    url,
+    fileName: sanitizeDealerInvoiceFileName(file.name),
+    uploadedAt,
+    uploadedByUid: user.uid,
+    uploadedByName: user.displayName?.trim() || user.email?.trim() || 'Portal user',
+  };
+
+  try {
+    await updateDoc(doc(db, 'salesOrders', id), {
+      dealerCustomerInvoice: invoice,
+      yesOneUpdatedAt: uploadedAt,
+    });
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+  return invoice;
+}
+
+export async function removeSalesOrderDealerCustomerInvoice(
+  salesOrderId: string,
+): Promise<void> {
+  const id = String(salesOrderId || '').trim();
+  if (!id) throw new Error('Sales order is required.');
+  try {
+    await updateDoc(doc(db, 'salesOrders', id), {
+      dealerCustomerInvoice: deleteField(),
+      yesOneUpdatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function attachDealerCustomerInvoiceToSalesOrders(
+  salesOrderIds: string[],
+  file: File,
+): Promise<void> {
+  const ids = [...new Set(salesOrderIds.map(id => String(id || '').trim()).filter(Boolean))];
+  let uploaded = 0;
+  let lastError: Error | null = null;
+  for (const id of ids) {
+    try {
+      await uploadSalesOrderDealerCustomerInvoice(id, file);
+      uploaded += 1;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  if (uploaded === 0 && lastError) throw lastError;
 }
 
 export async function submitSalesOrderPayment(input: {
