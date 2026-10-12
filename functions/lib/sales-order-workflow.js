@@ -30,7 +30,7 @@ import {
   withCatalogLineImages,
   withResolvedShippingAddress,
 } from './sales-order-sync.js';
-import { resolveShippingAddressId } from './zoho-contact-addresses.js';
+import { resolveShippingAddressId, withSelectedShippingPhone } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
@@ -1065,11 +1065,14 @@ export async function updateDraftSalesOrderShipping(uid, role, payload = {}, sec
   }
 
   const shippingSel = payload.shipping || {};
-  const resolved = await resolveShippingAddressId(secrets, orgId, customerId, {
-    addressId: shippingSel.addressId || null,
-    kind: shippingSel.kind || null,
-    newAddress: shippingSel.newAddress || null,
-  });
+  const resolved = withSelectedShippingPhone(
+    await resolveShippingAddressId(secrets, orgId, customerId, {
+      addressId: shippingSel.addressId || null,
+      kind: shippingSel.kind || null,
+      newAddress: shippingSel.newAddress || null,
+    }),
+    shippingSel.phone,
+  );
 
   const selectedAddress = resolved.address || null;
   const shippingPhone = String(selectedAddress?.phone || '').trim() || null;

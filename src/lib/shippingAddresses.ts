@@ -39,8 +39,8 @@ export type NewShippingAddressInput = {
 };
 
 export type ShippingSelection =
-  | { mode: 'saved'; addressId: string }
-  | { mode: 'kind'; kind: 'billing' | 'shipping' }
+  | { mode: 'saved'; addressId: string; phone?: string | null }
+  | { mode: 'kind'; kind: 'billing' | 'shipping'; phone?: string | null }
   | { mode: 'new'; newAddress: NewShippingAddressInput };
 
 /** Resolve state/city/zip from the dealer's current shipping selection. */
@@ -226,10 +226,22 @@ export function canEditShippingAddress(addr: ShippingAddress): boolean {
 export function shippingSelectionPayload(selection: ShippingSelection): {
   addressId?: string;
   kind?: string;
+  phone?: string;
   newAddress?: NewShippingAddressInput;
 } {
-  if (selection.mode === 'saved') return { addressId: selection.addressId };
-  if (selection.mode === 'kind') return { kind: selection.kind };
+  const phone = 'phone' in selection ? selection.phone?.trim() : '';
+  if (selection.mode === 'saved') {
+    return {
+      addressId: selection.addressId,
+      ...(phone ? { phone } : {}),
+    };
+  }
+  if (selection.mode === 'kind') {
+    return {
+      kind: selection.kind,
+      ...(phone ? { phone } : {}),
+    };
+  }
   return { newAddress: selection.newAddress };
 }
 

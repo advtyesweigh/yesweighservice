@@ -48,7 +48,7 @@ import {
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
-import { resolveShippingAddressId } from './zoho-contact-addresses.js';
+import { resolveShippingAddressId, withSelectedShippingPhone } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import {
@@ -676,7 +676,9 @@ async function createSegmentSalesOrders({
       categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },
       shippingAddressId: shippingResolved.shippingAddressId || null,
       shippingAddress: shippingResolved.address?.formatted || null,
-      shippingPhone: String(shippingResolved.address?.phone || '').trim() || null,
+      ...(String(shippingResolved.address?.phone || '').trim()
+        ? { shippingPhone: String(shippingResolved.address.phone).trim() }
+        : {}),
       ...(String(billingPhone || '').trim()
         ? { billingPhone: String(billingPhone).trim() }
         : {}),
@@ -824,11 +826,14 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   const shippingSel = payload.shipping || {};
   let shippingResolved;
   try {
-    shippingResolved = await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
-      addressId: shippingSel.addressId || null,
-      kind: shippingSel.kind || null,
-      newAddress: shippingSel.newAddress || null,
-    });
+    shippingResolved = withSelectedShippingPhone(
+      await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
+        addressId: shippingSel.addressId || null,
+        kind: shippingSel.kind || null,
+        newAddress: shippingSel.newAddress || null,
+      }),
+      shippingSel.phone,
+    );
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
@@ -1023,11 +1028,14 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   const shippingSel = payload.shipping || {};
   let shippingResolved;
   try {
-    shippingResolved = await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
-      addressId: shippingSel.addressId || null,
-      kind: shippingSel.kind || null,
-      newAddress: shippingSel.newAddress || null,
-    });
+    shippingResolved = withSelectedShippingPhone(
+      await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
+        addressId: shippingSel.addressId || null,
+        kind: shippingSel.kind || null,
+        newAddress: shippingSel.newAddress || null,
+      }),
+      shippingSel.phone,
+    );
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');

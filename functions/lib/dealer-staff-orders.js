@@ -91,6 +91,7 @@ function parseShipping(raw) {
   }
   const addressId = String(raw.addressId ?? '').trim();
   const kind = String(raw.kind ?? '').trim();
+  const phone = String(raw.phone ?? '').trim();
   const newAddress = raw.newAddress && typeof raw.newAddress === 'object' ? raw.newAddress : null;
   if (!addressId && !kind && !newAddress) {
     throw new HttpsError('invalid-argument', 'Select a shipping address before submitting.');
@@ -98,6 +99,7 @@ function parseShipping(raw) {
   return {
     ...(addressId ? { addressId } : {}),
     ...(kind ? { kind } : {}),
+    ...(phone ? { phone } : {}),
     ...(newAddress ? { newAddress } : {}),
   };
 }

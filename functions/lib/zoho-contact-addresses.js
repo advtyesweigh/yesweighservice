@@ -95,7 +95,7 @@ function mapAddressRow(raw, { label = null, kind = 'additional' } = {}) {
     state: clean(raw.state),
     zip: raw.zip != null ? String(raw.zip).trim() : null,
     country: clean(raw.country),
-    phone: clean(raw.phone),
+    phone: clean(raw.phone) || clean(raw.mobile),
   };
   const formatted = formatZohoAddress({
     attention: normalized.attention,
@@ -612,6 +612,44 @@ export async function deleteAddressForUser(uid, role, secrets, orgId, addressId)
   return deleteContactAddress(secrets, orgId, customerId, addressId);
 }
 
+async function fillMissingAddressPhone(secrets, configuredOrgId, customerId, addressId, address) {
+  if (String(address?.phone || '').trim()) return address;
+  const id = String(addressId || '').trim();
+  const contactId = String(customerId || '').trim();
+  if (!id || !contactId) return address;
+  try {
+    const accessToken = await getAccessToken(secrets);
+    const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+    const payload = await zohoJson(
+      accessToken,
+      orgId,
+      `/contacts/${encodeURIComponent(contactId)}/address/${encodeURIComponent(id)}`,
+    );
+    const raw = payload?.address
+      || (Array.isArray(payload?.addresses) ? payload.addresses[0] : null);
+    const phone = clean(raw?.phone) || clean(raw?.mobile);
+    if (!phone) return address;
+    return { ...(address || {}), phone };
+  } catch (err) {
+    console.warn('Could not load contact address phone:', err?.message || err);
+    return address;
+  }
+}
+
+/** Use the phone the user selected when the Zoho address row did not include one. */
+export function withSelectedShippingPhone(resolved, phone) {
+  const selected = String(phone || '').trim();
+  if (!selected || !resolved || typeof resolved !== 'object') return resolved;
+  const address = resolved.address && typeof resolved.address === 'object'
+    ? resolved.address
+    : null;
+  if (!address || String(address.phone || '').trim()) return resolved;
+  return {
+    ...resolved,
+    address: { ...address, phone: selected },
+  };
+}
+
 /**
  * Resolve a selectable address into a Zoho shipping_address_id.
  * For billing/shipping defaults without id, returns null and caller may pass inline shipping_address.
@@ -637,9 +675,16 @@ export async function resolveShippingAddressId(
     if (!found) {
       throw new HttpsError('invalid-argument', 'Selected address was not found on this customer.');
     }
+    const address = await fillMissingAddressPhone(
+      secrets,
+      configuredOrgId,
+      customerId,
+      id,
+      found,
+    );
     return {
       shippingAddressId: id,
-      address: found,
+      address,
       customerAccessDenied: listed.customerAccessDenied === true,
     };
   }

@@ -264,6 +264,17 @@ function attachCatalogImages(lineItems, catalog) {
   });
 }
 
+function phoneTail(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function samePhone(a, b) {
+  const left = phoneTail(a);
+  const right = phoneTail(b);
+  return Boolean(left) && left === right;
+}
+
 function mapSalesOrder(raw) {
   const lineItems = Array.isArray(raw.line_items)
     ? raw.line_items.map(mapLineItem)
@@ -325,6 +336,18 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
     salesOrderCategory = forced;
     categories = [forced];
     categoryAmounts = { [forced]: Number(mapped.total ?? 0) };
+  }
+
+  if (
+    before?.shippingPhone
+    && mapped.shippingPhone
+    && !samePhone(before.shippingPhone, mapped.shippingPhone)
+    && (
+      samePhone(mapped.shippingPhone, mapped.billingPhone)
+      || samePhone(mapped.shippingPhone, before.billingPhone)
+    )
+  ) {
+    mapped.shippingPhone = String(before.shippingPhone);
   }
 
   const now = Timestamp.now();

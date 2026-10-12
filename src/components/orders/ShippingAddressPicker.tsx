@@ -137,9 +137,9 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
       || addresses[0];
     if (!preferred) return;
     if (preferred.addressId) {
-      onChange({ mode: 'saved', addressId: preferred.addressId });
+      onChange({ mode: 'saved', addressId: preferred.addressId, phone: preferred.phone });
     } else if (preferred.kind === 'billing' || preferred.kind === 'shipping') {
-      onChange({ mode: 'kind', kind: preferred.kind });
+      onChange({ mode: 'kind', kind: preferred.kind, phone: preferred.phone });
     }
   }, [addresses, loading, value, formOpen, onChange]);
 
@@ -276,9 +276,9 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
     setFormError('');
     setActionError('');
     if (addr.addressId) {
-      onChange({ mode: 'saved', addressId: addr.addressId });
+      onChange({ mode: 'saved', addressId: addr.addressId, phone: addr.phone });
     } else if (addr.kind === 'billing' || addr.kind === 'shipping') {
-      onChange({ mode: 'kind', kind: addr.kind });
+      onChange({ mode: 'kind', kind: addr.kind, phone: addr.phone });
     }
     setExpanded(false);
   };
@@ -334,9 +334,9 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
       setDraft(EMPTY_NEW_ADDRESS);
       setFormError('');
       if (updated.addressId) {
-        onChange({ mode: 'saved', addressId: updated.addressId });
+        onChange({ mode: 'saved', addressId: updated.addressId, phone: updated.phone });
       } else if (updated.kind === 'billing' || updated.kind === 'shipping') {
-        onChange({ mode: 'kind', kind: updated.kind });
+        onChange({ mode: 'kind', kind: updated.kind, phone: updated.phone });
       }
       onRefresh?.();
       setExpanded(false);
