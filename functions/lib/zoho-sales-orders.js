@@ -192,46 +192,56 @@ function uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId, alternateW
   return attempts;
 }
 
-async function putSalesOrderShippingAddress(accessToken, orgId, salesOrderId, {
-  addressId = null,
-  address = null,
-} = {}) {
-  const soId = encodeURIComponent(String(salesOrderId || '').trim());
-  if (!soId) return false;
+/**
+ * Ship To phone must be the selected address phone.
+ * address_id alone makes Zoho print the customer default / Bill To phone.
+ */
+function selectedShipToBody(address, phoneOverride = null) {
   const fitted = inlineShippingAddress(address);
-  const id = String(addressId || '').trim();
+  if (!fitted) return null;
+  const phone = String(phoneOverride || fitted.phone || '').trim();
+  if (phone) fitted.phone = phone.slice(0, 50);
+  return fitted;
+}
 
-  const payloads = [];
-  if (fitted) {
-    payloads.push({
+async function putZohoShipToAddress(accessToken, orgId, resource, documentId, address, {
+  addressId = null,
+} = {}) {
+  const id = encodeURIComponent(String(documentId || '').trim());
+  const kind = resource === 'invoices' ? 'invoices' : 'salesorders';
+  if (!id) return false;
+  const fitted = selectedShipToBody(address);
+  const selectedPhone = String(fitted?.phone || '').trim();
+  const addressIdValue = String(addressId || '').trim();
+
+  const paths = [
+    `/${kind}/${id}/address/shipping`,
+    `/${kind}/${id}/address`,
+  ];
+  const phonePayloads = [];
+  if (fitted && selectedPhone) {
+    phonePayloads.push({ ...fitted });
+    phonePayloads.push({
       ...fitted,
       is_one_off_address: true,
       is_update_customer: false,
     });
   }
-  if (id) {
-    payloads.push({ address_id: id });
-  }
-  if (!payloads.length) return false;
 
-  const paths = [
-    `/salesorders/${soId}/address/shipping`,
-    `/salesorders/${soId}/address`,
-  ];
   let lastErr = null;
-  for (const path of paths) {
-    for (const payload of payloads) {
-      try {
-        await zohoJson(accessToken, orgId, path, { method: 'PUT', body: payload });
-        return true;
-      } catch (err) {
-        lastErr = err;
+  if (phonePayloads.length) {
+    for (const path of paths) {
+      for (const payload of phonePayloads) {
+        try {
+          await zohoJson(accessToken, orgId, path, { method: 'PUT', body: payload });
+          return true;
+        } catch (err) {
+          lastErr = err;
+        }
       }
     }
-  }
-  if (fitted) {
     try {
-      await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+      await zohoJson(accessToken, orgId, `/${kind}/${id}`, {
         method: 'PUT',
         body: { shipping_address: fitted },
       });
@@ -240,10 +250,47 @@ async function putSalesOrderShippingAddress(accessToken, orgId, salesOrderId, {
       lastErr = err;
     }
   }
+
+  if (!selectedPhone && addressIdValue) {
+    for (const path of paths) {
+      try {
+        await zohoJson(accessToken, orgId, path, {
+          method: 'PUT',
+          body: { address_id: addressIdValue },
+        });
+        return true;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+  } else if (!selectedPhone && fitted) {
+    for (const path of paths) {
+      try {
+        await zohoJson(accessToken, orgId, path, {
+          method: 'PUT',
+          body: {
+            ...fitted,
+            is_one_off_address: true,
+            is_update_customer: false,
+          },
+        });
+        return true;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+  }
+
   if (lastErr) {
-    console.warn('Zoho sales order shipping address apply failed:', lastErr?.message || lastErr);
+    console.warn(`Zoho ${kind} shipping address apply failed:`, lastErr?.message || lastErr);
   }
   return false;
+}
+
+async function putSalesOrderShippingAddress(accessToken, orgId, salesOrderId, options = {}) {
+  return putZohoShipToAddress(accessToken, orgId, 'salesorders', salesOrderId, options.address, {
+    addressId: options.addressId,
+  });
 }
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
@@ -990,11 +1037,16 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const createdWithShipping = Boolean(
     createdBody?.shipping_address_id || createdBody?.shipping_address,
   );
-  if (!createdWithShipping || addressLineTooLong(shippingInline)) {
-    await putSalesOrderShippingAddress(accessToken, orgId, so.salesorder_id, {
-      addressId: shippingId || null,
-      address: shippingInline,
-    });
+  const selectedPhone = String(shippingInline?.phone || '').trim();
+  // address_id links the lines but Zoho still prints the customer default phone
+  // on Ship To. Always write the selected address, including its phone.
+  if (selectedPhone || !createdWithShipping || addressLineTooLong(shippingInline)) {
+    if (shippingId || shippingInline) {
+      await putSalesOrderShippingAddress(accessToken, orgId, so.salesorder_id, {
+        addressId: shippingId || null,
+        address: shippingInline,
+      });
+    }
   }
 
   return {
@@ -1164,12 +1216,15 @@ export async function updateSalesOrderShippingAddress(
   };
   if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
   const shippingId = String(shippingAddressId || '').trim();
+  const selectedShipTo = selectedShipToBody(shippingAddressInline);
   const applied = await putSalesOrderShippingAddress(accessToken, orgId, soId, {
     addressId: shippingId || null,
-    address: shippingAddressInline,
+    address: selectedShipTo || shippingAddressInline,
   });
   if (!applied) {
-    if (shippingId && !addressLineTooLong(shippingAddressInline)) {
+    if (selectedShipTo?.phone) {
+      body.shipping_address = selectedShipTo;
+    } else if (shippingId && !addressLineTooLong(shippingAddressInline)) {
       body.shipping_address_id = shippingId;
     } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
       body.shipping_address = fitZohoAddressLines(shippingAddressInline);
@@ -1344,25 +1399,36 @@ export async function getSalesOrderLinkedInvoice(secrets, configuredOrgId, sales
   };
 }
 
-/** Zoho invoice/SO shipping payload from a salesorder object. */
-function shippingFieldsFromSalesOrder(so) {
+/**
+ * Invoice Ship To. A selected phone is sent on shipping_address, not via
+ * shipping_address_id (that reprints the customer Bill To phone).
+ * Does not include billing_address.
+ */
+function shippingFieldsFromSalesOrder(so, shippingPhone = null) {
   if (!so || typeof so !== 'object') return {};
+  const override = String(shippingPhone || '').trim();
+  const addr = so.shipping_address && typeof so.shipping_address === 'object'
+    ? so.shipping_address
+    : null;
+  const fitted = addr
+    ? fitZohoAddressLines({ ...addr, phone: override || addr.phone || '' })
+    : null;
+  const phone = String(fitted?.phone || override || '').trim();
+  const hasBody = Boolean(
+    fitted && (fitted.address || fitted.city || fitted.state || fitted.zip || fitted.attention),
+  );
+  if (hasBody && phone) {
+    return { shipping_address: { ...fitted, phone } };
+  }
+
   const addressId = so.shipping_address_id != null
     ? String(so.shipping_address_id).trim()
     : (so.shipping_address?.address_id != null
       ? String(so.shipping_address.address_id).trim()
       : '');
-  if (addressId) return { shipping_address_id: addressId };
-
-  const addr = so.shipping_address;
-  if (!addr || typeof addr !== 'object') return {};
-  const hasBody = Boolean(
-    addr.address || addr.city || addr.state || addr.zip || addr.attention,
-  );
+  if (addressId && !phone) return { shipping_address_id: addressId };
   if (!hasBody) return {};
-  return {
-    shipping_address: fitZohoAddressLines(addr),
-  };
+  return { shipping_address: fitted };
 }
 
 function invoiceModeOfTransportValue(inv) {
@@ -1414,12 +1480,14 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   referenceNumber,
   salespersonId = null,
   courierPartner = null,
+  shippingPhone = null,
 }) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
   const soId = String(salesOrderId || '').trim();
   if (!soId) throw new Error('Sales order id is required.');
   const spId = String(salespersonId || '').trim();
+  const selectedShippingPhone = String(shippingPhone || '').trim();
 
   const loadSo = async () => {
     const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
@@ -1452,14 +1520,16 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     const invoiceId = String(inv.invoice_id);
     const modeOfTransport = resolveModeOfTransport();
     const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
-    const needsShipping = Object.keys(shippingFieldsFromSalesOrder(so)).length > 0;
+    const needsShipping = Object.keys(
+      shippingFieldsFromSalesOrder(so, selectedShippingPhone),
+    ).length > 0;
     const needsMode = Boolean(
       modeOfTransport && invoiceModeOfTransportValue(inv) !== modeOfTransport,
     );
     if (!needsSalesperson && !needsShipping && !needsMode) {
       return invoiceResult(inv);
     }
-    const shippingFields = shippingFieldsFromSalesOrder(so);
+    const shippingFields = shippingFieldsFromSalesOrder(so, selectedShippingPhone);
     const extrasBody = {
       customer_id: inv.customer_id || so.customer_id,
       date: inv.date || so.date || new Date().toISOString().slice(0, 10),
@@ -1508,6 +1578,21 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
         }
       }
     }
+    if (selectedShippingPhone) {
+      const applied = await putZohoShipToAddress(
+        accessToken,
+        orgId,
+        'invoices',
+        invoiceId,
+        {
+          ...(so.shipping_address || {}),
+          phone: selectedShippingPhone,
+        },
+      );
+      if (!applied) {
+        console.warn(`Invoice ${invoiceId} Ship To phone was not applied.`);
+      }
+    }
     return invoiceResult(inv);
   };
 
@@ -1550,7 +1635,7 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     if (afterConfirm) return patchLinkedInvoice(afterConfirm);
   }
 
-  const shippingFields = shippingFieldsFromSalesOrder(so);
+  const shippingFields = shippingFieldsFromSalesOrder(so, selectedShippingPhone);
 
   // Prefer convert endpoint when available. Do not send `{}` — Zoho treats an
   // empty JSON body as unauthorized on some orgs.

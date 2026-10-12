@@ -34,6 +34,7 @@ import {
   appendSalespersonIdConstraint,
   filterRowsBySalespersonScope,
 } from './salespersonScope';
+import { buildContactLinks } from './phoneLinks';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import { appendMachineQcDescription, productHasMachineQc } from './machineQc';
 import type {
@@ -202,6 +203,8 @@ export interface AdminSalesOrderDetail {
   customerPhone?: string | null;
   /** Phone on the SO shipping address (not Invoice To). */
   shippingPhone?: string | null;
+  /** Bill To / invoice-to phone. Kept separate from the ship-to phone. */
+  billingPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
   salesOrderCategory: InvoiceCategory | null;
@@ -1065,6 +1068,8 @@ export function mapAdminSalesOrderDetail(
     salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
+    shippingPhone: data.shippingPhone ? String(data.shippingPhone) : null,
+    billingPhone: data.billingPhone ? String(data.billingPhone) : null,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
@@ -1212,14 +1217,18 @@ export async function fetchAdminSalesOrderDetail(
       preferredAddressId: detail.shippingAddressId,
     }),
   ]);
+  const shippingPhone = detail.shippingPhone || contact.shippingPhone;
+  const shipLinks = shippingPhone ? buildContactLinks(shippingPhone) : null;
   return {
     ...detail,
     // Keep SO-provided address when present; otherwise use customer shipping/billing fallback.
     shippingAddress: contact.address,
-    customerPhone: contact.phone,
-    shippingPhone: contact.shippingPhone,
-    customerTelHref: contact.telHref,
-    customerWhatsappHref: contact.whatsappHref,
+    // Invoice-to stays the bill-to phone. Call links on the ship-to card use shippingPhone.
+    customerPhone: detail.billingPhone || contact.phone,
+    shippingPhone,
+    billingPhone: detail.billingPhone || null,
+    customerTelHref: shipLinks?.tel ?? contact.telHref,
+    customerWhatsappHref: shipLinks?.whatsapp ?? contact.whatsappHref,
     lineItems: withImages.lineItems,
   };
 }

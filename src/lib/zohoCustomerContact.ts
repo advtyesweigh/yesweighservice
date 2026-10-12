@@ -88,8 +88,7 @@ function addressPhone(
   const rows = Array.isArray(data.zohoAddresses) ? data.zohoAddresses : [];
   if (preferredId) {
     const match = rows.find(row => String(row?.addressId ?? '').trim() === preferredId);
-    const fromMatch = trimStr(match?.phone) || extractPhoneFromText(trimStr(match?.formatted));
-    if (fromMatch) return fromMatch;
+    return trimStr(match?.phone) || extractPhoneFromText(trimStr(match?.formatted));
   }
   const raw = kind === 'shipping'
     ? data.zohoShippingAddressRaw as { phone?: unknown } | null | undefined

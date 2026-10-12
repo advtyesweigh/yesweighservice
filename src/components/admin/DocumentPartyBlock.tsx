@@ -34,6 +34,8 @@ type Props = {
   highlightPincode?: boolean;
   telHref?: string | null;
   whatsappHref?: string | null;
+  /** Ship-to phone shown on the address card. Separate from invoice-to. */
+  phone?: string | null;
   /** Hide the name (e.g. dealer viewing their own order). */
   hideName?: boolean;
   emptyAddressLabel?: string;
@@ -48,6 +50,7 @@ export const DocumentPartyBlock: React.FC<Props> = ({
   highlightPincode = false,
   telHref,
   whatsappHref,
+  phone,
   hideName = false,
   emptyAddressLabel = 'No address on file',
   children,
@@ -62,6 +65,7 @@ export const DocumentPartyBlock: React.FC<Props> = ({
     ? ((fromProp.length === 6 ? fromProp : null) || (addr ? extractPincode(addr) : null))
     : null;
   const shipText = pin && addr ? stripPincode(addr, pin) : addr;
+  const phoneText = phone?.trim() || '';
 
   const actions = showActions ? (
     <span className="document-party__actions">
@@ -101,6 +105,12 @@ export const DocumentPartyBlock: React.FC<Props> = ({
           <p className="document-party__ship text-muted">
             <MapPin size={14} aria-hidden />
             <span>{emptyAddressLabel}</span>
+          </p>
+        ) : null}
+        {phoneText ? (
+          <p className="document-party__ship">
+            <Phone size={14} aria-hidden />
+            <span>{phoneText}</span>
           </p>
         ) : null}
         {pin ? (

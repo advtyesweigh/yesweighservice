@@ -452,6 +452,18 @@ async function buildLinesFromInput(rawLines, {
   };
 }
 
+function invoiceToPhone(customer) {
+  if (!customer || typeof customer !== 'object') return null;
+  const bill = customer.zohoBillingAddressRaw;
+  const billPhone = bill && typeof bill === 'object'
+    ? String(bill.phone || '').trim()
+    : '';
+  return String(customer.mobile || '').trim()
+    || String(customer.phone || '').trim()
+    || billPhone
+    || null;
+}
+
 async function loadDealerProfile(dealerId, zohoCustomerId) {
   const db = getFirestore();
   let customer = null;
@@ -472,6 +484,7 @@ async function loadDealerProfile(dealerId, zohoCustomerId) {
     canBuySpares: customer?.canBuySpares !== false,
     maxOrderLimit: customer?.maxOrderLimit != null ? Number(customer.maxOrderLimit) : null,
     billingState: customer?.billingState != null ? String(customer.billingState) : null,
+    billingPhone: invoiceToPhone(customer),
   };
 }
 
@@ -521,6 +534,7 @@ async function createSegmentSalesOrders({
   workflowBase,
   skipOpsReviewForDealer = false,
   pricedLineMapper = line => line,
+  billingPhone = null,
 }) {
   const buckets = groupLinesBySegmentAndSite(lines);
   if (!buckets.length) {
@@ -662,6 +676,10 @@ async function createSegmentSalesOrders({
       categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },
       shippingAddressId: shippingResolved.shippingAddressId || null,
       shippingAddress: shippingResolved.address?.formatted || null,
+      shippingPhone: String(shippingResolved.address?.phone || '').trim() || null,
+      ...(String(billingPhone || '').trim()
+        ? { billingPhone: String(billingPhone).trim() }
+        : {}),
       yesOnePriceCustomized: segmentPriceChanges.length > 0,
       yesOnePriceChanges: segmentPriceChanges,
       ...yesOneGatcPersistFields(segmentLines),
@@ -884,6 +902,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       lines,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
+      billingPhone: profile.billingPhone,
       workflowBase: {
         yesOneCreatedFromCart: true,
         yesOneCreatedByUid: uid,
@@ -1114,6 +1133,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       lines: linesWithFreight,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
+      billingPhone: profile.billingPhone,
       pricedLineMapper: stripInternalLineFields,
       skipOpsReviewForDealer: priceLevelSkipsOpsReview(priceLevel),
       workflowBase: {

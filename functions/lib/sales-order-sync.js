@@ -286,6 +286,8 @@ function mapSalesOrder(raw) {
       : null,
     salespersonName: raw.salesperson_name ? String(raw.salesperson_name).trim() || null : null,
     shippingAddress: formatZohoAddress(raw.shipping_address) ?? null,
+    shippingPhone: String(raw.shipping_address?.phone || '').trim() || null,
+    billingPhone: String(raw.billing_address?.phone || '').trim() || null,
     shippingAddressId: raw.shipping_address_id != null
       ? String(raw.shipping_address_id)
       : (raw.shipping_address?.address_id != null
@@ -302,6 +304,8 @@ function mapSalesOrder(raw) {
 async function upsertSalesOrderFromRaw(raw, options = {}) {
   const mapped = mapSalesOrder(raw);
   if (!mapped.id) throw new Error('Missing salesorder_id.');
+  if (!mapped.shippingPhone) delete mapped.shippingPhone;
+  if (!mapped.billingPhone) delete mapped.billingPhone;
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
   mapped.lineItems = attachCatalogImages(mapped.lineItems, catalog);
@@ -895,6 +899,8 @@ export function mapSalesOrderDoc(id, data) {
     salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
+    shippingPhone: data.shippingPhone ? String(data.shippingPhone) : null,
+    billingPhone: data.billingPhone ? String(data.billingPhone) : null,
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ?? null,

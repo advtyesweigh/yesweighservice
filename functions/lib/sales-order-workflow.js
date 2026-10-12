@@ -1071,15 +1071,18 @@ export async function updateDraftSalesOrderShipping(uid, role, payload = {}, sec
     newAddress: shippingSel.newAddress || null,
   });
 
+  const selectedAddress = resolved.address || null;
+  const shippingPhone = String(selectedAddress?.phone || '').trim() || null;
   await updateSalesOrderShippingAddress(secrets, orgId, id, {
     shippingAddressId: resolved.shippingAddressId,
-    shippingAddressInline: resolved.useInline ? resolved.address : null,
+    shippingAddressInline: selectedAddress,
   });
   await mirrorSalesOrderFromZoho(secrets, orgId, id);
 
   await ref.set({
     shippingAddressId: resolved.shippingAddressId || null,
-    shippingAddress: resolved.address?.formatted || null,
+    shippingAddress: selectedAddress?.formatted || null,
+    ...(shippingPhone ? { shippingPhone } : {}),
     yesOneUpdatedAt: nowIso(),
     yesOneLastEditedAt: nowIso(),
     yesOneLastEditedByUid: uid,
@@ -1392,6 +1395,7 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
         referenceNumber: data.referenceNumber,
         salespersonId,
         courierPartner: data.yesOneCourierPartner || null,
+        shippingPhone: data.shippingPhone || null,
       });
       invoiceId = inv.invoiceId;
       invoiceNumber = inv.invoiceNumber;
