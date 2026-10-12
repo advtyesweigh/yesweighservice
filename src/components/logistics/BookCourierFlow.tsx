@@ -71,12 +71,15 @@ import {
   logisticsAddressesMatch,
   logisticsDealerHasDeliveryAddress,
   mergeZohoDealerLists,
+  appendPhoneToAddressLine,
   extractPhoneFromText,
   phoneDigitsForCourier,
   preferRicherZohoDealer,
+  preferShippingPhone,
   reconcileDocumentDeliveryAddress,
   resolveDraftDeliveryAddress,
   resolveReceiverPhoneFromSnapshot,
+  resolveShippingConsigneePhone,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
@@ -331,18 +334,14 @@ function applyDealerDeliveryToDraft(
     prev.deliveryAddress,
     prev.deliveryAddressKind,
   );
-  const shippingPhone = phoneDigitsForCourier(snapshot.shippingPhone)
-    || phoneDigitsForCourier(extractPhoneFromText(reconciled.deliveryAddress))
-    || phoneDigitsForCourier(extractPhoneFromText(snapshot.shippingAddress));
-  return {
+  const nextDraft = {
     ...prev,
     deliveryAddressKind: reconciled.deliveryAddressKind,
     deliveryAddress: reconciled.deliveryAddress,
-    customerPhone: shippingPhone
-      || phoneDigitsForCourier(prev.customerPhone)
-      || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
-      || phoneDigitsForCourier(snapshot.mobile)
-      || null,
+  };
+  return {
+    ...nextDraft,
+    customerPhone: resolveShippingConsigneePhone(nextDraft, snapshot),
     customerGstin: normalizeGstinForCourier(prev.customerGstin)
       || normalizeGstinForCourier(gstin)
       || prev.customerGstin
@@ -939,9 +938,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         const mode = resolveInvoiceFreightBillingMode(invoice) || 'btc';
         const invoiceTotal = Number(invoice.total);
         setDraft(prev => {
+          const shippingPhone = preferShippingPhone(
+            [invoice.shippingPhone, extractPhoneFromText(invoice.shippingAddress)],
+            invoice.customerPhone,
+          );
+          const prior = phoneDigitsForCourier(prev.customerPhone);
+          const billing = phoneDigitsForCourier(invoice.customerPhone);
+          const customerPhone = shippingPhone && (!prior || prior === billing)
+            ? shippingPhone
+            : (prev.customerPhone ?? null);
           const next = {
             ...prev,
             freightBillingMode: mode,
+            customerPhone,
             ...(Number.isFinite(invoiceTotal) && invoiceTotal > 0
               ? { invoiceValueInr: invoiceTotal }
               : {}),
@@ -949,6 +958,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           if (
             prev.freightBillingMode === next.freightBillingMode
             && prev.invoiceValueInr === next.invoiceValueInr
+            && (prev.customerPhone ?? null) === (next.customerPhone ?? null)
           ) {
             return prev;
           }
@@ -1251,9 +1261,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         throw new Error('Ship-from GSTIN is missing or invalid. Set a 15-character GSTIN in Logistics Settings → Sites.');
       }
 
-      const consigneePhone = phoneDigitsForCourier(draftRef.current.customerPhone)
-        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
-        || phoneDigitsForCourier(selectedDealer.mobile);
+      const consigneePhone = resolveShippingConsigneePhone(draftRef.current, selectedDealer);
       if (!consigneePhone) {
         throw new Error('Consignee phone is required before creating a Delhivery LR.');
       }
@@ -1915,20 +1923,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       || phoneDigitsForCourier(FIRM_PHONE);
     const shipperGstin = normalizeGstinForCourier(siteContact.gstin)
       || normalizeGstinForCourier(FIRM_GSTIN);
-    const consigneePhone = phoneDigitsForCourier(draft.customerPhone)
-      || (
-        selectedDealer
-          ? (
-            phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
-            || phoneDigitsForCourier(selectedDealer.mobile)
-          )
-          : null
-      );
+    const consigneePhone = resolveShippingConsigneePhone(draft, selectedDealer);
     const consigneeGstin = normalizeGstinForCourier(draft.customerGstin);
     return { shipperPhone, shipperGstin, consigneePhone, consigneeGstin };
   }, [
     draft.customerGstin,
     draft.customerPhone,
+    draft.deliveryAddress,
+    draft.deliveryAddressKind,
     draft.shipFromSite,
     fromSiteContacts,
     selectedDealer,
@@ -2498,7 +2500,27 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                               </span>
                               {selected && <Check size={15} strokeWidth={3} aria-hidden />}
                             </span>
-                            <span className="book-courier__address-tile-body">{tile.address}</span>
+                            <span className="book-courier__address-tile-body">
+                              {tile.kind === 'billing'
+                                ? tile.address
+                                : appendPhoneToAddressLine(
+                                  tile.address,
+                                  resolveShippingConsigneePhone(
+                                    tile.kind === 'selected'
+                                      ? {
+                                        deliveryAddressKind: draft.deliveryAddressKind,
+                                        deliveryAddress: tile.address,
+                                        customerPhone: draft.customerPhone,
+                                      }
+                                      : {
+                                        deliveryAddressKind: 'shipping',
+                                        deliveryAddress: null,
+                                        customerPhone: draft.customerPhone,
+                                      },
+                                    selectedDealer,
+                                  ),
+                                )}
+                            </span>
                           </button>
                           {selected && (
                             <button

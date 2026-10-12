@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { BadgeCheck, Ban, CheckCircle2, Hash, PackagePlus, Send, Unlink, X } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
+import { appendPhoneToAddressLine } from '../../lib/logisticsDealers';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { InvoiceLocalFreightEditor } from '../../components/invoices/InvoiceLocalFreightEditor';
 import { GatcSerialPickerDialog } from '../../components/invoices/GatcSerialPickerDialog';
@@ -420,7 +421,11 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
       <DocumentPartyBlock
         className="mb-4"
         customerName={invoice.customerName}
-        address={invoice.shippingAddress}
+        address={
+          invoice.shippingAddress
+            ? appendPhoneToAddressLine(invoice.shippingAddress, invoice.shippingPhone)
+            : invoice.shippingAddress
+        }
         telHref={invoice.customerTelHref}
         whatsappHref={invoice.customerWhatsappHref}
         emptyAddressLabel="No address on file"

@@ -20,7 +20,7 @@ import {
   isPipelineEnabledPartner,
 } from './logisticsBooking';
 import { partnerIdForFreightSku } from './orderFreight';
-import { extractPhoneFromText, phoneDigitsForCourier } from './logisticsDealers';
+import { extractPhoneFromText, phoneDigitsForCourier, preferShippingPhone } from './logisticsDealers';
 import { cartonizeCartLine } from './stCourierCartFreight';
 
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
@@ -290,8 +290,13 @@ export function buildInvoiceBookingDraftPatch(
   const salesOrderNumber = invoice.salesOrderNumber?.trim() || null;
   const customerGstin = invoice.customerGstin?.trim() || null;
   const deliveryAddress = invoice.shippingAddress?.trim() || null;
-  const shippingPhone = phoneDigitsForCourier(invoice.shippingPhone)
-    || phoneDigitsForCourier(extractPhoneFromText(deliveryAddress));
+  const shippingPhone = preferShippingPhone(
+    [
+      invoice.shippingPhone,
+      extractPhoneFromText(deliveryAddress),
+    ],
+    invoice.customerPhone,
+  );
   const customerPhone = shippingPhone
     || phoneDigitsForCourier(invoice.customerPhone);
   const freightBillingMode = partnerId === 'delhivery'

@@ -21,6 +21,8 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
 import { parseDealerCustomerInvoice, toSalesOrderDateKey } from './admin-sales-orders';
+import { preferShippingPhone } from './logisticsDealers';
+import { buildContactLinks } from './phoneLinks';
 import { parseInvoiceMachineQcImages } from './invoiceMachineQc';
 import {
   listGatcReportsInDateRange,
@@ -2787,15 +2789,22 @@ export async function fetchAdminInvoiceDetail(
     }),
   ]);
   const billingFromInvoice = String(data.billingAddress ?? '').trim() || null;
+  const storedShippingPhone = data.shippingPhone ? String(data.shippingPhone).trim() : '';
+  const soShippingPhone = soData?.shippingPhone ? String(soData.shippingPhone).trim() : '';
+  const shippingPhone = preferShippingPhone(
+    [storedShippingPhone, soShippingPhone, contact.shippingPhone],
+    contact.phone,
+  );
+  const shipLinks = shippingPhone ? buildContactLinks(shippingPhone) : null;
   return {
     ...withImages,
     shippingAddress: contact.address,
     billingAddress: billingFromInvoice || contact.billingAddress || contact.address,
     customerGstin: contact.gstin,
     customerPhone: contact.phone,
-    shippingPhone: contact.shippingPhone,
-    customerTelHref: contact.telHref,
-    customerWhatsappHref: contact.whatsappHref,
+    shippingPhone,
+    customerTelHref: shipLinks?.tel ?? contact.telHref,
+    customerWhatsappHref: shipLinks?.whatsapp ?? contact.whatsappHref,
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     sourceSalesOrderIsPickup,
     manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),

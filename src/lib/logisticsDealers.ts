@@ -182,6 +182,84 @@ export function hasExplicitDraftDeliveryAddress(value: string | null | undefined
   return !isPlaceholderLogisticsAddress(value);
 }
 
+/**
+ * Shipping-address phone wins over invoice-to / billing when they differ.
+ * The same number is kept. When every candidate is missing, returns null.
+ */
+export function preferShippingPhone(
+  candidates: Array<string | null | undefined>,
+  billingPhone?: string | null,
+): string | null {
+  const billing = phoneDigitsForCourier(billingPhone);
+  const phones: string[] = [];
+  for (const value of candidates) {
+    const phone = phoneDigitsForCourier(value);
+    if (phone && !phones.includes(phone)) phones.push(phone);
+  }
+  if (!phones.length) return null;
+  if (!billing) return phones[0];
+  return phones.find(phone => phone !== billing) || phones[0];
+}
+
+/** Append a courier phone to an address line when the text does not already contain it. */
+export function appendPhoneToAddressLine(
+  address: string,
+  phone: string | null | undefined,
+): string {
+  const text = address.replace(/\s+/g, ' ').trim();
+  const digits = phoneDigitsForCourier(phone);
+  if (!text) return digits || '';
+  if (!digits || text.replace(/\D/g, '').includes(digits)) return text;
+  return `${text}, ${digits}`;
+}
+
+/**
+ * Consignee phone for the address selected in Deliver to.
+ * A distinct invoice Ship To uses that document's shipping phone, not the
+ * dealer's other address. Billing is used only when no shipping phone exists.
+ */
+export function resolveShippingConsigneePhone(
+  draft: LogisticsDraftDeliveryFields & { customerPhone?: string | null },
+  dealer?: LogisticsDealerSnapshot | null,
+): string | null {
+  const explicit = hasExplicitDraftDeliveryAddress(draft.deliveryAddress);
+  const address = explicit
+    ? String(draft.deliveryAddress).trim()
+    : (dealer ? resolveDraftDeliveryAddress(dealer, draft) : '');
+  const fromAddress = phoneDigitsForCourier(extractPhoneFromText(address));
+  const fromDraft = phoneDigitsForCourier(draft.customerPhone);
+  const dealerShip = dealer
+    ? (
+      phoneDigitsForCourier(dealer.shippingPhone)
+      || phoneDigitsForCourier(extractPhoneFromText(dealer.shippingAddress))
+    )
+    : null;
+  const dealerBill = dealer
+    ? (
+      phoneDigitsForCourier(dealer.billingPhone)
+      || phoneDigitsForCourier(extractPhoneFromText(dealer.billingAddress))
+    )
+    : null;
+  const profileFallback = dealer
+    ? (
+      phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(dealer))
+      || phoneDigitsForCourier(dealer.mobile)
+    )
+    : null;
+
+  if (!explicit && draft.deliveryAddressKind === 'billing') {
+    return fromAddress || dealerBill || fromDraft || profileFallback;
+  }
+
+  const picked = preferShippingPhone(
+    explicit
+      ? [fromAddress, fromDraft]
+      : [fromAddress, dealerShip, fromDraft],
+    dealerBill,
+  );
+  return picked || fromDraft || profileFallback;
+}
+
 export type LogisticsDraftDeliveryFields = {
   deliveryAddressKind: DeliveryAddressKind;
   deliveryAddress?: string | null;

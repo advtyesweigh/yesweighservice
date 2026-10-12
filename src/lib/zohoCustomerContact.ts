@@ -1,5 +1,6 @@
 import { doc, getDoc, type DocumentData } from 'firebase/firestore';
 import { db } from '../firebase';
+import { logisticsAddressKey, preferShippingPhone } from './logisticsDealers';
 import { buildContactLinks } from './phoneLinks';
 
 export type ZohoCustomerDisplayContact = {
@@ -114,6 +115,35 @@ function phoneFromCustomer(data: DocumentData): string | null {
   );
 }
 
+/** Phones on customer address rows whose formatted text is this ship-to. */
+function phonesForAddress(
+  data: DocumentData,
+  preferredAddress?: string | null,
+): string[] {
+  const key = logisticsAddressKey(preferredAddress);
+  if (!key) return [];
+  const phones: string[] = [];
+  const push = (phone: string | null) => {
+    if (phone && !phones.includes(phone)) phones.push(phone);
+  };
+  const rows = Array.isArray(data.zohoAddresses) ? data.zohoAddresses : [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const record = row as Record<string, unknown>;
+    const text = trimStr(record.formatted) || formatRawAddress(record);
+    if (logisticsAddressKey(text) !== key) continue;
+    push(trimStr(record.phone) || extractPhoneFromText(text));
+  }
+  const rawShip = data.zohoShippingAddressRaw;
+  if (logisticsAddressKey(formatRawAddress(rawShip)) === key) {
+    const phone = rawShip && typeof rawShip === 'object'
+      ? trimStr((rawShip as { phone?: unknown }).phone)
+      : null;
+    push(phone);
+  }
+  return phones;
+}
+
 function billingAddressFromCustomer(data: DocumentData): string | null {
   return (
     trimStr(data.zohoBillingAddress)
@@ -135,9 +165,15 @@ export function contactFromCustomerData(
   const gstin = data
     ? (trimStr(data.zohoGstNo) || trimStr(data.gstNo) || trimStr(data.gstin))
     : null;
-  const shippingPhone = (data ? addressPhone(data, preferredAddressId, 'shipping') : null)
-    || extractPhoneFromText(preferredAddress);
   const phone = data ? phoneFromCustomer(data) : null;
+  const shippingPhone = preferShippingPhone(
+    [
+      ...(data ? phonesForAddress(data, preferredAddress) : []),
+      data ? addressPhone(data, preferredAddressId, 'shipping') : null,
+      extractPhoneFromText(preferredAddress),
+    ],
+    phone,
+  );
   const links = phone ? buildContactLinks(phone) : null;
   return {
     address,
