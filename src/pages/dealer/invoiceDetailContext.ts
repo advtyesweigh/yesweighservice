@@ -6,4 +6,5 @@ export interface InvoiceDetailOutletContext {
   error: string;
   invoiceId: string;
   invoicesPath: string;
+  qcPhotoCount?: number;
 }

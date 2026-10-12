@@ -61,17 +61,28 @@ function parseActiveSection(pathname: string): InvoiceDetailSection {
   return 'invoice';
 }
 
-export const InvoiceDetailTop: React.FC<{ invoiceId: string }> = ({ invoiceId }) => {
+export const InvoiceDetailTop: React.FC<{
+  invoiceId: string;
+  showQc?: boolean;
+  qcCount?: number;
+  qcRequired?: number;
+}> = ({
+  invoiceId,
+  showQc = false,
+  qcCount = 0,
+  qcRequired = 5,
+}) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const base = user ? homePathForRole(user.role) : '/dealer';
   const active = parseActiveSection(pathname);
+  const sections = SECTIONS.filter(section => section.id !== 'qc' || showQc);
 
   return (
     <div className="invoice-detail-top">
       <div className="invoice-detail-top__actions" role="tablist" aria-label="Invoice sections">
-        {SECTIONS.map(section => (
+        {sections.map(section => (
           <button
             key={section.id}
             type="button"
@@ -88,6 +99,9 @@ export const InvoiceDetailTop: React.FC<{ invoiceId: string }> = ({ invoiceId })
           >
             <span className="invoice-detail-top__card-icon">{section.icon}</span>
             <span className="invoice-detail-top__card-label">{section.label}</span>
+            {section.id === 'qc' ? (
+              <span className="invoice-detail-top__card-sub">{qcCount}/{qcRequired}</span>
+            ) : null}
           </button>
         ))}
       </div>

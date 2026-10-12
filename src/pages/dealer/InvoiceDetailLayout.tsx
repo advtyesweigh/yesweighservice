@@ -14,6 +14,11 @@ import {
 } from '../../lib/invoices';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
+import { documentLooksLikeMachineQc } from '../../lib/machineQc';
+import {
+  INVOICE_QC_REQUIRED,
+  listenInvoiceMachineQc,
+} from '../../lib/invoiceMachineQc';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 
 export const InvoiceDetailLayout: React.FC = () => {
@@ -29,6 +34,7 @@ export const InvoiceDetailLayout: React.FC = () => {
   const [invoice, setInvoice] = useState<DealerInvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [qcPhotoCount, setQcPhotoCount] = useState(0);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -95,6 +101,24 @@ export const InvoiceDetailLayout: React.FC = () => {
     };
   }, [invoiceId, user?.uid]);
 
+  const showQcTile = Boolean(
+    invoice
+    && (
+      documentLooksLikeMachineQc(invoice)
+      || qcPhotoCount > 0
+    ),
+  );
+
+  useEffect(() => {
+    if (!invoiceId) {
+      setQcPhotoCount(0);
+      return undefined;
+    }
+    return listenInvoiceMachineQc(invoiceId, doc => {
+      setQcPhotoCount(doc?.images.length ?? 0);
+    });
+  }, [invoiceId]);
+
   if (!invoiceId) return null;
 
   const outletContext: InvoiceDetailOutletContext = {
@@ -103,6 +127,7 @@ export const InvoiceDetailLayout: React.FC = () => {
     error,
     invoiceId,
     invoicesPath,
+    qcPhotoCount,
   };
 
   return (
@@ -124,7 +149,14 @@ export const InvoiceDetailLayout: React.FC = () => {
         </div>
       ) : (
         <>
-          {!isPdfView && <InvoiceDetailTop invoiceId={invoiceId} />}
+          {!isPdfView && (
+            <InvoiceDetailTop
+              invoiceId={invoiceId}
+              showQc={showQcTile}
+              qcCount={qcPhotoCount}
+              qcRequired={INVOICE_QC_REQUIRED}
+            />
+          )}
           <Outlet context={outletContext} />
         </>
       )}

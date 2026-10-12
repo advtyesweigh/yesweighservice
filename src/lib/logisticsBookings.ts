@@ -2753,6 +2753,7 @@ export type RecordInvoiceLogisticsLrInput = {
     | 'total'
     | 'customerName'
     | 'customerPhone'
+    | 'shippingPhone'
     | 'shippingAddress'
     | 'billingAddress'
   >;
@@ -2772,13 +2773,17 @@ function dealerSnapshotFromInvoice(
   const name = invoice.customerName?.trim() || zohoCustomerId;
   const shipping = invoice.shippingAddress?.trim() || '';
   const billing = invoice.billingAddress?.trim() || shipping;
+  const shippingPhone = phoneDigitsForCourier(invoice.shippingPhone)
+    || phoneDigitsForCourier(extractPhoneFromText(shipping))
+    || undefined;
   return {
     zohoCustomerId,
     dealerId: zohoCustomerId,
     name,
     code: zohoCustomerId,
     contactPerson: name,
-    mobile: invoice.customerPhone?.trim() || '',
+    mobile: shippingPhone || invoice.customerPhone?.trim() || '',
+    ...(shippingPhone ? { shippingPhone } : {}),
     shippingAddress: shipping || billing || name,
     billingAddress: billing || shipping || name,
   };

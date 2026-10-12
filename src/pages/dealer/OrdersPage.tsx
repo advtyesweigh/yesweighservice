@@ -769,7 +769,10 @@ const DealerCartPage: React.FC = () => {
                         product={catalogProduct}
                         qcEnabled={item.qcEnabled === true}
                         disabled={submitting}
-                        onChange={next => updateQc(item.cartLineId, { qcEnabled: next })}
+                        onChange={next => updateQc(item.cartLineId, {
+                          qcEnabled: next,
+                          categoryName: catalogProduct.categoryName,
+                        })}
                         pdfFile={dealerInvoicePdf}
                         onPdfFileChange={setDealerInvoicePdf}
                       />
@@ -782,7 +785,10 @@ const DealerCartPage: React.FC = () => {
                     sku={item.sku}
                     description={appendMachineQcDescription(
                       item.description || descByProductId[item.productId] || null,
-                      { qcEnabled: item.qcEnabled === true },
+                      {
+                        qcEnabled: item.qcEnabled === true,
+                        qcFeePerUnit: item.qcFeePerUnit ?? 0,
+                      },
                     )}
                   >
                     {isStaffAttributedCartLine(item) && item.addedByName ? (

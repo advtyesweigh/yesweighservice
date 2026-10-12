@@ -7,7 +7,10 @@ export type ZohoCustomerDisplayContact = {
   /** Billing address when available (may match shipping). */
   billingAddress: string | null;
   gstin: string | null;
+  /** Invoice To / dealer contact phone. */
   phone: string | null;
+  /** Phone on the shipping / Ship To address when available. */
+  shippingPhone: string | null;
   telHref: string | null;
   whatsappHref: string | null;
 };
@@ -70,13 +73,44 @@ function formatRawAddress(raw: unknown): string | null {
   return parts.length ? parts.join(', ') : null;
 }
 
+function extractPhoneFromText(text: string | null | undefined): string | null {
+  if (!text?.trim()) return null;
+  const match = text.match(/(?:\+?\d[\d\s\-()]{7,}\d)/);
+  return match ? trimStr(match[0]) : null;
+}
+
+function addressPhone(
+  data: DocumentData,
+  preferredAddressId?: string | null,
+  kind: 'shipping' | 'billing' = 'shipping',
+): string | null {
+  const preferredId = trimStr(preferredAddressId);
+  const rows = Array.isArray(data.zohoAddresses) ? data.zohoAddresses : [];
+  if (preferredId) {
+    const match = rows.find(row => String(row?.addressId ?? '').trim() === preferredId);
+    const fromMatch = trimStr(match?.phone) || extractPhoneFromText(trimStr(match?.formatted));
+    if (fromMatch) return fromMatch;
+  }
+  const raw = kind === 'shipping'
+    ? data.zohoShippingAddressRaw as { phone?: unknown } | null | undefined
+    : data.zohoBillingAddressRaw as { phone?: unknown } | null | undefined;
+  const kindRow = rows.find(row => row?.kind === kind);
+  return (
+    trimStr(raw?.phone)
+    || trimStr(kindRow?.phone)
+    || extractPhoneFromText(
+      kind === 'shipping'
+        ? (trimStr(data.zohoShippingAddress) || trimStr(data.shippingAddress))
+        : (trimStr(data.zohoBillingAddress) || trimStr(data.billingAddress)),
+    )
+  );
+}
+
 function phoneFromCustomer(data: DocumentData): string | null {
-  const rawShip = data.zohoShippingAddressRaw as { phone?: unknown } | null | undefined;
   const rawBill = data.zohoBillingAddressRaw as { phone?: unknown } | null | undefined;
   return (
     trimStr(data.mobile)
     || trimStr(data.phone)
-    || trimStr(rawShip?.phone)
     || trimStr(rawBill?.phone)
   );
 }
@@ -102,6 +136,8 @@ export function contactFromCustomerData(
   const gstin = data
     ? (trimStr(data.zohoGstNo) || trimStr(data.gstNo) || trimStr(data.gstin))
     : null;
+  const shippingPhone = (data ? addressPhone(data, preferredAddressId, 'shipping') : null)
+    || extractPhoneFromText(preferredAddress);
   const phone = data ? phoneFromCustomer(data) : null;
   const links = phone ? buildContactLinks(phone) : null;
   return {
@@ -109,6 +145,7 @@ export function contactFromCustomerData(
     billingAddress,
     gstin,
     phone,
+    shippingPhone,
     telHref: links?.tel ?? null,
     whatsappHref: links?.whatsapp ?? null,
   };

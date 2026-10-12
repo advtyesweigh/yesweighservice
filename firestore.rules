@@ -1,5 +1,5 @@
 rules_version = '2';
-// CI smoke-test marker — 2026-08-27
+// CI smoke-test marker — 2026-10-12
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -614,6 +614,24 @@ service cloud.firestore {
 
     match /salesOrderMeta/{docId} {
       allow read, write: if false;
+    }
+
+    // Warehouse QC photos on dealer back-bill invoices (5 required). Dealers may view.
+    match /invoiceMachineQc/{invoiceId} {
+      allow get: if isActiveUser() && (
+        isOpsUser()
+        || isWarehouse()
+        || !exists(/databases/$(database)/documents/invoiceMachineQc/$(invoiceId))
+        || dealerOwnsZohoCustomer(resource.data.get('customerId', ''))
+      );
+      allow list: if isOpsUser() || isWarehouse();
+      allow create, update: if isActiveUser()
+        && (isOpsUser() || isWarehouse())
+        && request.resource.data.customerId is string
+        && request.resource.data.customerId.size() > 0
+        && request.resource.data.images is list
+        && request.resource.data.images.size() <= 8;
+      allow delete: if isOpsUser() || isWarehouse();
     }
 
     // Kotak uncategorised bank feeds mirrored from Zoho Banking.

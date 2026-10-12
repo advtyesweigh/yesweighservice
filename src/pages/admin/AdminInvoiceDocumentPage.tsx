@@ -39,6 +39,13 @@ import {
   invoiceIsDeliveredForSerials,
   invoiceNeedsMandatorySerials,
 } from '../../lib/invoiceSerialGate';
+import {
+  appendMachineQcDescription,
+  documentLooksLikeMachineQc,
+  lineLooksLikeMachineQc,
+  stripBackBillNote,
+} from '../../lib/machineQc';
+import { INVOICE_QC_REQUIRED } from '../../lib/invoiceMachineQc';
 import { canVoidAdminInvoice, isInternalOpsUser } from '../../lib/staffAccess';
 import { voidAdminInvoice } from '../../lib/voidAdminInvoice';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
@@ -58,6 +65,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     onOpenMarkDelivered,
     existingBooking,
     kamCardOpen,
+    qcPhotoCount = 0,
+    needsMandatoryQc = false,
     canEditLocalFreight = false,
     localFreightBusy = false,
     localFreightError = '',
@@ -115,9 +124,19 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
 
   const displayInvoice = useMemo(() => {
     if (!invoice) return null;
+    const qcOrder = documentLooksLikeMachineQc(invoice);
     return {
       ...invoice,
-      lineItems: overlayLocalFreightOnLineItems(invoice),
+      lineItems: overlayLocalFreightOnLineItems(invoice).map(item => {
+        if (isFreightInvoiceLineItem(item)) return item;
+        const description = (qcOrder || lineLooksLikeMachineQc(item))
+          ? appendMachineQcDescription(item.description, {
+            qcEnabled: item.qcEnabled === true || lineLooksLikeMachineQc(item),
+            qcFeePerUnit: item.qcFeePerUnit ?? 0,
+          })
+          : stripBackBillNote(item.description);
+        return description === item.description ? item : { ...item, description };
+      }),
     };
   }, [invoice]);
 
@@ -421,6 +440,12 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         invoiceId={invoiceId}
         invoiceNumber={invoice.invoiceNumber}
       />
+      {needsMandatoryQc ? (
+        <p className="invoice-qc-mandatory-banner" role="status">
+          Extra packing required — upload {INVOICE_QC_REQUIRED} QC photos before dispatch.
+          {qcPhotoCount > 0 ? ` ${qcPhotoCount}/{INVOICE_QC_REQUIRED} uploaded.` : ''}
+        </p>
+      ) : null}
       <InvoiceDocumentBody
         invoice={displayInvoice}
         itemClassName="admin-invoice-detail-item"
@@ -447,10 +472,15 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         itemMeta={item => {
           const nonGatc = isNonGatcSerialEligibleLine(item);
           const gatcStamped = isGatcStampedSerialEligibleLine(item);
-          if (!nonGatc && !gatcStamped) return null;
+          const qcRequested = !isFreightInvoiceLineItem(item) && (
+            Boolean(invoice.qcRequested)
+            || documentLooksLikeMachineQc(invoice)
+            || lineLooksLikeMachineQc(item)
+          );
+          if (!nonGatc && !gatcStamped && !qcRequested) return null;
           const serials = serialNumbersFromLineItem(item);
           const short = nonGatc ? nonGatcSerialShortage(item) : gatcStampedSerialShortage(item);
-          return (
+          const serialBlock = (nonGatc || gatcStamped) ? (
             <div className="invoice-nongatc-serials">
               {serials.length ? (
                 <div className="invoice-nongatc-serials__list">
@@ -548,6 +578,14 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                   {allotBusy ? 'Pushing…' : 'Push to YesGATC'}
                 </button>
               ) : null}
+            </div>
+          ) : null;
+          return (
+            <div className="invoice-detail-item__meta-stack">
+              {qcRequested ? (
+                <p className="invoice-detail-item__qc-requested">QC requested</p>
+              ) : null}
+              {serialBlock}
             </div>
           );
         }}

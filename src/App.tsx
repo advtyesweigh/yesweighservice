@@ -34,6 +34,7 @@ import { AdminInvoiceSyncPage } from './pages/admin/AdminInvoiceSyncPage';
 import { AdminInvoiceDetailLayout } from './pages/admin/AdminInvoiceDetailLayout';
 import { AdminInvoiceDocumentPage } from './pages/admin/AdminInvoiceDocumentPage';
 import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPage';
+import { AdminInvoiceQcPage } from './pages/admin/AdminInvoiceQcPage';
 import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
 import { AdminCreatePurchaseOrderPage } from './pages/admin/AdminCreatePurchaseOrderPage';
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
@@ -191,6 +192,7 @@ const staffInvoiceRoutes = (
         <Route index element={<AdminInvoiceDocumentPage />} />
         <Route path="view" element={<AdminInvoicePdfViewerPage />} />
       </Route>
+      <Route path="qc" element={<AdminInvoiceQcPage />} />
     </Route>
   </>
 );
@@ -328,6 +330,7 @@ const App: React.FC = () => (
                   <Route index element={<AdminInvoiceDocumentPage />} />
                   <Route path="view" element={<AdminInvoicePdfViewerPage />} />
                 </Route>
+                <Route path="qc" element={<AdminInvoiceQcPage />} />
               </Route>
               <Route path="invoices/import" element={<AdminInvoiceSyncPage />} />
               <Route path="invoices/sync" element={<Navigate to="/super-admin/invoices/import" replace />} />

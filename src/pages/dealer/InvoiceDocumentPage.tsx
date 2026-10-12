@@ -12,12 +12,19 @@ import {
   canBookCourierForInvoice,
 } from '../../lib/logisticsPrefill';
 import {
+  isFreightInvoiceLineItem,
   serialNumbersFromLineItem,
 } from '../../lib/invoices';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
+import {
+  appendMachineQcDescription,
+  documentLooksLikeMachineQc,
+  lineLooksLikeMachineQc,
+  stripBackBillNote,
+} from '../../lib/machineQc';
 
 export const InvoiceDocumentPage: React.FC = () => {
   const { user } = useAuth();
@@ -79,7 +86,13 @@ export const InvoiceDocumentPage: React.FC = () => {
         </h3>
         {invoice.lineItems.length ? (
           <ul className="invoice-detail-item-list">
-            {invoice.lineItems.map(item => (
+            {invoice.lineItems.map(item => {
+              const qcRequested = !isFreightInvoiceLineItem(item) && (
+                Boolean(invoice.qcRequested)
+                || documentLooksLikeMachineQc(invoice)
+                || lineLooksLikeMachineQc(item)
+              );
+              return (
               <li key={item.id} className="invoice-detail-item">
                 <div className="invoice-detail-item__image-wrap">
                   {item.imageUrl ? (
@@ -93,12 +106,20 @@ export const InvoiceDocumentPage: React.FC = () => {
                 <DocumentLineItemSpec
                   name={item.name}
                   sku={item.sku}
-                  description={item.description}
+                  description={qcRequested
+                    ? appendMachineQcDescription(item.description, {
+                      qcEnabled: true,
+                      qcFeePerUnit: item.qcFeePerUnit ?? 0,
+                    })
+                    : stripBackBillNote(item.description)}
                 >
                   <div className="invoice-detail-item__pricing">
                     <span>{formatCurrency(item.rate)} × {item.quantity}</span>
                     <strong>{formatCurrency(item.total)}</strong>
                   </div>
+                  {qcRequested ? (
+                    <p className="invoice-detail-item__qc-requested">QC requested</p>
+                  ) : null}
                 </DocumentLineItemSpec>
                 <button
                   type="button"
@@ -110,7 +131,8 @@ export const InvoiceDocumentPage: React.FC = () => {
                   <span>Service</span>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         ) : (
           <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>

@@ -386,7 +386,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       const catalog = catalogById[line.itemId || ''] || catalogById[line.id];
       const description = appendMachineQcDescription(
         line.description?.trim() || fromCatalog || null,
-        { qcEnabled: lineSupportsDealerInvoicePdf(line, catalog) },
+        {
+          qcEnabled: lineSupportsDealerInvoicePdf(line, catalog),
+          qcFeePerUnit: line.qcFeePerUnit ?? 0,
+        },
       );
       return description !== line.description ? { ...line, description } : line;
     });
@@ -479,6 +482,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             line,
             catalogById[line.itemId || ''] || catalogById[line.id],
           ),
+          qcFeePerUnit: line.qcFeePerUnit ?? 0,
         }),
       })),
     };

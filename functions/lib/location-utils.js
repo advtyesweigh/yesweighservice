@@ -53,9 +53,12 @@ export async function lookupPincodeLocation(zip, zipCache = {}) {
     const data = await res.json();
     if (data?.[0]?.Status === 'Success' && data[0].PostOffice?.[0]) {
       const office = data[0].PostOffice[0];
+      const district = normalizeDistrictName(office.District);
+      const city = normalizeDistrictName(office.Block || office.Name) || district;
       return {
         state: normalizeStateName(office.State),
-        district: normalizeDistrictName(office.District),
+        district,
+        city,
       };
     }
   } catch {

@@ -219,20 +219,45 @@ export async function fetchDealerLocations(): Promise<{
   return result.data as { states: string[]; districtsByState: Record<string, string[]> };
 }
 
+async function lookupPincodeFromPostalApi(
+  pin: string,
+): Promise<{ state: string; district: string; city: string } | null> {
+  const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+  if (!res.ok) return null;
+  const data = await res.json() as Array<{
+    Status?: string;
+    PostOffice?: Array<{ Name?: string; District?: string; Block?: string; State?: string }>;
+  }>;
+  const office = data?.[0]?.Status === 'Success' ? data[0].PostOffice?.[0] : null;
+  const state = String(office?.State ?? '').trim();
+  const district = String(office?.District ?? '').trim();
+  if (!state || !district) return null;
+  const city = String(office?.Block || office?.Name || district).trim();
+  return { state, district, city };
+}
+
 export async function lookupDealerPincode(
   pincode: string,
-): Promise<{ state: string; district: string }> {
+): Promise<{ state: string; district: string; city?: string }> {
+  const pin = pincode.replace(/\D/g, '').slice(0, 6);
+  try {
+    const fromPostal = await lookupPincodeFromPostalApi(pin);
+    if (fromPostal) return fromPostal;
+  } catch {
+    // Postal API blocked — try the signed-in lookup.
+  }
+
   const fn = httpsCallable<
     { pincode: string },
-    { state: string; district: string }
+    { state: string; district: string; city?: string }
   >(functions, 'lookupDealerPincode');
   try {
-    const result = await fn({ pincode: pincode.replace(/\D/g, '').slice(0, 6) });
+    const result = await fn({ pincode: pin });
     return result.data;
   } catch (err: unknown) {
     if (typeof err === 'object' && err !== null && 'message' in err) {
       const fbErr = err as { code?: string; message: string };
-      if (fbErr.code?.startsWith('functions/') && fbErr.message) {
+      if (fbErr.code?.startsWith('functions/') && fbErr.message && !fbErr.code.includes('permission-denied')) {
         throw new Error(fbErr.message);
       }
     }

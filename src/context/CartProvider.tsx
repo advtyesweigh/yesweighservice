@@ -444,7 +444,8 @@ export const CartProvider: React.FC<{
       const target = prev.find(item => item.cartLineId === cartLineId);
       if (!target) return prev;
 
-      const qc = resolveMachineQc(target.categoryName, input.qcEnabled);
+      const categoryName = input.categoryName || target.categoryName;
+      const qc = resolveMachineQc(categoryName, input.qcEnabled);
       const gatcFee = Number(target.gatcFeePerUnit) || 0;
 
       const mergeInto = prev.find(
@@ -465,6 +466,7 @@ export const CartProvider: React.FC<{
                   ...item,
                   quantity: item.quantity + target.quantity,
                   baseRate: target.baseRate,
+                  categoryName: categoryName ?? item.categoryName,
                   qcEnabled: qc.qcEnabled,
                   qcFeePerUnit: qc.qcFeePerUnit,
                   rate: combinedCartRate(target.baseRate, gatcFee, qc.qcFeePerUnit),
@@ -483,6 +485,7 @@ export const CartProvider: React.FC<{
         item.cartLineId === cartLineId
           ? {
               ...item,
+              categoryName: categoryName ?? item.categoryName,
               qcEnabled: qc.qcEnabled,
               qcFeePerUnit: qc.qcFeePerUnit,
               rate: combinedCartRate(item.baseRate, gatcFee, qc.qcFeePerUnit),

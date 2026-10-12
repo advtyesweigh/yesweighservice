@@ -435,6 +435,15 @@ const meezanCatalogWebhookSecret = defineString('MEEZAN_CATALOG_WEBHOOK_SECRET',
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin', 'media']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
+/** GSTIN / PIN lookup on the shipping-address form (dealers, staff, warehouse). */
+const ADDRESS_LOOKUP_ROLES = new Set([
+  'dealer',
+  'dealer_staff',
+  'staff',
+  'super_admin',
+  'warehouse',
+  'media',
+]);
 const CATALOG_IMAGE_ROLES = new Set(['staff', 'super_admin', 'media']);
 const SUPER_ADMIN_ROLES = new Set(['super_admin']);
 const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
@@ -4595,7 +4604,7 @@ export const getDealerLocations = onCall(
 export const lookupDealerPincode = onCall(
   { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, ADDRESS_LOOKUP_ROLES, { allowViewOnly: true });
     const pincode = String(request.data?.pincode ?? '').replace(/\D/g, '').slice(0, 6);
     if (pincode.length !== 6) {
       throw new HttpsError('invalid-argument', 'Enter a valid 6-digit PIN code.');
@@ -4618,7 +4627,7 @@ export const fetchGstinDetails = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, ADDRESS_LOOKUP_ROLES, { allowViewOnly: true });
     try {
       const accessToken = await getAccessToken(zohoSecrets());
       const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());

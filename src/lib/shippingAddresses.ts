@@ -2,6 +2,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type { ZohoAddressRaw, ZohoDealer } from '../types/dealers';
 import { dealerOrderErrorMessage } from './dealerOrders';
+import { isValidGstin, normalizeGstin } from './gstin';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -16,10 +17,12 @@ export interface ShippingAddress {
   address: string | null;
   street2: string | null;
   city: string | null;
+  district?: string | null;
   state: string | null;
   zip: string | null;
   country: string | null;
   phone: string | null;
+  gstin?: string | null;
 }
 
 export type NewShippingAddressInput = {
@@ -27,10 +30,12 @@ export type NewShippingAddressInput = {
   address: string;
   street2?: string;
   city: string;
+  district?: string;
   state: string;
   zip: string;
   country: string;
   phone: string;
+  gstin?: string;
 };
 
 export type ShippingSelection =
@@ -198,10 +203,12 @@ export function shippingAddressToForm(addr: ShippingAddress): NewShippingAddress
     address: addr.address?.trim() || '',
     street2: addr.street2?.trim() || '',
     city: addr.city?.trim() || '',
+    district: addr.district?.trim() || '',
     state: addr.state?.trim() || '',
     zip: addr.zip?.trim() || '',
     country: addr.country?.trim() || 'India',
     phone: addr.phone?.trim() || '',
+    gstin: addr.gstin?.trim() || '',
   };
 }
 
@@ -231,15 +238,19 @@ export const EMPTY_NEW_ADDRESS: NewShippingAddressInput = {
   address: '',
   street2: '',
   city: '',
+  district: '',
   state: '',
   zip: '',
   country: 'India',
   phone: '',
+  gstin: '',
 };
 
 export function validateNewShippingAddress(
   addr: NewShippingAddressInput,
 ): string | null {
+  const gstin = normalizeGstin(addr.gstin);
+  if (gstin && !isValidGstin(gstin)) return 'Enter a valid 15-character GSTIN, or leave it blank.';
   if (!addr.attention.trim()) return 'Attention / contact name is required.';
   if (!addr.address.trim()) return 'Address line 1 is required.';
   if (!addr.city.trim()) return 'City is required.';

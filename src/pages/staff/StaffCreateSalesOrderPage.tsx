@@ -1731,7 +1731,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       onQuantity={qty => setQuantity(item.cartLineId, qty)}
                       onRate={rate => setLineBaseRate(item.cartLineId, rate)}
                       onStamping={choice => applyLineStamping(item.cartLineId, choice)}
-                      onQc={next => updateQc(item.cartLineId, { qcEnabled: next })}
+                      onQc={next => updateQc(item.cartLineId, {
+                        qcEnabled: next,
+                        categoryName: catalogProduct?.categoryName,
+                      })}
                       pdfFile={dealerInvoicePdf}
                       onPdfFileChange={setDealerInvoicePdf}
                       onAddSibling={choice => {
@@ -2066,6 +2069,7 @@ function StaffCartLine({
         sku={item.sku}
         description={appendMachineQcDescription(item.description, {
           qcEnabled: item.qcEnabled === true,
+          qcFeePerUnit: item.qcFeePerUnit ?? 0,
         })}
       >
         <label className="staff-create-so-page__rate">

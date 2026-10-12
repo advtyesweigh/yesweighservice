@@ -71,6 +71,7 @@ import {
   logisticsAddressesMatch,
   logisticsDealerHasDeliveryAddress,
   mergeZohoDealerLists,
+  extractPhoneFromText,
   phoneDigitsForCourier,
   preferRicherZohoDealer,
   reconcileDocumentDeliveryAddress,
@@ -330,14 +331,17 @@ function applyDealerDeliveryToDraft(
     prev.deliveryAddress,
     prev.deliveryAddressKind,
   );
+  const shippingPhone = phoneDigitsForCourier(snapshot.shippingPhone)
+    || phoneDigitsForCourier(extractPhoneFromText(reconciled.deliveryAddress))
+    || phoneDigitsForCourier(extractPhoneFromText(snapshot.shippingAddress));
   return {
     ...prev,
     deliveryAddressKind: reconciled.deliveryAddressKind,
     deliveryAddress: reconciled.deliveryAddress,
-    customerPhone: prev.customerPhone?.trim()
+    customerPhone: shippingPhone
+      || phoneDigitsForCourier(prev.customerPhone)
       || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
       || phoneDigitsForCourier(snapshot.mobile)
-      || prev.customerPhone
       || null,
     customerGstin: normalizeGstinForCourier(prev.customerGstin)
       || normalizeGstinForCourier(gstin)

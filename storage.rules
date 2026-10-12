@@ -1,5 +1,5 @@
 rules_version = '2';
-// CI smoke-test marker — 2026-06-26
+// CI smoke-test marker — 2026-10-12
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -410,6 +410,31 @@ service firebase.storage {
       allow create, update: if canWriteSalesOrderDealerInvoice(salesOrderId)
         && validDealerCustomerInvoicePdf();
       allow delete: if canWriteSalesOrderDealerInvoice(salesOrderId);
+    }
+
+    function invoiceQcDocPath(invoiceId) {
+      return /databases/(default)/documents/invoiceMachineQc/$(invoiceId);
+    }
+
+    function canReadInvoiceQc(invoiceId) {
+      return isActivePortalUser() && (
+        isOpsUser()
+        || isWarehouse()
+        || (
+          firestore.exists(invoiceQcDocPath(invoiceId))
+          && userDoc().keys().hasAny(['zohoCustomerId'])
+          && firestore.get(invoiceQcDocPath(invoiceId)).data.customerId == userDoc().zohoCustomerId
+        )
+      );
+    }
+
+    // Warehouse QC photos on dealer back-bill invoices. Dealers may view.
+    match /invoice-qc/{invoiceId}/{fileName} {
+      allow read: if canReadInvoiceQc(invoiceId);
+      allow create, update: if signedIn()
+        && (isOpsUser() || isWarehouse())
+        && validPurchaseOrderQcMedia();
+      allow delete: if signedIn() && (isOpsUser() || isWarehouse());
     }
 
     // Flat legacy paths: logistics/{bookingId}/{fileName}

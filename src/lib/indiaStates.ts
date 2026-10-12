@@ -125,6 +125,22 @@ export const UNSPECIFIED_STATE = 'Unspecified';
 /** Official picker names (28 states, then 8 UTs). */
 export const INDIA_STATE_NAMES: readonly string[] = [...INDIA_STATES];
 
+/** Zoho Books / Inventory India state picker (same names as INDIA_STATES). */
+export function indiaStateSelectValue(raw: string | null | undefined): string {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+  const canonical = canonicalIndiaState(trimmed);
+  return canonical === UNSPECIFIED_STATE ? trimmed : canonical;
+}
+
+export function indiaStateSelectOptions(current?: string | null): string[] {
+  const cur = indiaStateSelectValue(current);
+  if (cur && !INDIA_STATE_NAMES.includes(cur as IndiaState)) {
+    return [cur, ...INDIA_STATE_NAMES];
+  }
+  return [...INDIA_STATE_NAMES];
+}
+
 export function normKey(value: string): string {
   return value
     .toLowerCase()

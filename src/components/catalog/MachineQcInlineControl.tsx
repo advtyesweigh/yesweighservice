@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Check, Upload } from 'lucide-react';
-import { productHasMachineQc } from '../../lib/machineQc';
+import { machineQcFeeForCategory, productHasMachineQc } from '../../lib/machineQc';
 import type { CatalogProduct } from '../../types/catalog';
 
 export const MachineQcInlineControl: React.FC<{
@@ -31,7 +31,10 @@ export const MachineQcInlineControl: React.FC<{
 
   if (!productHasMachineQc(product) && !checked) return null;
 
-  const title = 'QC · include (back bill it) — price unchanged';
+  const fee = machineQcFeeForCategory(product.categoryName);
+  const title = fee > 0
+    ? `QC · +₹${fee.toLocaleString('en-IN')} per machine`
+    : 'QC';
   const label = 'QC';
 
   return (

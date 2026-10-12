@@ -1,3 +1,13 @@
+export const GSTIN_FORMAT = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+export function normalizeGstin(value: string | null | undefined): string {
+  return String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
+}
+
+export function isValidGstin(value: string | null | undefined): boolean {
+  return GSTIN_FORMAT.test(normalizeGstin(value));
+}
+
 export const GST_TREATMENTS = [
   { id: '', label: 'Not set' },
   { id: 'business_gst', label: 'Registered business — regular' },

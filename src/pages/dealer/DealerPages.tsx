@@ -14,6 +14,7 @@ import { InvoiceDetailLayout } from './InvoiceDetailLayout';
 import { InvoiceDocumentPage } from './InvoiceDocumentPage';
 import { InvoicePdfViewerPage } from './InvoicePdfViewerPage';
 import { InvoiceSectionPlaceholderPage } from './InvoiceSectionPlaceholderPage';
+import { InvoiceQcPage } from './InvoiceQcPage';
 import { WarrantySupportPage } from './WarrantySupportPage';
 import { SupportRequestDetailPage } from './SupportRequestDetailPage';
 import { ComplaintGuidelinesPage } from './ComplaintGuidelinesPage';
@@ -101,7 +102,7 @@ export const DealerMenuPages = {
   InvoicePdfViewer: InvoicePdfViewerPage,
   InvoicePayments: () => <InvoiceSectionPlaceholderPage section="payments" />,
   InvoiceLogistic: () => <InvoiceSectionPlaceholderPage section="logistic" />,
-  InvoiceQc: () => <InvoiceSectionPlaceholderPage section="qc" />,
+  InvoiceQc: InvoiceQcPage,
   Products: CatalogPage,
   Spares: CatalogPage,
   Catalog: CatalogPage,

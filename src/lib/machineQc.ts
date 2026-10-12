@@ -1,10 +1,10 @@
-/** QC marks a machine for dealer back-bill / customer-invoice PDF. It does not change the unit rate. */
+/** Extra QC fee per machine, rolled into the product unit rate. */
 
-const MACHINE_QC_CATEGORIES = new Set([
-  'WEIGHING SCALE IMPORT',
-  'BILL PRINTING SCALES',
-  'BILL PRINTING SCALE',
-]);
+const MACHINE_QC_FEES: Record<string, number> = {
+  'WEIGHING SCALE IMPORT': 50,
+  'BILL PRINTING SCALES': 150,
+  'BILL PRINTING SCALE': 150,
+};
 
 export const MACHINE_QC_BACK_BILL_NOTE = '(back bill it)';
 
@@ -15,14 +15,15 @@ export function normalizeCategoryName(categoryName: string | null | undefined): 
   return String(categoryName ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
-export function machineQcFeeForCategory(_categoryName?: string | null): number {
-  return 0;
+export function machineQcFeeForCategory(categoryName?: string | null): number {
+  const fee = MACHINE_QC_FEES[normalizeCategoryName(categoryName)];
+  return Number.isFinite(fee) && fee > 0 ? fee : 0;
 }
 
 export function productHasMachineQc(
   product: { categoryName?: string | null } | null | undefined,
 ): boolean {
-  return MACHINE_QC_CATEGORIES.has(normalizeCategoryName(product?.categoryName));
+  return machineQcFeeForCategory(product?.categoryName) > 0;
 }
 
 export function lineSupportsDealerInvoicePdf(
@@ -37,10 +38,19 @@ export function resolveMachineQc(
   categoryName: string | null | undefined,
   qcEnabled: boolean | null | undefined,
 ): { qcEnabled: boolean; qcFeePerUnit: number } {
-  if (!qcEnabled || !productHasMachineQc({ categoryName })) {
+  const fee = machineQcFeeForCategory(categoryName);
+  if (!qcEnabled || fee <= 0) {
     return { qcEnabled: false, qcFeePerUnit: 0 };
   }
-  return { qcEnabled: true, qcFeePerUnit: 0 };
+  return { qcEnabled: true, qcFeePerUnit: fee };
+}
+
+export function stripBackBillNote(description: string | null | undefined): string | null {
+  const next = String(description ?? '')
+    .replace(BACK_BILL_NOTE_RE, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return next || null;
 }
 
 export function stripMachineQcDescription(description: string | null | undefined): string {
@@ -57,8 +67,12 @@ export function appendMachineQcDescription(
 ): string | null {
   const base = stripMachineQcDescription(description);
   if (!input.qcEnabled) return base || null;
-  if (base.includes(MACHINE_QC_BACK_BILL_NOTE)) return base;
-  return base ? `${base}\n${MACHINE_QC_BACK_BILL_NOTE}` : MACHINE_QC_BACK_BILL_NOTE;
+  const fee = Number(input.qcFeePerUnit) || 0;
+  if (fee <= 0) return base || null;
+  const amount = fee.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const note = `QC: ₹${amount} per machine`;
+  if (base.includes(note) || /\bQC:/i.test(base)) return base || null;
+  return base ? `${base}\n${note}` : note;
 }
 
 /** True when any order/cart line has QC ticked (unlocks dealer customer-invoice PDF). */
@@ -68,4 +82,38 @@ export function linesHaveMachineQc(
   return (lines ?? []).some(
     line => line?.qcEnabled === true || Number(line?.qcFeePerUnit) > 0,
   );
+}
+
+export function descriptionHasMachineQc(description?: string | null): boolean {
+  const text = String(description ?? '');
+  return /\(back bill it\)/i.test(text) || /\bQC:\s*₹/i.test(text);
+}
+
+export function lineLooksLikeMachineQc(
+  line?: {
+    qcEnabled?: boolean | null;
+    qcFeePerUnit?: number | null;
+    description?: string | null;
+    categoryName?: string | null;
+  } | null,
+): boolean {
+  if (!line) return false;
+  if (line.qcEnabled === true || Number(line.qcFeePerUnit) > 0) return true;
+  if (descriptionHasMachineQc(line.description)) return true;
+  return false;
+}
+
+export function documentLooksLikeMachineQc(input?: {
+  qcRequested?: boolean | null;
+  dealerCustomerInvoice?: { url?: string | null; storagePath?: string | null } | null;
+  lineItems?: Array<{
+    qcEnabled?: boolean | null;
+    qcFeePerUnit?: number | null;
+    description?: string | null;
+  } | null | undefined> | null;
+} | null): boolean {
+  if (!input) return false;
+  if (input.qcRequested) return true;
+  if (input.dealerCustomerInvoice?.url || input.dealerCustomerInvoice?.storagePath) return true;
+  return (input.lineItems ?? []).some(lineLooksLikeMachineQc);
 }

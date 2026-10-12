@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ClipboardList, FileText, Hash, MapPin, UserRound } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ClipboardCheck, ClipboardList, FileText, Hash, MapPin, UserRound } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
@@ -69,6 +69,12 @@ import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { canNavigateBackInApp } from '../../lib/navigation';
+import { documentLooksLikeMachineQc } from '../../lib/machineQc';
+import {
+  INVOICE_QC_REQUIRED,
+  invoiceNeedsMandatoryQcPhotos,
+  listenInvoiceMachineQc,
+} from '../../lib/invoiceMachineQc';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
 export const AdminInvoiceDetailLayout: React.FC = () => {
@@ -82,6 +88,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const invoicesPath = pathname.startsWith('/staff') ? '/staff/invoices' : '/super-admin/invoices';
   const invoiceSummaryPath = `${invoicesPath}/${customerId}/${invoiceId}/invoice`;
   const isPdfView = pathname.endsWith('/invoice/view');
+  const isQcView = pathname.endsWith('/qc');
 
   const [invoice, setInvoice] = useState<DealerInvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +110,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [ewayDocError, setEwayDocError] = useState('');
   const [ewayDocDialog, setEwayDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
   const [kamCardOpen, setKamCardOpen] = useState(false);
+  const [qcPhotoCount, setQcPhotoCount] = useState(0);
   const [localFreightBusy, setLocalFreightBusy] = useState(false);
   const [localFreightError, setLocalFreightError] = useState('');
   const showKamOnTitle = Boolean(user && isInternalOpsUser(user) && !isPdfView);
@@ -240,7 +248,11 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       const canCreate = canCreateLogisticsBooking(user);
       setAddLrAvailable(canCreate && canRecordInvoiceLogisticsLr(invoice));
 
-      if (!canCreate || !canBookCourierForInvoice(invoice)) {
+      if (
+        !canCreate
+        || !canBookCourierForInvoice(invoice)
+        || invoiceNeedsMandatoryQcPhotos(invoice, qcPhotoCount)
+      ) {
         setCourierEntry(null);
         return;
       }
@@ -272,7 +284,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [invoice, customerId, invoiceId, user]);
+  }, [invoice, customerId, invoiceId, user, qcPhotoCount]);
 
   const handleChangeLocalFreight = useCallback(async (sku: LocalFreightSelectSku) => {
     if (!invoice || !customerId || !invoiceId) return;
@@ -303,6 +315,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   if (!customerId || !invoiceId) return null;
 
   const needsMandatorySerials = invoiceNeedsMandatorySerials(invoice?.lineItems);
+  const needsMandatoryQc = invoiceNeedsMandatoryQcPhotos(invoice, qcPhotoCount);
   const showManualLogistics = Boolean(
     addLrAvailable
     && !existingBooking
@@ -324,14 +337,16 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && isInternalOpsUser(user)
     && canCreateLogisticsBooking(user)
     && invoice
-    && canMarkInvoiceDelivered(invoice, existingBooking),
+    && canMarkInvoiceDelivered(invoice, existingBooking)
+    && !needsMandatoryQc,
   );
   const showCustomerPickup = Boolean(
     user
     && isInternalOpsUser(user)
     && canCreateLogisticsBooking(user)
     && invoice
-    && canMarkInvoiceCustomerPickup(invoice, Boolean(existingBooking)),
+    && canMarkInvoiceCustomerPickup(invoice, Boolean(existingBooking))
+    && !needsMandatoryQc,
   );
   const canEditLocalFreight = Boolean(
     canSuperAdminWrite(user)
@@ -363,6 +378,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     localFreightError,
     onChangeLocalFreight: handleChangeLocalFreight,
     reloadInvoice: loadInvoice,
+    qcPhotoCount,
+    needsMandatoryQc,
   };
 
   // Shared picking list for product/spare invoices — ops (staff / super admin) only.
@@ -397,11 +414,31 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     ewayBillIsReady(invoice?.ewayBill?.status, ewayBillNumberOnCard)
     || ewayBillIsReady(bookingEwayRow?.ewayBillStatus, bookingEwayRow?.ewayBillNumber),
   );
+  const showQcTile = Boolean(
+    invoice
+    && (
+      documentLooksLikeMachineQc(invoice)
+      || qcPhotoCount > 0
+    ),
+  );
+  const qcComplete = qcPhotoCount >= INVOICE_QC_REQUIRED;
+
+  useEffect(() => {
+    if (!invoiceId) {
+      setQcPhotoCount(0);
+      return undefined;
+    }
+    return listenInvoiceMachineQc(invoiceId, doc => {
+      setQcPhotoCount(doc?.images.length ?? 0);
+    });
+  }, [invoiceId]);
+
   const topCardCount = 1
     + (showOrderList ? 1 : 0)
     + (showCourierCard ? 1 : 0)
     + (showCustomerPickup ? 1 : 0)
-    + (showEwayCard ? 1 : 0);
+    + (showEwayCard ? 1 : 0)
+    + (showQcTile ? 1 : 0);
   const actionsLayout = topCardCount >= 4
     ? 'quad'
     : topCardCount === 3
@@ -554,8 +591,12 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected
-                  className="invoice-detail-top__card invoice-detail-top__card--blue is-active"
+                  aria-selected={!isQcView}
+                  className={[
+                    'invoice-detail-top__card',
+                    'invoice-detail-top__card--blue',
+                    !isQcView ? 'is-active' : '',
+                  ].filter(Boolean).join(' ')}
                   onClick={() => navigate(
                     `${invoicesPath}/${customerId}/${invoiceId}/invoice/view?fresh=${Date.now()}`,
                   )}
@@ -564,7 +605,36 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     <FileText size={28} strokeWidth={1.75} aria-hidden />
                   </span>
                   <span className="invoice-detail-top__card-label">Invoice</span>
+                  {invoice.dealerCustomerInvoice?.url ? (
+                    <span className="invoice-detail-top__card-sub">Customer PDF</span>
+                  ) : null}
                 </button>
+                {showQcTile ? (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={isQcView}
+                    className={[
+                      'invoice-detail-top__card',
+                      needsMandatoryQc
+                        ? 'invoice-detail-top__card--amber'
+                        : 'invoice-detail-top__card--qc',
+                      isQcView || qcComplete ? 'is-active' : '',
+                    ].filter(Boolean).join(' ')}
+                    title={qcComplete
+                      ? `QC photos · ${qcPhotoCount}/${INVOICE_QC_REQUIRED}`
+                      : `QC photos are mandatory — upload ${INVOICE_QC_REQUIRED} before dispatch`}
+                    onClick={() => navigate(`${invoicesPath}/${customerId}/${invoiceId}/qc`)}
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <ClipboardCheck size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">QC</span>
+                    <span className="invoice-detail-top__card-sub">
+                      {qcPhotoCount}/{INVOICE_QC_REQUIRED}
+                    </span>
+                  </button>
+                ) : null}
                 {showOrderList ? (
                   <button
                     type="button"

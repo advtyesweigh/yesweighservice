@@ -30,6 +30,7 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
         qcEnabled: raw.qcEnabled === true || productHasMachineQc({
           categoryName: raw.categoryName ? String(raw.categoryName) : null,
         }),
+        qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
       },
     ),
     sku: raw.sku ? String(raw.sku) : null,

@@ -133,6 +133,38 @@ export interface DealerCustomerInvoice {
   uploadedByName: string | null;
 }
 
+export async function resolveDealerCustomerInvoice(input: {
+  salesOrderId?: string | null;
+  invoiceId?: string | null;
+}): Promise<DealerCustomerInvoice | null> {
+  const salesOrderId = String(input.salesOrderId || '').trim();
+  if (salesOrderId) {
+    try {
+      const snap = await getDoc(doc(db, 'salesOrders', salesOrderId));
+      if (snap.exists()) {
+        const parsed = parseDealerCustomerInvoice(snap.data()?.dealerCustomerInvoice);
+        if (parsed) return parsed;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  const invoiceId = String(input.invoiceId || '').trim();
+  if (invoiceId) {
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'salesOrders'), where('zohoInvoiceId', '==', invoiceId), limit(1)),
+      );
+      if (!snap.empty) {
+        return parseDealerCustomerInvoice(snap.docs[0].data()?.dealerCustomerInvoice);
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function parseDealerCustomerInvoice(raw: unknown): DealerCustomerInvoice | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as Record<string, unknown>;
@@ -168,6 +200,8 @@ export interface AdminSalesOrderDetail {
   shippingAddressId?: string | null;
   /** Dealer phone for Call / WhatsApp on the document party block. */
   customerPhone?: string | null;
+  /** Phone on the SO shipping address (not Invoice To). */
+  shippingPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
   salesOrderCategory: InvoiceCategory | null;
@@ -263,6 +297,7 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
         qcEnabled: raw.qcEnabled === true || productHasMachineQc({
           categoryName: raw.categoryName ? String(raw.categoryName) : null,
         }),
+        qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
       },
     ),
     sku: raw.sku ? String(raw.sku) : null,
@@ -1182,6 +1217,7 @@ export async function fetchAdminSalesOrderDetail(
     // Keep SO-provided address when present; otherwise use customer shipping/billing fallback.
     shippingAddress: contact.address,
     customerPhone: contact.phone,
+    shippingPhone: contact.shippingPhone,
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
     lineItems: withImages.lineItems,

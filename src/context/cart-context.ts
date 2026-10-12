@@ -11,6 +11,7 @@ export type UpdateCartStampingInput = {
 
 export type UpdateCartQcInput = {
   qcEnabled: boolean;
+  categoryName?: string | null;
 };
 
 export interface CartContextType {

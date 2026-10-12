@@ -28,4 +28,6 @@ export interface AdminInvoiceDetailOutletContext {
   localFreightError?: string;
   onChangeLocalFreight?: (sku: import('../../lib/invoiceLocalFreight').LocalFreightSelectSku) => void;
   reloadInvoice?: () => Promise<void>;
+  qcPhotoCount?: number;
+  needsMandatoryQc?: boolean;
 }

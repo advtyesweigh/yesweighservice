@@ -1,6 +1,8 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
-import { ChevronDown, Loader2, MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
-import { lookupDealerPincode } from '../../lib/dealers';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Loader2, MapPin, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { dealerErrorMessage, fetchGstinDetails, lookupDealerPincode } from '../../lib/dealers';
+import { isValidGstin, normalizeGstin } from '../../lib/gstin';
+import { indiaStateSelectOptions, indiaStateSelectValue } from '../../lib/indiaStates';
 import {
   EMPTY_NEW_ADDRESS,
   canDeleteShippingAddress,
@@ -65,10 +67,12 @@ function trimAddressInput(next: NewShippingAddressInput): NewShippingAddressInpu
     address: next.address.trim(),
     street2: next.street2?.trim() || '',
     city: next.city.trim(),
+    district: next.district?.trim() || '',
     state: next.state.trim(),
     zip: next.zip.trim(),
     country: next.country.trim() || 'India',
     phone: next.phone.trim(),
+    gstin: normalizeGstin(next.gstin),
   };
 }
 
@@ -93,6 +97,14 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
   );
   const [formError, setFormError] = useState('');
   const [lookingUpPin, setLookingUpPin] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [lookingUpGstin, setLookingUpGstin] = useState(false);
+  const [gstFetchStatus, setGstFetchStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [gstFetchError, setGstFetchError] = useState('');
+  const lastGstLookup = useRef('');
+  const lastPinLookup = useRef('');
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
@@ -107,6 +119,15 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
       setExpanded(true);
     }
   }, [value, editTarget]);
+
+  useEffect(() => {
+    if (!formOpen) return;
+    const pin = draft.zip.replace(/\D/g, '').slice(0, 6);
+    if (pin.length !== 6) return;
+    void applyPinLocation(pin);
+    // Re-run when the PIN changes so an already-typed code still fills city and state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.zip, formOpen]);
 
   // Default to first shipping, else first address, once loaded.
   useEffect(() => {
@@ -160,7 +181,8 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
   };
 
   const updateDraft = (patch: Partial<NewShippingAddressInput>) => {
-    const next = { ...draft, ...patch };
+    const next = { ...draftRef.current, ...patch };
+    draftRef.current = next;
     setDraft(next);
     setActionError('');
     if (editing) {
@@ -170,17 +192,81 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
     bumpNewSelection(next);
   };
 
-  const handlePinBlur = async () => {
-    const pin = draft.zip.replace(/\D/g, '').slice(0, 6);
-    if (pin.length !== 6) return;
+  const applyPinLocation = async (pin: string) => {
+    if (pin.length !== 6 || pin === lastPinLookup.current) return;
+    lastPinLookup.current = pin;
     setLookingUpPin(true);
+    setPinError('');
     try {
       const loc = await lookupDealerPincode(pin);
-      updateDraft({ zip: pin, state: loc.state || draft.state, city: loc.district || draft.city });
+      const current = draftRef.current;
+      if (current.zip.replace(/\D/g, '').slice(0, 6) !== pin) return;
+      updateDraft({
+        zip: pin,
+        state: indiaStateSelectValue(loc.state) || current.state,
+        district: loc.district || current.district || '',
+        city: loc.city || loc.district || current.city,
+      });
     } catch {
-      updateDraft({ zip: pin });
+      lastPinLookup.current = '';
+      setPinError('PIN not found. Enter city, district and state.');
     } finally {
       setLookingUpPin(false);
+    }
+  };
+
+  const handleGstinLookup = async (raw?: string) => {
+    const current = draftRef.current;
+    const gstin = normalizeGstin(raw ?? current.gstin);
+    if (!gstin) {
+      setGstFetchStatus('idle');
+      setGstFetchError('');
+      return;
+    }
+    if (!isValidGstin(gstin)) {
+      setGstFetchStatus('error');
+      setGstFetchError('Enter a valid 15-character GSTIN, or leave it blank to fill the address manually.');
+      updateDraft({ gstin });
+      return;
+    }
+    if (gstin === lastGstLookup.current && gstFetchStatus === 'ok') return;
+    lastGstLookup.current = gstin;
+    setLookingUpGstin(true);
+    setGstFetchError('');
+    updateDraft({ gstin });
+    try {
+      const details = await fetchGstinDetails(gstin);
+      const latest = draftRef.current;
+      const attention = latest.attention.trim()
+        || details.tradeName
+        || details.companyName
+        || details.legalName
+        || '';
+      const phoneDigits = (details.phone || '').replace(/\D/g, '').slice(-10);
+      const zip = details.zip.replace(/\D/g, '').slice(0, 6) || latest.zip;
+      updateDraft({
+        gstin,
+        attention,
+        address: details.address || latest.address,
+        street2: details.street2 || latest.street2 || '',
+        city: details.city || details.district || latest.city,
+        district: details.district || latest.district || '',
+        state: indiaStateSelectValue(details.state) || latest.state,
+        zip,
+        country: latest.country || 'India',
+        phone: latest.phone.trim() || phoneDigits,
+      });
+      if (zip.length === 6) void applyPinLocation(zip);
+      setGstFetchStatus('ok');
+    } catch (err) {
+      lastGstLookup.current = '';
+      setGstFetchStatus('error');
+      setGstFetchError(
+        dealerErrorMessage(err)
+        || 'Could not look up this GSTIN. Fill the address manually.',
+      );
+    } finally {
+      setLookingUpGstin(false);
     }
   };
 
@@ -217,6 +303,10 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
     setDraft(EMPTY_NEW_ADDRESS);
     setFormError('');
     setActionError('');
+    setGstFetchStatus('idle');
+    setGstFetchError('');
+    lastGstLookup.current = '';
+    lastPinLookup.current = '';
     if (value?.mode === 'new') onChange(null);
   };
 
@@ -455,6 +545,55 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                     ? ' Billing and default shipping are updated on the contact.'
                     : null}
                 </p>
+              ) : (
+                <p className="ship-addr-picker__form-hint text-muted text-sm">
+                  Enter GSTIN to fill the address from Zoho, or leave it blank and type the fields yourself.
+                </p>
+              )}
+              <label>
+                GSTIN
+                <span className={`ship-addr-picker__gst${gstFetchStatus === 'error' ? ' is-bad' : ''}${gstFetchStatus === 'ok' ? ' is-ok' : ''}`}>
+                  <input
+                    value={draft.gstin || ''}
+                    disabled={formBusy}
+                    maxLength={15}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="15-character GSTIN (optional)"
+                    onChange={e => {
+                      setGstFetchStatus('idle');
+                      setGstFetchError('');
+                      updateDraft({
+                        gstin: e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 15),
+                      });
+                    }}
+                    onBlur={() => { void handleGstinLookup(); }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleGstinLookup();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm ship-addr-picker__gst-btn"
+                    disabled={formBusy || lookingUpGstin}
+                    onClick={() => { void handleGstinLookup(); }}
+                  >
+                    {lookingUpGstin
+                      ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                      : <Search size={14} aria-hidden />}
+                    Search
+                  </button>
+                </span>
+              </label>
+              {gstFetchError ? <p className="ship-addr-picker__error text-sm">{gstFetchError}</p> : null}
+              {gstFetchStatus === 'ok' ? (
+                <p className="ship-addr-picker__form-hint text-muted text-sm">
+                  Address filled from GSTIN. You can still edit any field.
+                </p>
               ) : null}
               <label>
                 Attention / contact name *
@@ -492,10 +631,22 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                     inputMode="numeric"
                     pattern="[0-9]*"
                     maxLength={6}
-                    onChange={e => updateDraft({ zip: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                    onBlur={() => { void handlePinBlur(); }}
+                    onChange={e => {
+                      const zip = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      updateDraft({ zip });
+                      if (zip.length === 6) void applyPinLocation(zip);
+                    }}
+                    onBlur={() => {
+                      const pin = draftRef.current.zip.replace(/\D/g, '').slice(0, 6);
+                      if (pin.length === 6) void applyPinLocation(pin);
+                    }}
                     autoComplete="postal-code"
                   />
+                  {lookingUpPin ? (
+                    <span className="ship-addr-picker__pin-hint">Looking up city, district and state…</span>
+                  ) : pinError ? (
+                    <span className="ship-addr-picker__error text-sm">{pinError}</span>
+                  ) : null}
                 </label>
                 <label>
                   City *
@@ -509,14 +660,29 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
               </div>
               <div className="ship-addr-picker__row">
                 <label>
-                  State *
+                  District
                   <input
-                    value={draft.state}
+                    value={draft.district || ''}
+                    disabled={formBusy}
+                    onChange={e => updateDraft({ district: e.target.value })}
+                  />
+                </label>
+                <label>
+                  State *
+                  <select
+                    value={indiaStateSelectValue(draft.state)}
                     disabled={formBusy}
                     onChange={e => updateDraft({ state: e.target.value })}
                     autoComplete="address-level1"
-                  />
+                  >
+                    <option value="">Select state</option>
+                    {indiaStateSelectOptions(draft.state).map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
                 </label>
+              </div>
+              <div className="ship-addr-picker__row">
                 <label>
                   Country *
                   <input
@@ -526,17 +692,17 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                     autoComplete="country-name"
                   />
                 </label>
+                <label>
+                  Phone *
+                  <input
+                    value={draft.phone}
+                    disabled={formBusy}
+                    inputMode="tel"
+                    onChange={e => updateDraft({ phone: e.target.value })}
+                    autoComplete="tel"
+                  />
+                </label>
               </div>
-              <label>
-                Phone *
-                <input
-                  value={draft.phone}
-                  disabled={formBusy}
-                  inputMode="tel"
-                  onChange={e => updateDraft({ phone: e.target.value })}
-                  autoComplete="tel"
-                />
-              </label>
               {formError ? <p className="ship-addr-picker__error text-sm">{formError}</p> : null}
               {editing ? (
                 <div className="ship-addr-picker__form-actions">

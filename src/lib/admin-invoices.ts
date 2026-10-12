@@ -20,7 +20,8 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
-import { toSalesOrderDateKey } from './admin-sales-orders';
+import { parseDealerCustomerInvoice, toSalesOrderDateKey } from './admin-sales-orders';
+import { parseInvoiceMachineQcImages } from './invoiceMachineQc';
 import {
   listGatcReportsInDateRange,
   summarizeGatcReports,
@@ -54,6 +55,7 @@ import {
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import { salesOrderDataIsCustomerPickup } from './orderFreight';
+import { documentLooksLikeMachineQc } from './machineQc';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -130,6 +132,8 @@ export interface AdminFirestoreInvoice {
   /** Present on invoice summaries when synced from the Zoho invoice. */
   salesOrderId?: string | null;
   salesOrderNumber?: string | null;
+  /** Dealer requested QC / back-bill on this invoice. */
+  qcRequested?: boolean;
 }
 
 function pickupMarkedAt(value: unknown): string | null {
@@ -279,6 +283,9 @@ export function mapAdminInvoiceDoc(
     logistics: mapInvoiceListLogistics(data.logistics),
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
+    qcRequested: Boolean(data.qcRequested)
+      || Boolean(data.dealerCustomerInvoice)
+      || (mappedLines ? documentLooksLikeMachineQc({ lineItems: mappedLines }) : false),
   };
 }
 
@@ -763,7 +770,7 @@ export async function fetchAdminInvoicesPageResult(options: {
       sort: 'latest',
       listCollection,
     }));
-    const rows = snap.docs.map(mapAdminInvoiceDoc);
+    const rows = await overlayInvoiceLineDerivedFields(snap.docs.map(mapAdminInvoiceDoc));
     const completeFirstPage = !options.cursor && snap.size < pageSize;
     const displaySort = requestedSort === 'syncedAt' ? 'syncedAt' : requestedSort === 'oldest' ? 'oldest' : 'latest';
     if (requestedSort === 'oldest' && completeFirstPage) {
@@ -802,7 +809,11 @@ export async function fetchAdminInvoicesPageResult(options: {
     b,
     requestedSort === 'oldest' ? 'oldest' : requestedSort === 'syncedAt' ? 'syncedAt' : 'latest',
   ));
-  return { rows: ordered, lastDoc: null, hasMore: false };
+  return {
+    rows: await overlayQcRequestedFromSalesOrders(ordered),
+    lastDoc: null,
+    hasMore: false,
+  };
 }
 
 /**
@@ -964,6 +975,98 @@ function invoiceListRowNeedsEwayOverlay(row: AdminFirestoreInvoice): boolean {
 /** Summaries omit freightSku / variant counts until dual-write; pull from the hot invoice. */
 const FREIGHT_SKU_OVERLAY_MAX = 300;
 
+function salesOrderDataLooksLikeQc(data: DocumentData | null | undefined): boolean {
+  if (!data) return false;
+  const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
+  return documentLooksLikeMachineQc({
+    dealerCustomerInvoice: parseDealerCustomerInvoice(data.dealerCustomerInvoice),
+    lineItems: lines.map((item: { qcEnabled?: boolean; qcFeePerUnit?: number; description?: string }) => ({
+      qcEnabled: item?.qcEnabled,
+      qcFeePerUnit: item?.qcFeePerUnit,
+      description: item?.description != null ? String(item.description) : null,
+    })),
+  });
+}
+
+async function salesOrderSnapLooksLikeQc(row: AdminFirestoreInvoice): Promise<boolean> {
+  if (row.salesOrderId) {
+    try {
+      const snap = await getDoc(doc(db, 'salesOrders', String(row.salesOrderId)));
+      if (snap.exists() && salesOrderDataLooksLikeQc(snap.data())) return true;
+    } catch {
+      /* list/get may be role-limited */
+    }
+  }
+  const keys = [...new Set(
+    [row.invoiceNumber, row.salesOrderNumber, row.referenceNumber]
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )];
+  for (const key of keys) {
+    try {
+      const byNumber = await getDocs(query(
+        collection(db, 'salesOrders'),
+        where('salesOrderNumber', '==', key),
+        limit(1),
+      ));
+      if (!byNumber.empty && salesOrderDataLooksLikeQc(byNumber.docs[0].data())) return true;
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const byInvoice = await getDocs(query(
+      collection(db, 'salesOrders'),
+      where('zohoInvoiceId', '==', row.id),
+      limit(1),
+    ));
+    if (!byInvoice.empty && salesOrderDataLooksLikeQc(byInvoice.docs[0].data())) return true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const qcSnap = await getDoc(doc(db, 'invoiceMachineQc', row.id));
+    if (qcSnap.exists() && parseInvoiceMachineQcImages(qcSnap.data()?.images).length > 0) {
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (row.customerId) {
+    try {
+      const invSnap = await getDoc(doc(db, 'zohoCustomers', row.customerId, 'invoices', row.id));
+      if (invSnap.exists()) {
+        const data = invSnap.data() || {};
+        const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
+        if (documentLooksLikeMachineQc({
+          dealerCustomerInvoice: parseDealerCustomerInvoice(data.dealerCustomerInvoice),
+          lineItems: lines,
+        })) return true;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return false;
+}
+
+async function overlayQcRequestedFromSalesOrders(
+  rows: AdminFirestoreInvoice[],
+): Promise<AdminFirestoreInvoice[]> {
+  const targets = rows.filter(row => !row.qcRequested);
+  if (!targets.length) return rows;
+  const qcByInvoiceId = new Set<string>();
+  for (let i = 0; i < targets.length; i += 6) {
+    const batch = targets.slice(i, i + 6);
+    const flags = await Promise.all(batch.map(row => salesOrderSnapLooksLikeQc(row)));
+    flags.forEach((match, index) => {
+      if (match) qcByInvoiceId.add(batch[index].id);
+    });
+  }
+  if (!qcByInvoiceId.size) return rows;
+  return rows.map(row => (qcByInvoiceId.has(row.id) ? { ...row, qcRequested: true } : row));
+}
+
 async function overlayInvoiceLineDerivedFields(
   rows: AdminFirestoreInvoice[],
 ): Promise<AdminFirestoreInvoice[]> {
@@ -974,7 +1077,7 @@ async function overlayInvoiceLineDerivedFields(
       && !String(row.freightSku ?? '').trim();
     return missingVariants || missingFreight;
   }).slice(0, FREIGHT_SKU_OVERLAY_MAX);
-  if (!targets.length) return rows;
+  if (!targets.length) return overlayQcRequestedFromSalesOrders(rows);
 
   const overlayById = new Map<string, { freightSku?: string; itemVariantCount?: number }>();
   for (let i = 0; i < targets.length; i += 8) {
@@ -1000,12 +1103,14 @@ async function overlayInvoiceLineDerivedFields(
     });
   }
 
-  if (!overlayById.size) return rows;
-  return rows.map(row => {
-    const patch = overlayById.get(row.id);
-    if (!patch) return row;
-    return { ...row, ...patch };
-  });
+  const withFreight = !overlayById.size
+    ? rows
+    : rows.map(row => {
+      const patch = overlayById.get(row.id);
+      if (!patch) return row;
+      return { ...row, ...patch };
+    });
+  return overlayQcRequestedFromSalesOrders(withFreight);
 }
 
 /** Summaries omit ewayBill until dual-write; pull it from the hot invoice for list chips. */
@@ -2471,6 +2576,7 @@ function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLin
       ? { categoryName: String(raw.categoryName) }
       : {}),
     ...(raw.isWeighingScale === true ? { isWeighingScale: true } : {}),
+    ...(raw.qcEnabled === true ? { qcEnabled: true } : {}),
     ...(serialNumbers.length ? { serialNumbers } : {}),
   };
 }
@@ -2627,16 +2733,17 @@ export async function fetchAdminInvoiceDetail(
     ? String(data.salesOrderNumber).trim()
     : (data.invoiceNumber ? String(data.invoiceNumber).trim() : '');
   let linkedSoFound = false;
+  let soData: DocumentData | null = null;
   if (salesOrderId) {
     try {
       const soSnap = await getDoc(doc(db, 'salesOrders', salesOrderId));
       if (soSnap.exists()) {
         linkedSoFound = true;
-        const so = soSnap.data();
-        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(so);
+        soData = soSnap.data();
+        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(soData);
         if (!preferredAddress) {
-          soAddress = so?.shippingAddress ? String(so.shippingAddress).trim() || null : null;
-          soAddressId = so?.shippingAddressId ? String(so.shippingAddressId).trim() || null : null;
+          soAddress = soData?.shippingAddress ? String(soData.shippingAddress).trim() || null : null;
+          soAddressId = soData?.shippingAddressId ? String(soData.shippingAddressId).trim() || null : null;
         }
       }
     } catch {
@@ -2650,14 +2757,28 @@ export async function fetchAdminInvoiceDetail(
         where('salesOrderNumber', '==', salesOrderNumber),
         limit(1),
       ));
-      const so = byNumber.docs[0]?.data();
-      if (so) {
-        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(so);
+      soData = byNumber.docs[0]?.data() || soData;
+      if (soData) {
+        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(soData);
       }
     } catch {
       // optional — Book Courier stays available if SO lookup fails
     }
   }
+  const dealerCustomerInvoice = parseDealerCustomerInvoice(data.dealerCustomerInvoice)
+    || parseDealerCustomerInvoice(soData?.dealerCustomerInvoice);
+  const soLines = Array.isArray(soData?.lineItems) ? soData.lineItems : [];
+  const qcRequested = documentLooksLikeMachineQc({
+    dealerCustomerInvoice,
+    lineItems: [
+      ...detail.lineItems,
+      ...soLines.map((item: { qcEnabled?: boolean; qcFeePerUnit?: number; description?: string }) => ({
+        qcEnabled: item?.qcEnabled,
+        qcFeePerUnit: item?.qcFeePerUnit,
+        description: item?.description != null ? String(item.description) : null,
+      })),
+    ],
+  });
   const [withImages, contact] = await Promise.all([
     enrichInvoiceDetailImages(detail),
     resolveZohoCustomerDisplayContact(customerId, {
@@ -2672,6 +2793,7 @@ export async function fetchAdminInvoiceDetail(
     billingAddress: billingFromInvoice || contact.billingAddress || contact.address,
     customerGstin: contact.gstin,
     customerPhone: contact.phone,
+    shippingPhone: contact.shippingPhone,
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
@@ -2683,5 +2805,7 @@ export async function fetchAdminInvoiceDetail(
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,
     yesOneFreightPartner: mapInvoiceLocalFreightPartner(data.yesOneFreightPartner),
+    dealerCustomerInvoice,
+    qcRequested,
   };
 }

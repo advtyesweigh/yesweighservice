@@ -196,22 +196,28 @@ export function AdminInvoiceDocCard({
             ? 'returned'
             : 'default';
   const paid = !isAggregateRow && (kotakPaid || invoiceShowsPaidStamp(invoice));
+  const qcRequested = !isAggregateRow && Boolean(invoice.qcRequested);
 
   return (
     <button
       type="button"
-      className={`invoice-doc-card invoice-doc-card--invoices invoice-doc-card--${accent}${paid ? ' invoice-doc-card--paid' : ''}`}
+      className={`invoice-doc-card invoice-doc-card--invoices invoice-doc-card--${accent}${paid ? ' invoice-doc-card--paid' : ''}${qcRequested ? ' invoice-doc-card--qc' : ''}`}
       onMouseDown={preventMouseFocusScroll}
       onClick={() => onOpen(invoice)}
       aria-label={
         isAggregateRow
           ? `View invoices for ${invoice.customerName ?? 'dealer'}`
-          : `View invoice ${invoice.invoiceNumber || invoice.id}${paid ? ', paid' : ''}`
+          : `View invoice ${invoice.invoiceNumber || invoice.id}${paid ? ', paid' : ''}${qcRequested ? ', QC requested' : ''}`
       }
     >
       {paid ? (
         <span className="invoice-doc-card__paid-stamp" aria-hidden>
           <span>PAID</span>
+        </span>
+      ) : null}
+      {qcRequested ? (
+        <span className="invoice-doc-card__qc-stamp" aria-hidden>
+          <span>QC requested</span>
         </span>
       ) : null}
       <span className="invoice-doc-card__main">

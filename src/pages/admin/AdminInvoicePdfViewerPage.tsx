@@ -10,7 +10,7 @@ import {
   openInvoiceDocument,
   saveInvoiceDocumentFile,
 } from '../../lib/invoices';
-import { base64ToUint8Array, prefersNativePdfViewer } from '../../lib/pdfViewer';
+import { base64ToUint8Array, prefersNativePdfViewer, uint8ArrayToBase64 } from '../../lib/pdfViewer';
 import type { InvoiceDocumentDownload } from '../../types/invoices';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
@@ -33,10 +33,11 @@ export const AdminInvoicePdfViewerPage: React.FC = () => {
   const [shareError, setShareError] = useState('');
 
   useEffect(() => {
-    if (!customerId || !invoiceId) return;
+    if (!customerId || !invoiceId || !invoice) return;
 
     let cancelled = false;
     let objectUrl: string | null = null;
+    const dealerUrl = invoice?.dealerCustomerInvoice?.url?.trim() || '';
 
     setLoading(true);
     setError('');
@@ -45,21 +46,34 @@ export const AdminInvoicePdfViewerPage: React.FC = () => {
     setPdfUrl(null);
     setPdfBytes(null);
 
-    void downloadAdminInvoiceDocument(customerId, invoiceId, 'invoice', { refresh: true })
-      .then(doc => {
-        if (cancelled) return;
+    const applyDoc = (doc: InvoiceDocumentDownload) => {
+      if (cancelled) return;
+      setDocument(doc);
+      const bytes = base64ToUint8Array(doc.contentBase64);
+      if (useNativeViewer) {
+        const blob = invoiceDocumentToBlob(doc);
+        objectUrl = URL.createObjectURL(blob);
+        setPdfUrl(objectUrl);
+      } else {
+        setPdfBytes(bytes);
+      }
+    };
 
-        setDocument(doc);
-        const bytes = base64ToUint8Array(doc.contentBase64);
+    const load = dealerUrl
+      ? fetch(dealerUrl)
+        .then(async res => {
+          if (!res.ok) throw new Error('Could not open the customer invoice PDF.');
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          applyDoc({
+            contentBase64: uint8ArrayToBase64(bytes),
+            filename: invoice?.dealerCustomerInvoice?.fileName || 'customer-invoice.pdf',
+            mimeType: 'application/pdf',
+          });
+        })
+      : downloadAdminInvoiceDocument(customerId, invoiceId, 'invoice', { refresh: true })
+        .then(applyDoc);
 
-        if (useNativeViewer) {
-          const blob = invoiceDocumentToBlob(doc);
-          objectUrl = URL.createObjectURL(blob);
-          setPdfUrl(objectUrl);
-        } else {
-          setPdfBytes(bytes);
-        }
-      })
+    void load
       .catch(err => {
         if (!cancelled) {
           setError(invoiceErrorMessage(err));
@@ -73,7 +87,7 @@ export const AdminInvoicePdfViewerPage: React.FC = () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [customerId, invoiceId, fresh, useNativeViewer]);
+  }, [customerId, invoiceId, fresh, useNativeViewer, invoice]);
 
   const sharePdf = async () => {
     if (!document || !invoice || sharing) return;

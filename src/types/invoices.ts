@@ -114,6 +114,8 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   /** Customer GSTIN from zohoCustomers. */
   customerGstin?: string | null;
   customerPhone?: string | null;
+  /** Phone on the invoice Ship To / shipping address (not Invoice To). */
+  shippingPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
   /** Zoho warehouse on the invoice (for ship-from resolution). */
@@ -125,6 +127,17 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   customerPickup?: InvoiceCustomerPickup | null;
   /** Linked YesOne SO was created as customer pickup (no courier freight). */
   sourceSalesOrderIsPickup?: boolean;
+  /** Dealer requested QC / back-bill on one or more machines. */
+  qcRequested?: boolean;
+  /** Meezan / dealer customer sales invoice PDF packed instead of the YESWEIGH invoice. */
+  dealerCustomerInvoice?: {
+    storagePath: string;
+    url: string;
+    fileName: string;
+    uploadedAt: string | null;
+    uploadedByUid: string | null;
+    uploadedByName: string | null;
+  } | null;
   /** Ops marked delivered from the invoice (with or without a logistics booking). */
   manualDelivery?: InvoiceManualDelivery | null;
   manualDeliveredAt?: string | null;

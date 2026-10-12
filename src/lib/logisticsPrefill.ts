@@ -20,6 +20,7 @@ import {
   isPipelineEnabledPartner,
 } from './logisticsBooking';
 import { partnerIdForFreightSku } from './orderFreight';
+import { extractPhoneFromText, phoneDigitsForCourier } from './logisticsDealers';
 import { cartonizeCartLine } from './stCourierCartFreight';
 
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
@@ -288,11 +289,14 @@ export function buildInvoiceBookingDraftPatch(
   const invoiceValue = Number(invoice.total);
   const salesOrderNumber = invoice.salesOrderNumber?.trim() || null;
   const customerGstin = invoice.customerGstin?.trim() || null;
-  const customerPhone = invoice.customerPhone?.trim() || null;
+  const deliveryAddress = invoice.shippingAddress?.trim() || null;
+  const shippingPhone = phoneDigitsForCourier(invoice.shippingPhone)
+    || phoneDigitsForCourier(extractPhoneFromText(deliveryAddress));
+  const customerPhone = shippingPhone
+    || phoneDigitsForCourier(invoice.customerPhone);
   const freightBillingMode = partnerId === 'delhivery'
     ? (resolveInvoiceFreightBillingMode(invoice) || 'btc')
     : null;
-  const deliveryAddress = invoice.shippingAddress?.trim() || null;
 
   return {
     source: 'invoice',
