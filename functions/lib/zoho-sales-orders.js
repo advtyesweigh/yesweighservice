@@ -12,6 +12,13 @@ import { isFreightOrderLine, zohoModeOfTransportFromOrder } from './freight-line
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
 import { KNOWN_ZOHO_WAREHOUSE_IDS, loadZohoLocationIdsBySite } from './zoho-locations.js';
 import { ZOHO_CUSTOMER_ACCESS_DENIED_TEXT } from './zoho-contact-addresses.js';
+import {
+  billingAddressIsIrpReady,
+  normalizeShipGstin,
+  preferBillingRaw,
+  resolveStructuredBillingAddress,
+  shippingRecipientGstFields,
+} from './zoho-einvoice-address.js';
 
 function hsnDigits(value) {
   return String(value ?? '').replace(/\D/g, '');
@@ -1129,6 +1136,29 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     }
   }
 
+  try {
+    const loaded = await zohoJson(
+      accessToken,
+      orgId,
+      `/salesorders/${encodeURIComponent(so.salesorder_id)}`,
+    );
+    const current = loaded?.salesorder || so;
+    await applyEinvoiceAddress(accessToken, orgId, 'salesorders', {
+      ...current,
+      shipping_address: shipTo
+        ? { ...(current.shipping_address || {}), ...shipTo }
+        : current.shipping_address,
+    }, {
+      shippingPhone: selectedPhone,
+      shippingGstin: shippingInline?.gstin || shippingInline?.gst_no || null,
+    });
+  } catch (err) {
+    console.warn(
+      `Sales order ${so.salesorder_id} billing address was not structured for e-invoice:`,
+      err?.message || err,
+    );
+  }
+
   return {
     salesOrderId: String(so.salesorder_id),
     salesOrderNumber: so.salesorder_number ? String(so.salesorder_number) : null,
@@ -1317,7 +1347,23 @@ export async function updateSalesOrderShippingAddress(
     });
   }
   const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
-  const updated = payload?.salesorder;
+  const updated = payload?.salesorder || so;
+  try {
+    await applyEinvoiceAddress(accessToken, orgId, 'salesorders', {
+      ...updated,
+      shipping_address: selectedShipTo
+        ? { ...(updated.shipping_address || {}), ...selectedShipTo }
+        : updated.shipping_address,
+    }, {
+      shippingPhone: selectedShipTo?.phone || shippingAddressInline?.phone || null,
+      shippingGstin: shippingAddressInline?.gstin || shippingAddressInline?.gst_no || null,
+    });
+  } catch (err) {
+    console.warn(
+      `Sales order ${soId} ship-to GST name was not applied:`,
+      err?.message || err,
+    );
+  }
   return {
     salesOrderId: soId,
     salesOrderNumber: updated?.salesorder_number
@@ -1511,6 +1557,131 @@ function shippingFieldsFromSalesOrder(so, shippingPhone = null) {
   return { shipping_address: fitted };
 }
 
+async function loadContactBillingAddress(accessToken, orgId, customerId) {
+  const id = String(customerId || '').trim();
+  if (!id) return null;
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/contacts/${encodeURIComponent(id)}`);
+    const billing = payload?.contact?.billing_address;
+    return billing && typeof billing === 'object' ? billing : null;
+  } catch (err) {
+    console.warn(`Could not load Zoho contact ${id} billing address:`, err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Fields IRP reads: structured billing_address plus ship-to GST.
+ * Omits billing_address when the transaction already has street, city, state, zip, and country.
+ * Keeps shipping_address.phone as the selected ship-to phone.
+ */
+async function einvoiceAddressFields(accessToken, orgId, doc, {
+  shippingPhone = null,
+  shippingGstin = null,
+} = {}) {
+  if (!doc || typeof doc !== 'object') return {};
+  const transactionBilling = doc.billing_address && typeof doc.billing_address === 'object'
+    ? doc.billing_address
+    : null;
+  const contactBilling = billingAddressIsIrpReady(transactionBilling)
+    ? null
+    : await loadContactBillingAddress(accessToken, orgId, doc.customer_id);
+  const billingRaw = preferBillingRaw(transactionBilling, contactBilling);
+  const billing = billingRaw ? await resolveStructuredBillingAddress(billingRaw) : null;
+  const applyBilling = Boolean(
+    billing?.address
+    && billing.city
+    && billing.state
+    && billing.zip
+    && billing.country
+    && !billingAddressIsIrpReady(transactionBilling),
+  );
+
+  const shipping = doc.shipping_address && typeof doc.shipping_address === 'object'
+    ? doc.shipping_address
+    : null;
+  const gst = shippingRecipientGstFields({
+    ...(shipping || {}),
+    ...(shippingGstin ? { gstin: shippingGstin } : {}),
+  }, {
+    shipping_gst_no: doc.shipping_gst_no,
+    shipping_legal_name: doc.shipping_legal_name,
+  }, {
+    billing: applyBilling ? billing : (transactionBilling || contactBilling),
+  });
+
+  const patch = {};
+  if (applyBilling) patch.billing_address = billing;
+  if (
+    gst.shipping_gst_no
+    && String(doc.shipping_gst_no || '').replace(/[\s-]/g, '').toUpperCase() !== gst.shipping_gst_no
+  ) {
+    patch.shipping_gst_no = gst.shipping_gst_no;
+  }
+  if (
+    gst.shipping_legal_name
+    && String(doc.shipping_legal_name || '').trim() !== gst.shipping_legal_name
+  ) {
+    patch.shipping_legal_name = gst.shipping_legal_name;
+  }
+  if (!Object.keys(patch).length) return {};
+
+  const shippingFields = shippingFieldsFromSalesOrder(doc, shippingPhone);
+  if (shippingFields.shipping_address) {
+    // Inline phone. shipping_address_id reprints the bill-to phone.
+    patch.shipping_address = shippingFields.shipping_address;
+  }
+  return patch;
+}
+
+async function applyEinvoiceAddress(accessToken, orgId, kind, doc, options = {}) {
+  const patch = await einvoiceAddressFields(accessToken, orgId, doc, options);
+  if (!Object.keys(patch).length) return false;
+  const id = String(doc?.invoice_id || doc?.salesorder_id || '').trim();
+  if (!id || !doc?.customer_id) return false;
+  const resource = kind === 'invoices' ? 'invoices' : 'salesorders';
+  const base = {
+    customer_id: doc.customer_id,
+    date: doc.date || new Date().toISOString().slice(0, 10),
+    line_items: lineItemsForSalesOrderPut(doc, { keepGoodsWarehouse: true }),
+    ...patch,
+  };
+  if (doc.reference_number) base.reference_number = doc.reference_number;
+  if (doc.notes) base.notes = doc.notes;
+  if (doc.salesperson_id) base.salesperson_id = doc.salesperson_id;
+
+  const attempts = [base];
+  if (patch.shipping_gst_no === 'URP') {
+    const withoutUrp = { ...base };
+    delete withoutUrp.shipping_gst_no;
+    attempts.push(withoutUrp);
+  }
+  if (patch.billing_address) {
+    const billingAndShip = { ...base };
+    delete billingAndShip.shipping_gst_no;
+    delete billingAndShip.shipping_legal_name;
+    attempts.push(billingAndShip);
+  }
+
+  let lastErr = null;
+  for (const body of attempts) {
+    try {
+      await zohoJson(accessToken, orgId, `/${resource}/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body,
+      });
+      return true;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  console.warn(
+    `Zoho ${resource} ${id} e-invoice address was not applied:`,
+    lastErr?.message || lastErr,
+  );
+  return false;
+}
+
 function invoiceModeOfTransportValue(inv) {
   const fields = Array.isArray(inv?.custom_fields) ? inv.custom_fields : [];
   const hit = fields.find((field) => {
@@ -1608,6 +1779,17 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     }
     so = await loadSo();
   }
+  try {
+    await applyEinvoiceAddress(accessToken, orgId, 'salesorders', so, {
+      shippingPhone: selectedShippingPhone,
+    });
+    so = await loadSo();
+  } catch (err) {
+    console.warn(
+      `Sales order ${soId} billing address was not structured before invoice:`,
+      err?.message || err,
+    );
+  }
   const resolveModeOfTransport = () => zohoModeOfTransportFromOrder({
     lineItems: so.line_items,
     courierPartner,
@@ -1617,21 +1799,46 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     const invoiceId = String(inv.invoice_id);
     const modeOfTransport = resolveModeOfTransport();
     const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
-    const needsShipping = Object.keys(
-      shippingFieldsFromSalesOrder(so, selectedShippingPhone),
-    ).length > 0;
+    const shippingFields = shippingFieldsFromSalesOrder(so, selectedShippingPhone);
+    const needsShipping = Object.keys(shippingFields).length > 0;
     const needsMode = Boolean(
       modeOfTransport && invoiceModeOfTransportValue(inv) !== modeOfTransport,
     );
-    if (!needsSalesperson && !needsShipping && !needsMode) {
+    let irpFields = {};
+    try {
+      irpFields = await einvoiceAddressFields(accessToken, orgId, {
+        ...inv,
+        customer_id: inv.customer_id || so.customer_id,
+        billing_address: inv.billing_address || so.billing_address,
+        shipping_address: {
+          ...(inv.shipping_address && typeof inv.shipping_address === 'object'
+            ? inv.shipping_address
+            : {}),
+          ...(so.shipping_address || {}),
+          ...(selectedShippingPhone ? { phone: selectedShippingPhone } : {}),
+        },
+        shipping_gst_no: normalizeShipGstin(inv.shipping_gst_no)
+          || normalizeShipGstin(so.shipping_gst_no)
+          || inv.shipping_gst_no
+          || so.shipping_gst_no,
+        shipping_legal_name: inv.shipping_legal_name || so.shipping_legal_name,
+      }, { shippingPhone: selectedShippingPhone });
+    } catch (err) {
+      console.warn(
+        `Could not build e-invoice address for invoice ${invoiceId}:`,
+        err?.message || err,
+      );
+    }
+    const needsIrp = Object.keys(irpFields).length > 0;
+    if (!needsSalesperson && !needsShipping && !needsMode && !needsIrp) {
       return invoiceResult(inv);
     }
-    const shippingFields = shippingFieldsFromSalesOrder(so, selectedShippingPhone);
     const extrasBody = {
       customer_id: inv.customer_id || so.customer_id,
       date: inv.date || so.date || new Date().toISOString().slice(0, 10),
       line_items: lineItemsForSalesOrderPut(inv, { keepGoodsWarehouse: true }),
       ...(needsSalesperson ? { salesperson_id: spId } : {}),
+      ...irpFields,
       ...(needsShipping ? shippingFields : {}),
     };
     const putInvoice = (body) => zohoJson(
@@ -1640,40 +1847,38 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
       `/invoices/${encodeURIComponent(invoiceId)}`,
       { method: 'PUT', body },
     );
-    try {
-      await putInvoice({
-        ...extrasBody,
-        ...(needsMode ? modeOfTransportCustomFields(inv, modeOfTransport) : {}),
+    const withoutUrp = { ...extrasBody };
+    delete withoutUrp.shipping_gst_no;
+    const modeFields = needsMode ? modeOfTransportCustomFields(inv, modeOfTransport) : null;
+    const putBodies = [
+      { ...extrasBody, ...(modeFields || {}) },
+    ];
+    if (extrasBody.shipping_gst_no === 'URP') {
+      putBodies.push({ ...withoutUrp, ...(modeFields || {}) });
+    }
+    if (needsMode) {
+      putBodies.push(extrasBody.shipping_gst_no === 'URP' ? withoutUrp : extrasBody);
+      putBodies.push({
+        ...(extrasBody.shipping_gst_no === 'URP' ? withoutUrp : extrasBody),
+        custom_fields: [{ label: 'Mode of Transport', value: modeOfTransport }],
       });
-    } catch (err) {
-      if (needsMode && (needsSalesperson || needsShipping)) {
-        try {
-          await putInvoice(extrasBody);
-        } catch (retryErr) {
-          console.warn(
-            'Could not set salesperson/shipping on invoice:',
-            retryErr?.message || retryErr,
-          );
-        }
-      } else if (!needsMode) {
-        console.warn(
-          'Could not set salesperson/shipping on invoice:',
-          err?.message || err,
-        );
+    }
+    let savedExtras = false;
+    let extrasErr = null;
+    for (const body of putBodies) {
+      try {
+        await putInvoice(body);
+        savedExtras = true;
+        break;
+      } catch (err) {
+        extrasErr = err;
       }
-      if (needsMode) {
-        try {
-          await putInvoice({
-            ...extrasBody,
-            custom_fields: [{ label: 'Mode of Transport', value: modeOfTransport }],
-          });
-        } catch (modeErr) {
-          console.warn(
-            'Could not set mode of transport on invoice:',
-            modeErr?.message || modeErr,
-          );
-        }
-      }
+    }
+    if (!savedExtras && extrasErr) {
+      console.warn(
+        'Could not set salesperson/shipping/billing on invoice:',
+        extrasErr?.message || extrasErr,
+      );
     }
     if (selectedShippingPhone) {
       const applied = await putZohoShipToAddress(
@@ -1777,11 +1982,22 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   const unlinkedLineItems = stripSalesOrderItemIds(linkedLineItems);
   const unlinkedGoodsLineItems = stripSalesOrderItemIds(goodsLinkedLineItems);
   const salespersonFields = effectiveSp ? { salesperson_id: effectiveSp } : {};
+  let createIrpFields = {};
+  try {
+    createIrpFields = await einvoiceAddressFields(accessToken, orgId, so, {
+      shippingPhone: selectedShippingPhone,
+    });
+  } catch (err) {
+    console.warn(
+      `Could not build e-invoice address for SO ${soId}:`,
+      err?.message || err,
+    );
+  }
   const attempts = [
-    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...salespersonFields },
-    { ...baseBody, line_items: linkedLineItems, ...shippingFields },
+    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...createIrpFields, ...salespersonFields },
+    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...createIrpFields },
     { ...baseBody, line_items: linkedLineItems, ...salespersonFields },
-    { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...salespersonFields },
+    { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...createIrpFields, ...salespersonFields },
     { ...baseBody, line_items: goodsLinkedLineItems, ...salespersonFields },
     // Convert can report "no items to invoice" while the SO is still open. Creating
     // with salesorder_item_id then fails as "quantity … more than quantity ordered".
@@ -1898,6 +2114,19 @@ export async function pushInvoiceEinvoiceToIrp(secrets, configuredOrgId, invoice
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
   const id = String(invoiceId || '').trim();
   if (!id) throw new Error('Invoice id is required.');
+
+  try {
+    const loaded = await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(id)}`);
+    const inv = loaded?.invoice;
+    if (inv?.invoice_id) {
+      await applyEinvoiceAddress(accessToken, orgId, 'invoices', inv);
+    }
+  } catch (err) {
+    console.warn(
+      `Could not structure invoice ${id} before IRP push:`,
+      err?.message || err,
+    );
+  }
 
   const path = `/invoices/${encodeURIComponent(id)}/einvoice/push`;
   const skipEway = { generate_ewaybill: false, push_ewaybill: false };

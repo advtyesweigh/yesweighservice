@@ -9,8 +9,9 @@ import {
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
 import { formatZohoAddress, extractZohoDetailFields, fitZohoAddressLines } from './zoho-contact-fields.js';
+import { normalizeShipGstin } from './zoho-einvoice-address.js';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
@@ -48,6 +49,35 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
 function clean(value) {
   const s = String(value ?? '').trim();
   return s || null;
+}
+
+/** Zoho contact addresses have no GSTIN field. Remember one the user entered. */
+async function rememberAddressGstin(contactId, addressId, gstin) {
+  const id = String(addressId || '').trim();
+  const customer = String(contactId || '').trim();
+  if (!customer || !id) return;
+  const key = normalizeShipGstin(gstin);
+  const ref = getFirestore().collection('zohoCustomers').doc(customer);
+  const field = `zohoAddressGstins.${id}`;
+  try {
+    await ref.update(key ? { [field]: key } : { [field]: FieldValue.delete() });
+  } catch {
+    if (!key) return;
+    try {
+      await ref.set({ zohoAddressGstins: { [id]: key } }, { merge: true });
+    } catch {
+      /* ignore cache write failures */
+    }
+  }
+}
+
+function applyRememberedGstins(rows, gstins) {
+  if (!gstins || typeof gstins !== 'object') return rows;
+  return rows.map(row => {
+    if (!row || row.gstin) return row;
+    const remembered = normalizeShipGstin(gstins[row.addressId]);
+    return remembered ? { ...row, gstin: remembered } : row;
+  });
 }
 
 export function normalizeAddressInput(raw = {}) {
@@ -96,6 +126,7 @@ function mapAddressRow(raw, { label = null, kind = 'additional' } = {}) {
     zip: raw.zip != null ? String(raw.zip).trim() : null,
     country: clean(raw.country),
     phone: clean(raw.phone) || clean(raw.mobile),
+    gstin: normalizeShipGstin(raw.gstin || raw.gst_no) || null,
   };
   const formatted = formatZohoAddress({
     attention: normalized.attention,
@@ -304,6 +335,7 @@ async function loadCachedCustomerAddresses(contactId) {
             zip: row.zip,
             country: row.country,
             phone: row.phone,
+            gstin: row.gstin,
           }, {
             kind,
             label: row.label
@@ -390,6 +422,15 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
 
   let rows = buildAddressRowsFromContact(contact, additional);
 
+  if (rows.length) {
+    try {
+      const snap = await getFirestore().collection('zohoCustomers').doc(contactId).get();
+      rows = applyRememberedGstins(rows, snap.data()?.zohoAddressGstins);
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (!rows.length) {
     rows = await loadCachedCustomerAddresses(contactId);
   }
@@ -472,14 +513,25 @@ export async function addContactAddress(secrets, configuredOrgId, customerId, ra
       && a.zip === addr.zip
       && a.kind === 'additional'
     ));
-    if (match) return match;
+    if (match) {
+      const gstin = normalizeShipGstin(rawAddress?.gstin || rawAddress?.gst_no);
+      if (match.addressId) {
+        await rememberAddressGstin(contactId, match.addressId, gstin);
+      }
+      return gstin ? { ...match, gstin } : match;
+    }
     throw new HttpsError('internal', 'Zoho did not return an address id for the new address.');
   }
 
-  const mapped = mapAddressRow({ ...addr, address_id: addressId }, {
+  const mapped = mapAddressRow({
+    ...addr,
+    address_id: addressId,
+    gstin: rawAddress?.gstin || rawAddress?.gst_no || null,
+  }, {
     kind: 'additional',
     label: 'Saved address',
   });
+  await rememberAddressGstin(contactId, addressId, mapped?.gstin);
   return mapped;
 }
 
@@ -539,11 +591,17 @@ export async function updateContactAddress(
       method: 'PUT',
       body: addr,
     });
+    const gstin = normalizeShipGstin(address?.gstin || address?.gst_no);
+    await rememberAddressGstin(contactId, id, gstin);
     await clearCachedAddresses(contactId);
     const listed = await listContactAddressesForCustomer(secrets, configuredOrgId, contactId);
     const found = listed.addresses.find(a => a.addressId === id);
     if (found) return found;
-    return mapAddressRow({ ...addr, address_id: id }, { kind: 'additional', label: 'Saved address' });
+    return mapAddressRow({
+      ...addr,
+      address_id: id,
+      gstin,
+    }, { kind: 'additional', label: 'Saved address' });
   }
 
   if (kindKey !== 'billing' && kindKey !== 'shipping') {
@@ -560,11 +618,13 @@ export async function updateContactAddress(
       [contactField]: addr,
     },
   });
+  const gstin = normalizeShipGstin(address?.gstin || address?.gst_no);
   await clearCachedAddresses(contactId);
   const listed = await listContactAddressesForCustomer(secrets, configuredOrgId, contactId);
   const found = listed.addresses.find(a => a.kind === kindKey);
-  if (found) return found;
-  return mapAddressRow(addr, {
+  if (found?.addressId) await rememberAddressGstin(contactId, found.addressId, gstin);
+  if (found) return gstin ? { ...found, gstin } : found;
+  return mapAddressRow({ ...addr, gstin }, {
     kind: kindKey,
     label: kindKey === 'billing' ? 'Billing address' : 'Default shipping',
   });
