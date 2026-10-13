@@ -230,6 +230,38 @@ function zohoDocumentOf(kind, payload) {
   return kind === 'invoices' ? payload?.invoice : payload?.salesorder;
 }
 
+function hasBillingStreetAndCity(addr) {
+  if (!addr || typeof addr !== 'object') return false;
+  const street = String(addr.address || addr.street || '').trim();
+  const city = String(addr.city || '').trim();
+  return Boolean(street && city);
+}
+
+/**
+ * Billing fields to resend on a Zoho document PUT.
+ * A shipping_address update that omits billing_address clears Bill To street
+ * and city, and IRP then rejects the e-invoice.
+ */
+async function billingFieldsForDocumentPut(accessToken, orgId, doc) {
+  if (!doc || typeof doc !== 'object') return {};
+  const transactionBilling = doc.billing_address && typeof doc.billing_address === 'object'
+    ? doc.billing_address
+    : null;
+  let billing = null;
+  if (billingAddressIsIrpReady(transactionBilling)) {
+    billing = fitZohoAddressLines(transactionBilling);
+  } else {
+    const contactBilling = await loadContactBillingAddress(accessToken, orgId, doc.customer_id);
+    const billingRaw = preferBillingRaw(transactionBilling, contactBilling);
+    billing = billingRaw ? await resolveStructuredBillingAddress(billingRaw) : null;
+    if (!hasBillingStreetAndCity(billing) && hasBillingStreetAndCity(transactionBilling)) {
+      billing = fitZohoAddressLines(transactionBilling);
+    }
+  }
+  if (!hasBillingStreetAndCity(billing)) return {};
+  return { billing_address: billing };
+}
+
 async function putZohoShipToAddress(accessToken, orgId, resource, documentId, address, {
   addressId = null,
   phone = null,
@@ -269,7 +301,7 @@ async function putZohoShipToAddress(accessToken, orgId, resource, documentId, ad
   const attempts = [];
   const pushDocument = (shipTo, extra = {}) => {
     if (!shipTo) return;
-    attempts.push(async (doc) => {
+    attempts.push(async (doc, billingFields = {}) => {
       if (!doc?.customer_id) return;
       const body = {
         customer_id: doc.customer_id,
@@ -277,6 +309,8 @@ async function putZohoShipToAddress(accessToken, orgId, resource, documentId, ad
         line_items: lineItemsForSalesOrderPut(doc, { keepGoodsWarehouse: kind === 'invoices' }),
         // Inline shipping_address.phone. Do not send shipping_address_id —
         // that reprints the customer Bill To phone.
+        // Resend billing_address in the same PUT. Omitting it clears street and city.
+        ...billingFields,
         shipping_address: shipTo,
         ...extra,
       };
@@ -312,9 +346,20 @@ async function putZohoShipToAddress(accessToken, orgId, resource, documentId, ad
     } catch (err) {
       lastErr = err;
     }
+    let billingFields = {};
+    if (doc) {
+      try {
+        billingFields = await billingFieldsForDocumentPut(accessToken, orgId, doc);
+      } catch (err) {
+        console.warn(
+          `Could not keep billing address on ${kind} ${id}:`,
+          err?.message || err,
+        );
+      }
+    }
     for (const attempt of attempts) {
       try {
-        await attempt(doc);
+        await attempt(doc, billingFields);
         if (await phoneMatches()) return true;
       } catch (err) {
         lastErr = err;
@@ -576,6 +621,15 @@ function salesOrderHasServiceWarehouse(so) {
 
 async function stripServiceWarehousesOnSalesOrder(accessToken, orgId, so) {
   if (!so?.salesorder_id || !salesOrderHasServiceWarehouse(so)) return so;
+  let billingFields = {};
+  try {
+    billingFields = await billingFieldsForDocumentPut(accessToken, orgId, so);
+  } catch (err) {
+    console.warn(
+      `Could not keep billing address while updating sales order ${so.salesorder_id}:`,
+      err?.message || err,
+    );
+  }
   const payload = await zohoJson(accessToken, orgId, `/salesorders/${so.salesorder_id}`, {
     method: 'PUT',
     body: {
@@ -585,6 +639,7 @@ async function stripServiceWarehousesOnSalesOrder(accessToken, orgId, so) {
       ...(so.reference_number ? { reference_number: so.reference_number } : {}),
       ...(so.notes ? { notes: so.notes } : {}),
       ...(so.salesperson_id ? { salesperson_id: so.salesperson_id } : {}),
+      ...billingFields,
       ...(so.shipping_address && typeof so.shipping_address === 'object'
         ? { shipping_address: fitZohoAddressLines(so.shipping_address) }
         : {}),
@@ -1341,6 +1396,16 @@ export async function updateSalesOrderShippingAddress(
     } else {
       throw new Error('shippingAddressId or shippingAddressInline is required.');
     }
+    if (body.shipping_address || body.shipping_address_id) {
+      try {
+        Object.assign(body, await billingFieldsForDocumentPut(accessToken, orgId, so));
+      } catch (err) {
+        console.warn(
+          `Could not keep billing address on sales order ${soId}:`,
+          err?.message || err,
+        );
+      }
+    }
     await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
       method: 'PUT',
       body,
@@ -1629,7 +1694,11 @@ async function einvoiceAddressFields(accessToken, orgId, doc, {
   const shippingFields = shippingFieldsFromSalesOrder(doc, shippingPhone);
   if (shippingFields.shipping_address) {
     // Inline phone. shipping_address_id reprints the bill-to phone.
+    // Keep billing_address on the same PUT so street and city are not cleared.
     patch.shipping_address = shippingFields.shipping_address;
+    if (!patch.billing_address && hasBillingStreetAndCity(billing)) {
+      patch.billing_address = billing;
+    }
   }
   return patch;
 }
@@ -1895,6 +1964,31 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
       if (!applied) {
         console.warn(`Invoice ${invoiceId} Ship To phone was not applied.`);
       }
+    }
+    try {
+      await applyEinvoiceAddress(accessToken, orgId, 'invoices', {
+        ...inv,
+        invoice_id: invoiceId,
+        customer_id: inv.customer_id || so.customer_id,
+        billing_address: inv.billing_address || so.billing_address,
+        shipping_address: {
+          ...(inv.shipping_address && typeof inv.shipping_address === 'object'
+            ? inv.shipping_address
+            : {}),
+          ...(so.shipping_address || {}),
+          ...(selectedShippingPhone ? { phone: selectedShippingPhone } : {}),
+        },
+        shipping_gst_no: normalizeShipGstin(inv.shipping_gst_no)
+          || normalizeShipGstin(so.shipping_gst_no)
+          || inv.shipping_gst_no
+          || so.shipping_gst_no,
+        shipping_legal_name: inv.shipping_legal_name || so.shipping_legal_name,
+      }, { shippingPhone: selectedShippingPhone });
+    } catch (err) {
+      console.warn(
+        `Invoice ${invoiceId} billing address was not restored after Ship To:`,
+        err?.message || err,
+      );
     }
     return invoiceResult(inv);
   };
