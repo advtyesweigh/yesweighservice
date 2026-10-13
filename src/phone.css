@@ -636,8 +636,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
   color: var(--status-bad);
 }
 
-.call-transcript__text,
-.call-transcript__line {
+.call-transcript__text {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
   font-weight: 500;
@@ -646,9 +645,19 @@ a.call-row__tower:hover { color: var(--accent-text); }
   white-space: pre-wrap;
 }
 
+.call-transcript__line {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .call-transcript__turn + .call-transcript__turn { margin-top: 0.55rem; }
-.call-transcript__turn--agent .call-transcript__line { color: #34d399; }
-.call-transcript__turn--customer .call-transcript__line { color: #93c5fd; }
+
+/* Meezan speaker lines (agent #008069, customer #1d7fe0), lifted so both stay readable on the dark card. */
+.call-transcript__turn--agent .call-transcript__line { color: #3ddeb4; }
+.call-transcript__turn--customer .call-transcript__line { color: #5aa8ff; }
 
 .call-row__play--stop {
   background: rgba(239, 68, 68, 0.16);

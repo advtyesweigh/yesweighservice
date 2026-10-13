@@ -39,9 +39,21 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
+export function parseTranscriptTurns(value: unknown): TranscriptTurn[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(turn => {
+    const row = asRecord(turn);
+    const role = String(row.speaker || row.role || '');
+    const speaker = role === 'agent' || role === 'customer' ? role : '';
+    const text = String(row.malayalamText || row.text || '').trim();
+    if (!speaker || !text) return [];
+    return [{ speaker, text } satisfies TranscriptTurn];
+  });
+}
+
 export function mapPhoneEvent(id: string, data: Record<string, unknown>): PhoneEvent {
   const receivedMs = millisOf(data.receivedAt);
-  const turns = Array.isArray(data.transcriptTurns) ? data.transcriptTurns : [];
+  const turns = parseTranscriptTurns(data.transcriptTurns);
   const towerRaw = asRecord(data.tower);
   const tower: PhoneTower | null = data.tower
     ? {
@@ -84,13 +96,7 @@ export function mapPhoneEvent(id: string, data: Record<string, unknown>): PhoneE
     malayalamText: String(data.malayalamText || ''),
     transcriptionStatus: String(data.transcriptionStatus || ''),
     transcriptionError: String(data.transcriptionError || ''),
-    transcriptTurns: turns.flatMap(turn => {
-      const row = asRecord(turn);
-      const speaker = row.speaker === 'agent' ? 'agent' : row.speaker === 'customer' ? 'customer' : '';
-      const text = String(row.text || '').trim();
-      if (!speaker || !text) return [];
-      return [{ speaker, text } satisfies TranscriptTurn];
-    }),
+    transcriptTurns: turns,
     transcriptSingleSpeaker: Boolean(data.transcriptSingleSpeaker),
     payload: asRecord(data.payload),
     callerName: String(data.callerName || ''),
@@ -141,6 +147,8 @@ export type PhoneTranscriptResult = {
   transcript: string;
   languageCode: string;
   malayalamText: string;
+  turns: TranscriptTurn[];
+  singleSpeaker: boolean;
 };
 
 const BARE_FUNCTION_ERROR = /^(internal|unavailable|unknown|not-found|not_found|deadline-exceeded|failed-precondition|functions\/[a-z-]+)$/i;
@@ -162,7 +170,17 @@ export async function transcribePhoneCall(eventId: string): Promise<PhoneTranscr
   );
   try {
     const result = await callable({ eventId });
-    return result.data;
+    const data = result.data;
+    return {
+      ok: data?.ok !== false,
+      status: data?.status === 'processing' ? 'processing' : 'completed',
+      skipped: Boolean(data?.skipped),
+      transcript: String(data?.transcript || ''),
+      languageCode: String(data?.languageCode || ''),
+      malayalamText: String(data?.malayalamText || ''),
+      turns: parseTranscriptTurns(data?.turns),
+      singleSpeaker: data?.singleSpeaker === true,
+    };
   } catch (err) {
     throw new Error(phoneTranscriptErrorMessage(err));
   }

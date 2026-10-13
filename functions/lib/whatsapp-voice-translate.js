@@ -802,6 +802,11 @@ function timestampSegments(json, offsetSeconds) {
   return segments;
 }
 
+function sttLanguageCode(options) {
+  const code = trimStr(options?.languageCode);
+  return code || 'unknown';
+}
+
 async function sarvamSpeechToTextOnce(fileBuffer, filename, mimeType, apiKey, options = {}) {
   const form = new FormData();
   const bytes = fileBuffer instanceof Uint8Array ? fileBuffer : new Uint8Array(fileBuffer);
@@ -811,7 +816,7 @@ async function sarvamSpeechToTextOnce(fileBuffer, filename, mimeType, apiKey, op
   );
   form.append('model', STT_MODEL);
   form.append('mode', 'transcribe');
-  form.append('language_code', 'unknown');
+  form.append('language_code', sttLanguageCode(options));
   if (options.withTimestamps) form.append('with_timestamps', 'true');
 
   const res = await fetch(SARVAM_STT_URL, {
@@ -834,7 +839,7 @@ async function sarvamSpeechToTextOnce(fileBuffer, filename, mimeType, apiKey, op
   };
 }
 
-async function sarvamSpeechToTextChunked(buffer, contentType, apiKey, totalSeconds) {
+async function sarvamSpeechToTextChunked(buffer, contentType, apiKey, totalSeconds, options = {}) {
   const duration = Number(totalSeconds);
   const span = Number.isFinite(duration) && duration > 0
     ? duration
@@ -853,7 +858,7 @@ async function sarvamSpeechToTextChunked(buffer, contentType, apiKey, totalSecon
     }
     // Tiny trailing slices (silence) can 400 or return empty — skip empties.
     if (wav.length < 2000) continue;
-    const piece = await sarvamSpeechToTextOnce(wav, 'chunk.wav', 'audio/wav', apiKey);
+    const piece = await sarvamSpeechToTextOnce(wav, 'chunk.wav', 'audio/wav', apiKey, options);
     if (piece.transcript) parts.push(piece.transcript);
     if (!languageCode && piece.languageCode) languageCode = piece.languageCode;
   }
@@ -865,16 +870,16 @@ async function sarvamSpeechToTextChunked(buffer, contentType, apiKey, totalSecon
 
 /**
  * Sarvam Saaras STT. REST rejects audio over 30s — chunk longer notes.
- * Auto language detection only; Malayalam audio still returns Malayalam text (no re-TTS here).
+ * Pass languageCode ml-IN for phone calls. Omitted language stays auto-detect.
  */
-export async function sarvamSpeechToText(buffer, contentType, apiKey) {
+export async function sarvamSpeechToText(buffer, contentType, apiKey, options = {}) {
   if (!buffer?.length) {
     throw fail('Voice note media is empty or unavailable.', 'failed-precondition');
   }
 
   const duration = await probeAudioDurationSeconds(buffer, extFromMime(contentType));
   if (duration != null && duration > SARVAM_REST_MAX_SECONDS) {
-    return sarvamSpeechToTextChunked(buffer, contentType, apiKey, duration);
+    return sarvamSpeechToTextChunked(buffer, contentType, apiKey, duration, options);
   }
 
   const ext = extFromMime(contentType);
@@ -886,6 +891,7 @@ export async function sarvamSpeechToText(buffer, contentType, apiKey) {
       filename,
       mime,
       apiKey,
+      options,
     );
   } catch (err) {
     // Duration probe can miss OGG metadata; Sarvam still enforces the 30s REST cap.
@@ -898,13 +904,14 @@ export async function sarvamSpeechToText(buffer, contentType, apiKey) {
         contentType,
         apiKey,
         duration != null && duration > 0 ? Math.max(duration, SARVAM_STT_CHUNK_SECONDS * 2) : 60,
+        options,
       );
     }
     throw err;
   }
 }
 
-async function sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, totalSeconds) {
+async function sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, totalSeconds, options = {}) {
   const duration = Number(totalSeconds);
   const span = Number.isFinite(duration) && duration > 0 ? duration : MAX_AUDIO_SECONDS;
   const parts = [];
@@ -922,6 +929,7 @@ async function sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, to
     }
     if (wav.length < 2000) continue;
     const piece = await sarvamSpeechToTextOnce(wav, 'chunk.wav', 'audio/wav', apiKey, {
+      ...options,
       withTimestamps: true,
       timeOffsetSeconds: start,
     });
@@ -938,26 +946,27 @@ async function sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, to
 
 /**
  * Saaras transcription with phrase timestamps so phone channels can be interleaved.
- * Same model and language detection as sarvamSpeechToText. Does not translate.
+ * Pass languageCode ml-IN for phone calls. Does not translate.
  */
-export async function sarvamSpeechToTextSegments(buffer, contentType, apiKey) {
+export async function sarvamSpeechToTextSegments(buffer, contentType, apiKey, options = {}) {
   if (!buffer?.length) {
     throw fail('Voice note media is empty or unavailable.', 'failed-precondition');
   }
   const duration = await probeAudioDurationSeconds(buffer, extFromMime(contentType));
   if (duration != null && duration > SARVAM_REST_MAX_SECONDS) {
-    return sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, duration);
+    return sarvamSpeechToTextSegmentsChunked(buffer, contentType, apiKey, duration, options);
   }
   const ext = extFromMime(contentType);
   const filename = `voice.${ext}`;
   const mime = trimStr(contentType).split(';')[0] || 'audio/ogg';
+  const onceOptions = { ...options, withTimestamps: true, timeOffsetSeconds: 0 };
   try {
     return await sarvamSpeechToTextOnce(
       buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer),
       filename,
       mime,
       apiKey,
-      { withTimestamps: true, timeOffsetSeconds: 0 },
+      onceOptions,
     );
   } catch (err) {
     if (
@@ -969,6 +978,7 @@ export async function sarvamSpeechToTextSegments(buffer, contentType, apiKey) {
         contentType,
         apiKey,
         duration != null && duration > 0 ? Math.max(duration, SARVAM_STT_CHUNK_SECONDS * 2) : 60,
+        options,
       );
     }
     throw err;

@@ -20,6 +20,7 @@ import { canUsePhone } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import { collection, limit, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { CallTranscriptTurns } from '../../components/phone/CallTranscriptTurns';
 import {
   markMissedFollowedUp,
   phoneTranscriptErrorMessage,
@@ -61,6 +62,26 @@ import {
   type PhoneEvent,
 } from '../../lib/phoneLog';
 import '../../phone.css';
+
+type LiveCallTranscript = {
+  text: string;
+  turns: PhoneEvent['transcriptTurns'];
+  singleSpeaker: boolean;
+};
+
+function transcriptView(event: PhoneEvent, live?: LiveCallTranscript) {
+  const turns = event.transcriptTurns.length ? event.transcriptTurns : (live?.turns ?? []);
+  const roles = new Set(turns.map(turn => turn.speaker));
+  const hasDialogue = roles.has('agent') && roles.has('customer');
+  const text = event.malayalamText.trim() || live?.text || event.transcript.trim();
+  const singleSpeaker = !hasDialogue && (event.transcriptSingleSpeaker || Boolean(live?.singleSpeaker));
+  return {
+    turns: hasDialogue ? turns : [],
+    hasDialogue,
+    text,
+    singleSpeaker,
+  };
+}
 
 function TranscriptIcon() {
   return (
@@ -207,7 +228,7 @@ export const PhonePage: React.FC = () => {
   const [openTranscript, setOpenTranscript] = useState('');
   const [transcribingId, setTranscribingId] = useState('');
   const [transcriptErrors, setTranscriptErrors] = useState<Record<string, string>>({});
-  const [liveTranscripts, setLiveTranscripts] = useState<Record<string, string>>({});
+  const [liveTranscripts, setLiveTranscripts] = useState<Record<string, LiveCallTranscript>>({});
   const transcriptStatusAtStart = useRef<Record<string, string>>({});
   const [waDigits, setWaDigits] = useState<Set<string>>(() => new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -248,7 +269,8 @@ export const PhonePage: React.FC = () => {
     if (!transcribingId) return;
     const event = events.find(item => item.id === transcribingId);
     if (!event) return;
-    if (event.transcript.trim() || event.malayalamText.trim() || event.transcriptTurns.length > 0) {
+    const roles = new Set(event.transcriptTurns.map(turn => turn.speaker));
+    if ((roles.has('agent') && roles.has('customer')) || event.transcriptSingleSpeaker) {
       setTranscribingId('');
       return;
     }
@@ -361,15 +383,10 @@ export const PhonePage: React.FC = () => {
     });
   };
 
-  const savedCallTranscript = (event: PhoneEvent) => (
-    event.transcript.trim()
-    || liveTranscripts[event.id]
-    || event.malayalamText.trim()
-  );
-
   const openCallTranscript = (row: CallRow) => {
     const id = row.event.id;
-    if (savedCallTranscript(row.event) || row.event.transcriptTurns.length > 0) {
+    const view = transcriptView(row.event, liveTranscripts[id]);
+    if (view.hasDialogue || (view.singleSpeaker && view.text)) {
       setOpenTranscript(current => current === id ? '' : id);
       return;
     }
@@ -379,8 +396,18 @@ export const PhonePage: React.FC = () => {
     transcriptStatusAtStart.current[id] = row.event.transcriptionStatus;
     setTranscribingId(id);
     void transcribePhoneCall(id).then(result => {
-      if (result.transcript) {
-        setLiveTranscripts(current => ({ ...current, [id]: result.transcript }));
+      const text = (result.malayalamText || result.transcript).trim();
+      const dialogue = result.turns.some(turn => turn.speaker === 'agent')
+        && result.turns.some(turn => turn.speaker === 'customer');
+      if (text || dialogue || result.singleSpeaker) {
+        setLiveTranscripts(current => ({
+          ...current,
+          [id]: {
+            text,
+            turns: dialogue ? result.turns : [],
+            singleSpeaker: !dialogue && result.singleSpeaker,
+          },
+        }));
         setTranscribingId(current => (current === id ? '' : current));
         return;
       }
@@ -512,10 +539,8 @@ export const PhonePage: React.FC = () => {
                 const towerLabel = formatTowerLocation(row.event.tower);
                 const mapsHref = towerMapsHref(row.event.tower);
                 const missedSince = row.status === 'missed' ? formatElapsed(row.occurred, now) : '';
-                const turns = row.event.transcriptTurns;
-                const roles = new Set(turns.map(turn => turn.speaker));
-                const hasDialogue = roles.has('agent') && roles.has('customer');
-                const transcriptText = savedCallTranscript(row.event);
+                const transcript = transcriptView(row.event, liveTranscripts[row.event.id]);
+                const transcriptText = transcript.text;
                 const transcriptBusy = transcribingId === row.event.id;
                 const transcriptError = transcriptErrors[row.event.id] || '';
                 const markFollowUp = () => {
@@ -635,7 +660,7 @@ export const PhonePage: React.FC = () => {
                             <button
                               type="button"
                               className={`call-row__play call-row__play--transcript${openTranscript === row.event.id ? ' is-open' : ''}`}
-                              aria-label={transcriptText || hasDialogue ? 'Call transcript' : 'Transcribe recording'}
+                              aria-label={transcriptText || transcript.hasDialogue ? 'Call transcript' : 'Transcribe recording'}
                               aria-pressed={openTranscript === row.event.id}
                               aria-busy={transcriptBusy}
                               onClick={event => {
@@ -696,11 +721,9 @@ export const PhonePage: React.FC = () => {
                           <p className="call-transcript__status">Transcribing…</p>
                         ) : transcriptError ? (
                           <p className="call-transcript__status call-transcript__status--error">{transcriptError}</p>
-                        ) : hasDialogue ? turns.map((turn, turnIndex) => (
-                          <div key={`${turn.speaker}-${turnIndex}`} className={`call-transcript__turn call-transcript__turn--${turn.speaker}`}>
-                            <p className="call-transcript__line">{turn.text}</p>
-                          </div>
-                        )) : row.event.transcriptSingleSpeaker && transcriptText ? (
+                        ) : transcript.hasDialogue ? (
+                          <CallTranscriptTurns turns={transcript.turns} />
+                        ) : transcript.singleSpeaker && transcriptText ? (
                           <>
                             <p className="call-transcript__status">Only one speaker was detected.</p>
                             <p className="call-transcript__text">{transcriptText}</p>
