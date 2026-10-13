@@ -231,7 +231,14 @@ export function conversationPreviewLabel(
   if (kind === 'video') return usable && text.toLowerCase() !== 'video' ? text : 'Video';
   if (kind === 'audio') return usable && text.toLowerCase() !== 'voice message' ? text : 'Voice message';
   if (kind === 'file') return usable && text.toLowerCase() !== 'document' ? text : 'Document';
-  return text.replace(/\s+/g, ' ').trim();
+  const type = String(chat.lastType || '').trim().toLowerCase();
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (type === 'unsupported' || type === 'unknown') {
+    const lower = cleaned.toLowerCase();
+    if (cleaned && lower !== 'unsupported' && lower !== 'unknown') return cleaned;
+    return 'Unsupported message';
+  }
+  return cleaned;
 }
 
 export function formatWhatsAppUnread(count: number): string {

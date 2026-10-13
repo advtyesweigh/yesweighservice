@@ -423,6 +423,17 @@ function MessageBody({
       </>
     );
   }
+  if ((message.type === 'unsupported' || message.type === 'unknown') && url && /^audio\//i.test(message.mimeType)) {
+    return (
+      <>
+        <audio src={url} controls className="wa-inbox-bubble__audio" />
+        <VoiceNoteExtras message={message} />
+      </>
+    );
+  }
+  if (message.type === 'unsupported' || message.type === 'unknown') {
+    return <p>{message.text.trim() || 'WhatsApp did not include this message.'}</p>;
+  }
   return <TranslatedLines message={message} />;
 }
 
