@@ -1,3 +1,4 @@
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   collection,
   doc,
@@ -8,7 +9,7 @@ import {
   writeBatch,
   type Timestamp,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { app, db } from '../firebase';
 import {
   listCallStatus,
   national10,
@@ -17,6 +18,8 @@ import {
   type PhoneTower,
   type TranscriptTurn,
 } from './phoneLog';
+
+const functions = getFunctions(app, 'asia-south1');
 
 export const PHONE_EVENTS = 'phoneEvents';
 
@@ -79,6 +82,8 @@ export function mapPhoneEvent(id: string, data: Record<string, unknown>): PhoneE
     tower,
     transcript: String(data.transcript || ''),
     malayalamText: String(data.malayalamText || ''),
+    transcriptionStatus: String(data.transcriptionStatus || ''),
+    transcriptionError: String(data.transcriptionError || ''),
     transcriptTurns: turns.flatMap(turn => {
       const row = asRecord(turn);
       const speaker = row.speaker === 'agent' ? 'agent' : row.speaker === 'customer' ? 'customer' : '';
@@ -127,4 +132,38 @@ export async function markMissedFollowedUp(
     });
   });
   await batch.commit();
+}
+
+export type PhoneTranscriptResult = {
+  ok: boolean;
+  status: 'completed' | 'processing';
+  skipped: boolean;
+  transcript: string;
+  languageCode: string;
+  malayalamText: string;
+};
+
+const BARE_FUNCTION_ERROR = /^(internal|unavailable|unknown|not-found|not_found|deadline-exceeded|failed-precondition|functions\/[a-z-]+)$/i;
+
+/** Callable failures often arrive as the bare status word "internal". */
+export function phoneTranscriptErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : '';
+  const message = raw.replace(/^FirebaseError:\s*/i, '').trim();
+  if (message && !BARE_FUNCTION_ERROR.test(message)) return message;
+  return 'Could not transcribe this recording.';
+}
+
+/** Transcribe the call recording with Sarvam. A saved transcript is returned without a new request. */
+export async function transcribePhoneCall(eventId: string): Promise<PhoneTranscriptResult> {
+  const callable = httpsCallable<{ eventId: string }, PhoneTranscriptResult>(
+    functions,
+    'transcribePhoneCallFn',
+    { timeout: 540_000 },
+  );
+  try {
+    const result = await callable({ eventId });
+    return result.data;
+  } catch (err) {
+    throw new Error(phoneTranscriptErrorMessage(err));
+  }
 }

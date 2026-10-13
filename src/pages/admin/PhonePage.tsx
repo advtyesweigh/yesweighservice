@@ -20,7 +20,12 @@ import { canUsePhone } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import { collection, limit, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { markMissedFollowedUp, subscribePhoneEvents } from '../../lib/phoneEvents';
+import {
+  markMissedFollowedUp,
+  phoneTranscriptErrorMessage,
+  subscribePhoneEvents,
+  transcribePhoneCall,
+} from '../../lib/phoneEvents';
 import { WHATSAPP_CONVERSATIONS } from '../../lib/whatsappInbox';
 import {
   CALL_PAGE_SIZE,
@@ -203,6 +208,10 @@ export const PhonePage: React.FC = () => {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [openTranscript, setOpenTranscript] = useState('');
+  const [transcribingId, setTranscribingId] = useState('');
+  const [transcriptErrors, setTranscriptErrors] = useState<Record<string, string>>({});
+  const [liveTranscripts, setLiveTranscripts] = useState<Record<string, string>>({});
+  const transcriptStatusAtStart = useRef<Record<string, string>>({});
   const [waDigits, setWaDigits] = useState<Set<string>>(() => new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -237,6 +246,28 @@ export const PhonePage: React.FC = () => {
     setPlaying(false);
     setPlayingId('');
   }, [applied, page]);
+
+  useEffect(() => {
+    if (!transcribingId) return;
+    const event = events.find(item => item.id === transcribingId);
+    if (!event) return;
+    if (event.transcript.trim() || event.malayalamText.trim() || event.transcriptTurns.length > 0) {
+      setTranscribingId('');
+      return;
+    }
+    const statusAtStart = transcriptStatusAtStart.current[event.id] || '';
+    if (
+      event.transcriptionStatus === 'failed'
+      && event.transcriptionError
+      && event.transcriptionStatus !== statusAtStart
+    ) {
+      setTranscribingId('');
+      setTranscriptErrors(current => ({
+        ...current,
+        [event.id]: phoneTranscriptErrorMessage(new Error(event.transcriptionError)),
+      }));
+    }
+  }, [events, transcribingId]);
 
   useEffect(() => {
     if (!sheetOpen) return undefined;
@@ -330,6 +361,37 @@ export const PhonePage: React.FC = () => {
     const name = user?.displayName || 'Staff';
     void markMissedFollowedUp(events, event, name).catch(err => {
       setError(err instanceof Error ? err.message : 'Could not mark that call.');
+    });
+  };
+
+  const savedCallTranscript = (event: PhoneEvent) => (
+    event.transcript.trim()
+    || liveTranscripts[event.id]
+    || event.malayalamText.trim()
+  );
+
+  const openCallTranscript = (row: CallRow) => {
+    const id = row.event.id;
+    if (savedCallTranscript(row.event) || row.event.transcriptTurns.length > 0) {
+      setOpenTranscript(current => current === id ? '' : id);
+      return;
+    }
+    setOpenTranscript(id);
+    if (transcribingId === id) return;
+    setTranscriptErrors(current => ({ ...current, [id]: '' }));
+    transcriptStatusAtStart.current[id] = row.event.transcriptionStatus;
+    setTranscribingId(id);
+    void transcribePhoneCall(id).then(result => {
+      if (result.transcript) {
+        setLiveTranscripts(current => ({ ...current, [id]: result.transcript }));
+        setTranscribingId(current => (current === id ? '' : current));
+        return;
+      }
+      if (result.status === 'processing') return;
+      setTranscribingId(current => (current === id ? '' : current));
+    }).catch(err => {
+      setTranscriptErrors(current => ({ ...current, [id]: phoneTranscriptErrorMessage(err) }));
+      setTranscribingId(current => (current === id ? '' : current));
     });
   };
 
@@ -456,6 +518,9 @@ export const PhonePage: React.FC = () => {
                 const turns = row.event.transcriptTurns;
                 const roles = new Set(turns.map(turn => turn.speaker));
                 const hasDialogue = roles.has('agent') && roles.has('customer');
+                const transcriptText = savedCallTranscript(row.event);
+                const transcriptBusy = transcribingId === row.event.id;
+                const transcriptError = transcriptErrors[row.event.id] || '';
                 const markFollowUp = () => {
                   if (openMissed) followUp(row.event);
                 };
@@ -573,11 +638,12 @@ export const PhonePage: React.FC = () => {
                             <button
                               type="button"
                               className={`call-row__play call-row__play--transcript${openTranscript === row.event.id ? ' is-open' : ''}`}
-                              aria-label="Call transcript"
+                              aria-label={transcriptText || hasDialogue ? 'Call transcript' : 'Transcribe recording'}
                               aria-pressed={openTranscript === row.event.id}
+                              aria-busy={transcriptBusy}
                               onClick={event => {
                                 event.stopPropagation();
-                                setOpenTranscript(current => current === row.event.id ? '' : row.event.id);
+                                openCallTranscript(row);
                               }}
                             >
                               <TranscriptIcon />
@@ -629,17 +695,23 @@ export const PhonePage: React.FC = () => {
                     </article>
                     {openTranscript === row.event.id ? (
                       <div className="call-transcript" role="note">
-                        {hasDialogue ? turns.map((turn, turnIndex) => (
+                        {transcriptBusy ? (
+                          <p className="call-transcript__status">Transcribing…</p>
+                        ) : transcriptError ? (
+                          <p className="call-transcript__status call-transcript__status--error">{transcriptError}</p>
+                        ) : hasDialogue ? turns.map((turn, turnIndex) => (
                           <div key={`${turn.speaker}-${turnIndex}`} className={`call-transcript__turn call-transcript__turn--${turn.speaker}`}>
                             <p className="call-transcript__line">{turn.text}</p>
                           </div>
-                        )) : row.event.transcriptSingleSpeaker ? (
+                        )) : row.event.transcriptSingleSpeaker && transcriptText ? (
                           <>
                             <p className="call-transcript__status">Only one speaker was detected.</p>
-                            <p className="call-transcript__text">{row.event.malayalamText || row.event.transcript}</p>
+                            <p className="call-transcript__text">{transcriptText}</p>
                           </>
+                        ) : transcriptText ? (
+                          <p className="call-transcript__text">{transcriptText}</p>
                         ) : (
-                          <p className="call-transcript__text">{row.event.transcript || row.event.malayalamText || 'No transcript for this call.'}</p>
+                          <p className="call-transcript__text">No transcript for this call.</p>
                         )}
                       </div>
                     ) : null}

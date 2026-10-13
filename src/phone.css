@@ -632,6 +632,10 @@ a.call-row__tower:hover { color: var(--accent-text); }
   color: var(--text-muted);
 }
 
+.call-transcript__status--error {
+  color: var(--status-bad);
+}
+
 .call-transcript__text,
 .call-transcript__line {
   margin: 0.15rem 0 0;

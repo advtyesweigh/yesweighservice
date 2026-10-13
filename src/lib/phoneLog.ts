@@ -49,6 +49,8 @@ export type PhoneEvent = {
   malayalamText: string;
   transcriptTurns: TranscriptTurn[];
   transcriptSingleSpeaker: boolean;
+  transcriptionStatus: string;
+  transcriptionError: string;
   payload: Record<string, unknown>;
   callerName: string;
 };
