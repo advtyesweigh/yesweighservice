@@ -749,20 +749,6 @@ a.call-row__tower:hover { color: var(--accent-text); }
   background: rgba(8, 12, 20, 0.92);
 }
 
-.phone-filter__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.phone-filter__chips span {
-  width: 100%;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.phone-filter__chips button,
 .phone-filter__apply,
 .phone-filter__clear {
   border: 0;
@@ -770,16 +756,6 @@ a.call-row__tower:hover { color: var(--accent-text); }
   padding: 0.4rem 0.7rem;
   font: inherit;
   cursor: pointer;
-}
-
-.phone-filter__chips button {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-main);
-}
-
-.phone-filter__chips button.is-on,
-.phone-filter__apply,
-.phone-filter__clear {
   background: linear-gradient(135deg, var(--accent-primary), #f59e0b);
   color: #1a0a00;
 }
@@ -791,7 +767,9 @@ a.call-row__tower:hover { color: var(--accent-text); }
 
 .phone-filter__actions {
   display: flex;
-  gap: 0.4rem;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.65rem;
 }
 
 .phone-filter-btn {
@@ -818,7 +796,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
   z-index: 80;
   background: rgba(15, 23, 42, 0.45);
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .phone-sheet__panel {
@@ -826,7 +804,7 @@ a.call-row__tower:hover { color: var(--accent-text); }
   max-height: 88dvh;
   overflow: auto;
   background: rgba(8, 12, 20, 0.98);
-  border-radius: 16px 16px 0 0;
+  border-radius: 0 0 16px 16px;
   padding: 0.9rem 0.9rem 1.2rem;
   color: var(--text-main);
 }

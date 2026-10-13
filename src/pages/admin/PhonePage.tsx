@@ -151,32 +151,29 @@ function FilterFields({
           {agents.map(agent => <option key={agent} value={agent}>{agent}</option>)}
         </select>
       </label>
-      <div className="phone-filter__chips">
-        <span>Status</span>
-        {(['all', 'received', 'missed', 'outbound'] as CallStatusFilter[]).map(status => (
-          <button
-            key={status}
-            type="button"
-            className={draft.status === status ? 'is-on' : ''}
-            onClick={() => setDraft(current => ({ ...current, status }))}
-          >
-            {status === 'all' ? 'All' : status[0].toUpperCase() + status.slice(1)}
-          </button>
-        ))}
-      </div>
-      <div className="phone-filter__chips">
-        <span>Type</span>
-        {(['all', 'sales', 'service'] as CallTypeFilter[]).map(type => (
-          <button
-            key={type}
-            type="button"
-            className={draft.type === type ? 'is-on' : ''}
-            onClick={() => setDraft(current => ({ ...current, type }))}
-          >
-            {type === 'all' ? 'All' : type === 'sales' ? 'Sales' : 'Service'}
-          </button>
-        ))}
-      </div>
+      <label>
+        Status
+        <select
+          value={draft.status}
+          onChange={event => setDraft(current => ({ ...current, status: event.target.value as CallStatusFilter }))}
+        >
+          <option value="all">All</option>
+          <option value="received">Received</option>
+          <option value="missed">Missed</option>
+          <option value="outbound">Outbound</option>
+        </select>
+      </label>
+      <label>
+        Type
+        <select
+          value={draft.type}
+          onChange={event => setDraft(current => ({ ...current, type: event.target.value as CallTypeFilter }))}
+        >
+          <option value="all">All</option>
+          <option value="sales">Sales</option>
+          <option value="service">Service</option>
+        </select>
+      </label>
       <div className="phone-filter__actions">
         <button type="button" className="phone-filter__apply" onClick={onApply}>Apply</button>
         <button type="button" className="phone-filter__clear" disabled={!dirty} onClick={onClear}>Clear all</button>
