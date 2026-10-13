@@ -8,6 +8,7 @@ import {
   Check,
   CheckCheck,
   ChevronLeft,
+  Clock,
   CircleCheck,
   DoorOpen,
   FileText,
@@ -61,6 +62,7 @@ import {
   retryWhatsAppTranscription,
   sendWhatsAppFile,
   sendWhatsAppText,
+  whatsAppMessageDocId,
   setWhatsAppConversationClosed,
   setWhatsAppOutboundLanguage,
   setWhatsAppVoiceTranslate,
@@ -441,7 +443,43 @@ function StatusTick({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="wa-inbox-tick is-read" />;
   if (status === 'delivered') return <CheckCheck size={14} className="wa-inbox-tick" />;
   if (status === 'failed') return <span className="wa-inbox-tick is-failed">Failed</span>;
+  if (status === 'sending') return <Clock size={14} className="wa-inbox-tick" />;
   return <Check size={14} className="wa-inbox-tick" />;
+}
+
+type OptimisticOutbound = WhatsAppChatMessage & { echoId?: string };
+
+function newClientMessageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `pending-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function serverEchoOf(item: OptimisticOutbound, row: WhatsAppChatMessage): boolean {
+  if (row.direction !== 'outbound' || row.waId !== item.waId) return false;
+  if (item.clientMessageId && row.clientMessageId === item.clientMessageId) return true;
+  if (item.echoId && (row.whatsappMessageId === item.echoId || row.id === whatsAppMessageDocId(item.echoId))) {
+    return true;
+  }
+  if (item.status === 'failed' || row.clientMessageId) return false;
+  if (row.text.trim() !== item.text.trim()) return false;
+  const at = row.createdAtMs || 0;
+  if (!at || !item.createdAtMs) return false;
+  return at >= item.createdAtMs - 5_000 && at <= item.createdAtMs + 120_000;
+}
+
+function pendingWithoutEchoes(
+  pending: OptimisticOutbound[],
+  server: WhatsAppChatMessage[],
+): OptimisticOutbound[] {
+  const used = new Set<string>();
+  return pending.filter(item => {
+    const match = server.find(row => !used.has(row.id) && serverEchoOf(item, row));
+    if (!match) return true;
+    used.add(match.id);
+    return false;
+  });
 }
 
 function chatSearchNeedle(waId: string): string {
@@ -519,6 +557,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const [now, setNow] = useState(() => Date.now());
   const [activeId, setActiveId] = useState('');
   const [messages, setMessages] = useState<WhatsAppChatMessage[]>([]);
+  const [optimistic, setOptimistic] = useState<OptimisticOutbound[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [serviceBusy, setServiceBusy] = useState(false);
@@ -586,6 +625,14 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [settings?.configured]);
 
   const active = chats.find(chat => chat.id === activeId) ?? null;
+  const visibleMessages = useMemo(() => {
+    const waId = active?.waId || '';
+    const pending = pendingWithoutEchoes(
+      optimistic.filter(item => item.waId === waId),
+      messages,
+    );
+    return [...messages, ...pending];
+  }, [active?.waId, messages, optimistic]);
 
   useEffect(() => {
     setOutboundLangLocal(null);
@@ -777,7 +824,7 @@ export const WhatsAppInboxPage: React.FC = () => {
     const node = threadRef.current;
     if (!node) return;
     node.scrollTop = node.scrollHeight;
-  }, [messages, activeId]);
+  }, [visibleMessages, activeId]);
 
   useEffect(() => {
     if (!pendingFile) {
@@ -911,30 +958,76 @@ export const WhatsAppInboxPage: React.FC = () => {
     });
   };
 
-  const onSend = async () => {
+  const onSend = () => {
     if (!active || sending) return;
     const text = draft.trim();
     if (!text && !pendingFile && !recording) return;
-    setSending(true);
     setSendError('');
-    try {
-      if (pendingFile) {
-        await sendFile(pendingFile, text);
-        setPendingFile(null);
-        setDraft('');
-      } else {
-        await sendWhatsAppText(active.waId, text, {
-          outboundVoiceLanguage: normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage),
-          outboundVoiceLanguageName: outboundVoiceLanguageLabel(active.outboundVoiceLanguage),
-        });
-        setDraft('');
-      }
-      closePanels();
-    } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Could not send.');
-    } finally {
-      setSending(false);
+    if (pendingFile) {
+      setSending(true);
+      void (async () => {
+        try {
+          await sendFile(pendingFile, text);
+          setPendingFile(null);
+          setDraft('');
+          closePanels();
+        } catch (err) {
+          setSendError(err instanceof Error ? err.message : 'Could not send.');
+        } finally {
+          setSending(false);
+        }
+      })();
+      return;
     }
+    const waId = active.waId;
+    const clientMessageId = newClientMessageId();
+    const sentByName = user?.displayName?.trim() || 'Staff';
+    const pendingMessage: OptimisticOutbound = {
+      id: clientMessageId,
+      clientMessageId,
+      whatsappMessageId: '',
+      waId,
+      direction: 'outbound',
+      type: 'text',
+      text,
+      status: 'sending',
+      fileName: '',
+      mimeType: '',
+      mediaUrl: '',
+      createdAtMs: Date.now(),
+      translatedText: '',
+      translationStatus: '',
+      translationKind: '',
+      translationTargetLang: '',
+      translationTargetName: '',
+      messageLanguageName: '',
+      transcript: '',
+      transcriptionStatus: '',
+      voiceTranslateStatus: '',
+      malayalamText: '',
+      malayalamAudioUrl: '',
+      translatedMediaUrl: '',
+      voiceTranslateError: '',
+      sentByName,
+    };
+    setOptimistic(current => [...current, pendingMessage]);
+    setDraft('');
+    closePanels();
+    void sendWhatsAppText(waId, text, {
+      outboundVoiceLanguage: normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage),
+      outboundVoiceLanguageName: outboundVoiceLanguageLabel(active.outboundVoiceLanguage),
+      clientMessageId,
+    }).then(result => {
+      if (!result.id) return;
+      setOptimistic(current => current.map(item => (
+        item.clientMessageId === clientMessageId ? { ...item, echoId: result.id } : item
+      )));
+    }).catch(err => {
+      setOptimistic(current => current.map(item => (
+        item.clientMessageId === clientMessageId ? { ...item, status: 'failed' } : item
+      )));
+      setSendError(err instanceof Error ? err.message : 'Could not send.');
+    });
   };
 
   const insertEmoji = (emoji: string) => {
@@ -1378,7 +1471,7 @@ export const WhatsAppInboxPage: React.FC = () => {
               </div>
             </header>
             <div className="wa-inbox-thread__messages" ref={threadRef}>
-              {messages.map(message => (
+              {visibleMessages.map(message => (
                 <article
                   key={message.id}
                   className={`wa-inbox-bubble wa-inbox-bubble--${message.direction}`}
@@ -1589,16 +1682,11 @@ export const WhatsAppInboxPage: React.FC = () => {
                       rows={1}
                       value={draft}
                       aria-label="Message"
-                      disabled={sending}
                       onChange={event => setDraft(event.target.value)}
                       onKeyDown={event => {
-                        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                        if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
                         event.preventDefault();
-                        const el = event.currentTarget;
-                        const start = el.selectionStart ?? draft.length;
-                        const end = el.selectionEnd ?? start;
-                        const next = `${draft.slice(0, start)}\n${draft.slice(end)}`;
-                        setDraft(next);
+                        onSend();
                       }}
                     />
                     <button

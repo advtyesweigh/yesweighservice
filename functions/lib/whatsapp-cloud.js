@@ -359,6 +359,11 @@ function docIdForMessage(id) {
   return String(id || '').replace(/[/\s]/g, '_').slice(0, 700);
 }
 
+function cleanClientMessageId(value) {
+  const id = String(value ?? '').trim();
+  return /^[A-Za-z0-9_-]{8,80}$/.test(id) ? id : '';
+}
+
 export function parseSoftwareShopIdFromText(text) {
   const match = String(text || '').match(/shop\s*id\s*[=:#]?\s*(\d+)/i);
   return match ? Number(match[1]) : 0;
@@ -848,9 +853,10 @@ export async function saveWhatsAppCloudSettings(data) {
 }
 
 async function recordOutbound({
-  waId, whatsappMessageId, type, text, fileName, mimeType, mediaUrl, sentByUid, sentByName, extra = {},
+  waId, whatsappMessageId, type, text, fileName, mimeType, mediaUrl, sentByUid, sentByName, clientMessageId = '', extra = {},
 }) {
   const id = docIdForMessage(whatsappMessageId || randomUUID());
+  const clientId = cleanClientMessageId(clientMessageId);
   await getFirestore().collection(MESSAGES).doc(id).set({
     waId,
     whatsappMessageId: whatsappMessageId || id,
@@ -865,6 +871,7 @@ async function recordOutbound({
     mimeType: mimeType || '',
     mediaUrl: mediaUrl || '',
     ...extra,
+    ...(clientId ? { clientMessageId: clientId } : {}),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
@@ -947,6 +954,7 @@ async function sendSoftwareRenewalAutoReply({ waId, shopId, shop }) {
 export async function sendWhatsAppCloudText(data, actor) {
   const waId = normalizeWaId(data?.waId);
   const text = String(data?.text ?? '').trim();
+  const clientMessageId = cleanClientMessageId(data?.clientMessageId);
   if (!waId) fail('Enter a WhatsApp number.', 'invalid-argument');
   if (!text) fail('Enter a message.', 'invalid-argument');
   const config = await requireSendConfig();
@@ -1018,6 +1026,7 @@ export async function sendWhatsAppCloudText(data, actor) {
     text,
     sentByUid: actor?.uid,
     sentByName: actor?.name,
+    clientMessageId,
     extra,
   });
   return { ok: true, id: whatsappMessageId, translationError: extra.translationError || '' };

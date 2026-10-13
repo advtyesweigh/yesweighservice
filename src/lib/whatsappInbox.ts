@@ -104,6 +104,9 @@ export type WhatsAppChatMessage = {
   translatedMediaUrl: string;
   voiceTranslateError: string;
   sentByName: string;
+  /** Staff composer id. The stored row uses the same value so the local bubble is not shown twice. */
+  clientMessageId: string;
+  whatsappMessageId: string;
 };
 
 function callableError(err: unknown, fallback: string): Error {
@@ -290,6 +293,10 @@ export async function saveWhatsAppSettings(input: {
   }
 }
 
+export function whatsAppMessageDocId(id: string): string {
+  return String(id || '').replace(/[/\s]/g, '_').slice(0, 700);
+}
+
 export async function sendWhatsAppText(
   waId: string,
   text: string,
@@ -297,8 +304,9 @@ export async function sendWhatsAppText(
     outboundVoiceLanguage?: string;
     outboundVoiceLanguageName?: string;
     skipTranslation?: boolean;
+    clientMessageId?: string;
   },
-): Promise<void> {
+): Promise<{ id: string }> {
   try {
     const fn = httpsCallable<
       {
@@ -307,20 +315,23 @@ export async function sendWhatsAppText(
         outboundVoiceLanguage?: string;
         outboundVoiceLanguageName?: string;
         skipTranslation?: boolean;
+        clientMessageId?: string;
       },
-      { ok: boolean }
+      { ok: boolean; id?: string }
     >(
       functions,
       'sendWhatsAppCloudMessage',
       { timeout: 60_000 },
     );
-    await fn({
+    const result = await fn({
       waId,
       text,
       outboundVoiceLanguage: options?.outboundVoiceLanguage,
       outboundVoiceLanguageName: options?.outboundVoiceLanguageName,
       skipTranslation: options?.skipTranslation === true,
+      clientMessageId: options?.clientMessageId || undefined,
     });
+    return { id: String(result.data?.id ?? '').trim() };
   } catch (err) {
     throw callableError(err, 'Could not send the message.');
   }
@@ -468,6 +479,8 @@ export function subscribeWhatsAppMessages(
         translatedMediaUrl: String(data.translatedMediaUrl ?? ''),
         voiceTranslateError: String(data.voiceTranslateError ?? ''),
         sentByName: String(data.sentByName ?? data.senderName ?? '').trim(),
+        clientMessageId: String(data.clientMessageId ?? '').trim(),
+        whatsappMessageId: String(data.whatsappMessageId ?? '').trim(),
       };
     }));
   }, err => onError(err));
