@@ -68,6 +68,7 @@ export function invoiceAllowsLogisticsFulfillment(
 
 /**
  * List badge key.
+ * Void leaves active dispatch chips even when an AWB is still on the invoice.
  * Pickup stays distinct; cancelled AWB returns to to-dispatch;
  * software / GATC / service-only keep Zoho status instead of To dispatch.
  */
@@ -75,6 +76,8 @@ export function invoiceListStatusKey(
   invoice: InvoiceListStatusInvoice,
   booking?: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'consignmentNo' | 'trackingNo'> | null,
 ): string {
+  const zoho = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (zoho === 'void') return 'void';
   if (invoiceHasConfirmedCustomerPickup(invoice)) return 'customer_pickup';
   if (invoiceHasManualDelivery(invoice)) return 'delivered';
 
@@ -87,8 +90,6 @@ export function invoiceListStatusKey(
     return logistics.status;
   }
 
-  const zoho = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  if (zoho === 'void') return 'void';
   if (invoiceAllowsLogisticsFulfillment(invoice)) return 'to_dispatch';
   return zoho || 'sent';
 }

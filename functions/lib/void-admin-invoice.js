@@ -111,3 +111,54 @@ export async function voidAdminInvoice({
     invoiceId: iid,
   };
 }
+
+/**
+ * Portal delete: mark the invoice void in Firestore only.
+ * Does not call Zoho and does not cancel the courier booking.
+ * voidLocalOnly keeps a later Zoho sync from reopening it.
+ */
+export async function voidInvoiceInFirestore({
+  uid,
+  customerId,
+  invoiceId,
+} = {}) {
+  const cid = str(customerId);
+  const iid = str(invoiceId);
+  if (!cid || !iid) throw new Error('Invoice is required.');
+
+  const db = getFirestore();
+  const userSnap = uid ? await db.doc(`users/${uid}`).get() : null;
+  const userData = userSnap?.exists ? (userSnap.data() || {}) : {};
+  const actorName = actorDisplayName(userData);
+
+  const invoiceRef = db.doc(`zohoCustomers/${cid}/invoices/${iid}`);
+  const snap = await invoiceRef.get();
+  if (!snap.exists) throw new Error('Invoice not found.');
+  const invoice = snap.data() || {};
+  if (isVoidInvoiceStatus(invoice.status)) {
+    throw new Error('This invoice is already void.');
+  }
+
+  const now = new Date().toISOString();
+  await invoiceRef.set({
+    status: 'void',
+    listStatus: 'void',
+    voidedAt: now,
+    voidedByUid: uid || null,
+    voidedByName: actorName,
+    voidReason: null,
+    voidLocalOnly: true,
+  }, { merge: true });
+
+  try {
+    const { invoiceSummaryRef, patchInvoiceSummaryListFields } = await import('./invoice-stats.js');
+    const summarySnap = await invoiceSummaryRef(cid, iid).get();
+    if (summarySnap.exists) {
+      await patchInvoiceSummaryListFields(cid, iid, { status: 'void' });
+    }
+  } catch (err) {
+    console.warn(`Invoice summary void update failed for ${iid}:`, err?.message ?? err);
+  }
+
+  return { voided: true, invoiceId: iid };
+}

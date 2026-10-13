@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { BadgeCheck, Ban, CheckCircle2, Hash, PackagePlus, Send, Unlink, X } from 'lucide-react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
+import { BadgeCheck, Ban, CheckCircle2, Hash, PackagePlus, Send, Trash2, Unlink, X } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { appendPhoneToAddressLine } from '../../lib/logisticsDealers';
@@ -47,13 +47,17 @@ import {
   stripBackBillNote,
 } from '../../lib/machineQc';
 import { INVOICE_QC_REQUIRED } from '../../lib/invoiceMachineQc';
-import { canVoidAdminInvoice, isInternalOpsUser } from '../../lib/staffAccess';
-import { voidAdminInvoice } from '../../lib/voidAdminInvoice';
+import { canSuperAdminWrite, canVoidAdminInvoice, isInternalOpsUser } from '../../lib/staffAccess';
+import { voidAdminInvoice, voidInvoiceLocally } from '../../lib/voidAdminInvoice';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
+
+const INVOICE_DELETE_PASSWORD = '1010';
 
 export const AdminInvoiceDocumentPage: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const {
     invoice,
     customerId,
@@ -94,6 +98,10 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
   } | null>(null);
   const [gatcPickerError, setGatcPickerError] = useState('');
   const [voidBusy, setVoidBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     if (!kamCardOpen) return;
@@ -171,6 +179,11 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
 
   const actorName = user?.displayName?.trim() || user?.email?.trim() || 'YESWEIGH';
   const showVoidInvoice = Boolean(user && canVoidAdminInvoice(user) && !invoiceVoid);
+  const showDeleteInvoice = Boolean(
+    user
+    && !invoiceVoid
+    && (user.role === 'staff' || canSuperAdminWrite(user)),
+  );
 
   const zohoNotice = (result: { zohoPushed?: boolean; zohoError?: string }) => {
     if (result.zohoPushed) return ' Zoho invoice updated.';
@@ -350,6 +363,26 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
       setAllotError(err instanceof Error ? err.message : 'Could not unlink GATC serial numbers.');
     } finally {
       setAllotBusy(false);
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!showDeleteInvoice || deleteBusy) return;
+    if (deletePassword.trim() !== INVOICE_DELETE_PASSWORD) {
+      setDeleteError('Wrong password.');
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await voidInvoiceLocally({ customerId, invoiceId });
+      const invoicesPath = pathname.startsWith('/staff')
+        ? '/staff/invoices'
+        : '/super-admin/invoices';
+      navigate(invoicesPath);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete this invoice.');
+      setDeleteBusy(false);
     }
   };
 
@@ -746,6 +779,75 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           </>
         }
       />
+      {showDeleteInvoice ? (
+        <section className="invoice-detail-delete panel glass">
+          {deleteOpen ? (
+            <form
+              className="invoice-detail-delete__form"
+              onSubmit={event => {
+                event.preventDefault();
+                void handleDeleteInvoice();
+              }}
+            >
+              <label className="invoice-detail-delete__label" htmlFor="invoice-delete-password">
+                Master password
+              </label>
+              <input
+                id="invoice-delete-password"
+                type="password"
+                className="invoice-detail-delete__pin"
+                value={deletePassword}
+                onChange={event => {
+                  setDeletePassword(event.target.value);
+                  if (deleteError) setDeleteError('');
+                }}
+                placeholder="Password"
+                aria-label="Master password"
+                autoComplete="off"
+                inputMode="numeric"
+                autoFocus
+                disabled={deleteBusy}
+              />
+              {deleteError ? (
+                <p className="invoice-detail-delete__error" role="alert">{deleteError}</p>
+              ) : null}
+              <div className="invoice-detail-delete__actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={deleteBusy}
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeletePassword('');
+                    setDeleteError('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn invoice-void-invoice-btn"
+                  disabled={deleteBusy}
+                >
+                  {deleteBusy ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              className="btn invoice-void-invoice-btn invoice-detail-delete__btn"
+              onClick={() => {
+                setDeleteOpen(true);
+                setDeleteError('');
+              }}
+            >
+              <Trash2 size={18} aria-hidden />
+              Delete
+            </button>
+          )}
+        </section>
+      ) : null}
       {gatcPicker ? (
         <GatcSerialPickerDialog
           title={gatcPicker.title}

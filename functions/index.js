@@ -377,7 +377,7 @@ import {
   pushSerialsToZohoInvoiceSafe,
   unlinkNonGatcSerialsFromInvoice,
 } from './lib/non-gatc-serial-allot.js';
-import { voidAdminInvoice } from './lib/void-admin-invoice.js';
+import { voidAdminInvoice, voidInvoiceInFirestore } from './lib/void-admin-invoice.js';
 import { pushRcInvoiceSerialsToYesGatc } from './lib/yesgatc-rc-invoice-push.js';
 import { pushRcSoldToYesGatc } from './lib/yesgatc-sold-push.js';
 import {
@@ -416,6 +416,7 @@ import {
   handleVoiceTranslateWrite,
 } from './lib/whatsapp-voice-translate.js';
 import { handleVoxbayCall } from './lib/voxbay-ingest.js';
+import { transcribePhoneCall } from './lib/phone-transcribe.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
 void CI_BUILD_TAG;
@@ -8069,6 +8070,37 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
   },
 );
 
+export const voidInvoiceLocallyFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireAdminInvoiceDocumentAccess(uid);
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      return await voidInvoiceInFirestore({
+        uid,
+        customerId,
+        invoiceId,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not delete this invoice.',
+      );
+    }
+  },
+);
+
 export const voidAdminInvoiceFn = onCall(
   {
     region: 'asia-south1',
@@ -8401,6 +8433,32 @@ export const ingestVoxbayCall = onRequest(
     } catch (err) {
       console.error('ingestVoxbayCall failed:', err);
       if (!res.headersSent) res.status(500).send('error');
+    }
+  },
+);
+
+/** Sarvam Saaras transcription for a call-log recording. */
+export const transcribePhoneCallFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async (request) => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await transcribePhoneCall(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const code = [
+        'invalid-argument',
+        'failed-precondition',
+        'not-found',
+        'permission-denied',
+        'unavailable',
+        'resource-exhausted',
+      ].includes(err?.code) ? err.code : 'internal';
+      throw new HttpsError(code, err?.message ?? 'Could not transcribe this recording.');
     }
   },
 );

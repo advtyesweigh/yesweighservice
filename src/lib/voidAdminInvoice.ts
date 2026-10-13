@@ -9,6 +9,18 @@ export type VoidAdminInvoiceResult = {
   invoiceId?: string;
 };
 
+export async function voidInvoiceLocally(input: {
+  customerId: string;
+  invoiceId: string;
+}): Promise<{ voided: boolean; invoiceId?: string }> {
+  const fn = httpsCallable<typeof input, { voided: boolean; invoiceId?: string }>(
+    getFunctions(app, 'asia-south1'),
+    'voidInvoiceLocallyFn',
+    { timeout: 60_000 },
+  );
+  return (await fn(input)).data;
+}
+
 export async function voidAdminInvoice(input: {
   customerId: string;
   invoiceId: string;

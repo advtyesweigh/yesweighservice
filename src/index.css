@@ -42191,6 +42191,57 @@ button.invoice-detail-top__card {
   transform: translateY(-1px);
 }
 
+.invoice-detail-delete {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem !important;
+}
+
+.invoice-detail-delete__btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.invoice-detail-delete__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.invoice-detail-delete__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.invoice-detail-delete__pin {
+  width: 100%;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  font: inherit;
+}
+
+.invoice-detail-delete__error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 0.8125rem;
+}
+
+.invoice-detail-delete__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invoice-detail-delete__actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
 .invoice-manual-logistics__hint,
 .invoice-manual-logistics__saved {
   margin: 0;

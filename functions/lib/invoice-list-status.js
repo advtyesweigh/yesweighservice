@@ -50,6 +50,8 @@ function logisticsListStatus(logistics) {
 }
 
 export function invoiceListStatusFromDoc(doc) {
+  const zoho = String(doc?.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (zoho === 'void') return 'void';
   if (hasMarkedAt(doc?.customerPickup, doc?.customerPickupMarkedAt)) return 'customer_pickup';
   if (hasMarkedAt(doc?.manualDelivery, doc?.manualDeliveredAt)) return 'delivered';
   const logistics = logisticsListStatus(doc?.logistics);
@@ -57,8 +59,6 @@ export function invoiceListStatusFromDoc(doc) {
     if (logistics === 'cancelled') return 'to_dispatch';
     return logistics;
   }
-  const zoho = String(doc?.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  if (zoho === 'void') return 'void';
   if (allowsLogistics(doc)) return 'to_dispatch';
   return zoho || 'sent';
 }

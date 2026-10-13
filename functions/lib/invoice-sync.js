@@ -761,6 +761,15 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         doc.balance = 0;
       }
     }
+    if (existing.voidLocalOnly) {
+      doc.status = 'void';
+      doc.voidLocalOnly = true;
+      doc.listStatus = 'void';
+      if (existing.voidedAt) doc.voidedAt = existing.voidedAt;
+      if (existing.voidedByUid) doc.voidedByUid = existing.voidedByUid;
+      if (existing.voidedByName) doc.voidedByName = existing.voidedByName;
+      if (existing.voidReason) doc.voidReason = existing.voidReason;
+    }
     if (Array.isArray(doc.lineItems)) {
       const { reattachPreservedSerialsToLines } = await import('./non-gatc-serial-allot.js');
       doc.lineItems = await reattachPreservedSerialsToLines({
@@ -797,7 +806,10 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
   await invoiceIndexRef(invoiceId).set({ customerId, updatedAt: FieldValue.serverTimestamp() });
 
   const statusKey = String(doc.status || '').trim().toLowerCase();
-  if (statusKey === 'void' || statusKey === 'cancelled' || statusKey === 'canceled') {
+  if (
+    !doc.voidLocalOnly
+    && (statusKey === 'void' || statusKey === 'cancelled' || statusKey === 'canceled')
+  ) {
     try {
       const { applyNonGatcSerialAllotmentOnInvoice } = await import('./non-gatc-serial-allot.js');
       await applyNonGatcSerialAllotmentOnInvoice({
