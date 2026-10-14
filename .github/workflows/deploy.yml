@@ -189,11 +189,9 @@ jobs:
 
           if [ "${{ steps.changed_functions.outputs.deploy_all }}" = "true" ]; then
             DEPLOY_TARGET="functions"
-            SELECTIVE=false
             echo "Deploying all functions (shared functions/ change)."
           else
             DEPLOY_TARGET="${{ steps.changed_functions.outputs.deploy_only }}"
-            SELECTIVE=true
             echo "Deploying ${DEPLOY_TARGET} (${{ steps.changed_functions.outputs.count }} function(s))."
           fi
 
@@ -202,16 +200,10 @@ jobs:
           status=$?
           set -e
 
-          # Selective deploy can leave some functions updated and others not.
-          # One full retry covers orphans / partial failures from this or a prior run.
-          if [ "$status" -ne 0 ] && [ "$SELECTIVE" = "true" ]; then
-            echo "::warning::Selective functions deploy failed — retrying full functions deploy."
-            set +e
-            bash scripts/ci-firebase-deploy.sh functions
-            status=$?
-            set -e
-          fi
-
+          # Do not follow a selective failure with a second deploy of every
+          # function. That repeated Cloud Run health checks for services this
+          # commit did not change. ci-firebase-deploy.sh already retries, and
+          # only the functions that failed.
           if [ "$status" -ne 0 ]; then
             echo "::warning::Functions deploy had errors."
             echo "::warning::If the log mentions a missing environment variable, add it to functions/.env.yesweigh-service via the Prepare functions environment step (e.g. ZOHO_WEBHOOK_SECRET)."
