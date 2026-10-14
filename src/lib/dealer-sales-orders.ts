@@ -5,7 +5,7 @@ import {
   type AdminFirestoreSalesOrder,
   type AdminSalesOrderDetail,
 } from './admin-sales-orders';
-import { appendMachineQcDescription, productHasMachineQc } from './machineQc';
+import { appendMachineQcDescription } from './machineQc';
 import {
   invoiceErrorMessage,
   normalizeInvoiceCategories,
@@ -27,9 +27,7 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     description: appendMachineQcDescription(
       raw.description ? String(raw.description) : null,
       {
-        qcEnabled: raw.qcEnabled === true || productHasMachineQc({
-          categoryName: raw.categoryName ? String(raw.categoryName) : null,
-        }),
+        qcEnabled: raw.qcEnabled === true,
         qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
       },
     ),

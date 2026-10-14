@@ -36,7 +36,7 @@ import {
 } from './salespersonScope';
 import { buildContactLinks } from './phoneLinks';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
-import { appendMachineQcDescription, productHasMachineQc } from './machineQc';
+import { appendMachineQcDescription } from './machineQc';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -297,9 +297,7 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     description: appendMachineQcDescription(
       raw.description ? String(raw.description) : null,
       {
-        qcEnabled: raw.qcEnabled === true || productHasMachineQc({
-          categoryName: raw.categoryName ? String(raw.categoryName) : null,
-        }),
+        qcEnabled: raw.qcEnabled === true,
         qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
       },
     ),

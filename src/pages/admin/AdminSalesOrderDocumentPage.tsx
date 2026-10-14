@@ -313,9 +313,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   }, [showAvailableStock, catalogById, availableQtyByProductId]);
 
   const renderItemWarehouseMeta = useCallback((item: DealerInvoiceLineItem) => {
-    const catalog = catalogById[item.itemId || ''] || catalogById[item.id];
     const qcRequested = !isFreightInvoiceLineItem(item)
-      && lineSupportsDealerInvoicePdf(item, catalog);
+      && lineSupportsDealerInvoicePdf(item);
     const stock = renderItemStockMeta(item);
     if (!qcRequested && !stock) return null;
     return (
@@ -326,7 +325,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         {stock}
       </div>
     );
-  }, [catalogById, renderItemStockMeta]);
+  }, [renderItemStockMeta]);
 
   const hasFreightLine = useMemo(
     () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
@@ -383,11 +382,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         || catalogDescByItemId[line.id]
         || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
         || null;
-      const catalog = catalogById[line.itemId || ''] || catalogById[line.id];
       const description = appendMachineQcDescription(
         line.description?.trim() || fromCatalog || null,
         {
-          qcEnabled: lineSupportsDealerInvoicePdf(line, catalog),
+          qcEnabled: lineSupportsDealerInvoicePdf(line),
           qcFeePerUnit: line.qcFeePerUnit ?? 0,
         },
       );
@@ -478,15 +476,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       lineItems: moveFreightLinesToEnd(mapped).map(line => ({
         ...line,
         description: appendMachineQcDescription(line.description, {
-          qcEnabled: lineSupportsDealerInvoicePdf(
-            line,
-            catalogById[line.itemId || ''] || catalogById[line.id],
-          ),
+          qcEnabled: lineSupportsDealerInvoicePdf(line),
           qcFeePerUnit: line.qcFeePerUnit ?? 0,
         }),
       })),
     };
-  }, [salesOrder, catalogById, catalogDescByItemId, editLines, baselineFingerprint]);
+  }, [salesOrder, catalogDescByItemId, editLines, baselineFingerprint]);
 
   const portalRemarks = useMemo(
     () => (salesOrder ? portalSalesOrderRemarks(salesOrder) : null),
@@ -1162,19 +1157,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const dealerInvoice = salesOrder.dealerCustomerInvoice ?? null;
   const orderHasQc = linesHaveMachineQc(salesOrder.lineItems)
-    || salesOrder.lineItems.some(line => lineSupportsDealerInvoicePdf(
-      line,
-      catalogById[line.itemId || ''] || catalogById[line.id],
-    ));
-  const canManageDealerInvoice = orderHasQc
+    || salesOrder.lineItems.some(line => lineSupportsDealerInvoicePdf(line));
+  const hasDealerInvoicePdf = Boolean(dealerInvoice?.url || dealerInvoice?.storagePath);
+  const canManageDealerInvoice = (orderHasQc || hasDealerInvoicePdf)
     && stage !== 'void'
     && ((isDealer && !hideCommercials) || canManageOrders);
 
   const renderDealerInvoiceMedia = (item: DealerInvoiceLineItem) => {
     if (isFreightInvoiceLineItem(item)) return null;
-    const catalog = catalogById[item.itemId || ''] || catalogById[item.id];
-    if (!lineSupportsDealerInvoicePdf(item, catalog)) return null;
-    const hasPdf = Boolean(dealerInvoice?.url || dealerInvoice?.storagePath);
+    const lineHasQc = lineSupportsDealerInvoicePdf(item);
+    if (!lineHasQc) {
+      if (!hasDealerInvoicePdf) return null;
+      const firstProduct = salesOrder.lineItems.find(line => !isFreightInvoiceLineItem(line));
+      if (firstProduct?.id !== item.id) return null;
+    }
+    const hasPdf = hasDealerInvoicePdf;
     const stopItemSelect = (event: React.SyntheticEvent) => {
       event.stopPropagation();
     };

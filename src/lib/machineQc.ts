@@ -26,14 +26,6 @@ export function productHasMachineQc(
   return machineQcFeeForCategory(product?.categoryName) > 0;
 }
 
-export function lineSupportsDealerInvoicePdf(
-  line: { qcEnabled?: boolean | null; categoryName?: string | null } | null | undefined,
-  catalog?: { categoryName?: string | null } | null,
-): boolean {
-  if (line?.qcEnabled === true) return true;
-  return productHasMachineQc(line) || productHasMachineQc(catalog);
-}
-
 export function resolveMachineQc(
   categoryName: string | null | undefined,
   qcEnabled: boolean | null | undefined,
@@ -101,6 +93,17 @@ export function lineLooksLikeMachineQc(
   if (line.qcEnabled === true || Number(line.qcFeePerUnit) > 0) return true;
   if (descriptionHasMachineQc(line.description)) return true;
   return false;
+}
+
+/** Dealer invoice PDF and the "QC requested" label apply only after QC is ticked. */
+export function lineSupportsDealerInvoicePdf(
+  line: {
+    qcEnabled?: boolean | null;
+    qcFeePerUnit?: number | null;
+    description?: string | null;
+  } | null | undefined,
+): boolean {
+  return lineLooksLikeMachineQc(line);
 }
 
 export function documentLooksLikeMachineQc(input?: {
