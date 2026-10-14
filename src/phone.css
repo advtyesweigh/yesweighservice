@@ -655,9 +655,9 @@ a.call-row__tower:hover { color: var(--accent-text); }
 
 .call-transcript__turn + .call-transcript__turn { margin-top: 0.55rem; }
 
-/* Meezan speaker lines (agent #008069, customer #1d7fe0), lifted so both stay readable on the dark card. */
-.call-transcript__turn--agent .call-transcript__line { color: #3ddeb4; }
-.call-transcript__turn--customer .call-transcript__line { color: #5aa8ff; }
+/* Meezan speaker lines (agent #008069, customer #1d7fe0), pale tints for the dark card. */
+.call-transcript__turn--agent .call-transcript__line { color: #b4f5d6; }
+.call-transcript__turn--customer .call-transcript__line { color: #c5e2ff; }
 
 .call-row__play--stop {
   background: rgba(239, 68, 68, 0.16);
