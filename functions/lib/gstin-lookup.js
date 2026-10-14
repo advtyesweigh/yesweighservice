@@ -1,6 +1,7 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { canonicalGstState } from './location-utils.js';
 
 const COLLECTION = 'gstinPlaces';
 const CACHE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -355,6 +356,9 @@ export async function lookupGstinDetails(input = {}, ctx = {}) {
   mapped.legalName = mapped.legalName || companyName;
   mapped.tradeName = mapped.tradeName || companyName;
   mapped.gstTreatment = mapped.gstTreatment || 'business_gst';
-  mapped.state = mapped.state || GSTIN_STATE_NAMES[gstin.slice(0, 2)] || '';
+  mapped.state = canonicalGstState(mapped.state)
+    || GSTIN_STATE_NAMES[gstin.slice(0, 2)]
+    || mapped.state
+    || '';
   return mapped;
 }

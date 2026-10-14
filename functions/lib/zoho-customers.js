@@ -9,6 +9,7 @@ import {
 import { classifyZohoHttpError, recordZohoApiFailure } from './zoho-api-usage.js';
 import { extractWebhookEvent } from './invoice-sync.js';
 import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
+import { normalizeStateName } from './location-utils.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
@@ -316,7 +317,9 @@ export async function refreshDealerFromZoho(id, secrets, orgId, { force = false 
   const address = (shipping?.state || shipping?.city) ? shipping : billing;
   if (address) {
     if (!existing.billingState && (address.state || address.state_code)) {
-      patch.billingState = address.state || address.state_code;
+      patch.billingState = normalizeStateName(address.state || address.state_code)
+        || address.state
+        || address.state_code;
     }
     if (!existing.district && address.city) {
       patch.district = address.city;
@@ -730,7 +733,9 @@ export async function upsertCustomerFromZoho(secrets, orgId, contactId) {
   const address = (shipping?.state || shipping?.city) ? shipping : billing;
   if (address) {
     if (!existing?.billingState && (address.state || address.state_code)) {
-      patch.billingState = address.state || address.state_code;
+      patch.billingState = normalizeStateName(address.state || address.state_code)
+        || address.state
+        || address.state_code;
     }
     if (!existing?.district && address.city) {
       patch.district = address.city;

@@ -1,4 +1,5 @@
 /** Map Zoho Inventory contact API payloads to read-only Firestore fields. */
+import { canonicalGstState } from './location-utils.js';
 
 export const ZOHO_ADDRESS_LINE_MAX = 100;
 
@@ -30,7 +31,7 @@ export function fitZohoAddressLines(input = {}) {
     address: first.head,
     street2: second.head,
     city: capField(input.city),
-    state: capField(input.state),
+    state: capField(canonicalGstState(input.state) || input.state),
     zip: String(input.zip || '').replace(/\s+/g, '').slice(0, 12),
     country: capField(input.country || 'India') || 'India',
     phone: capField(input.phone, 50),

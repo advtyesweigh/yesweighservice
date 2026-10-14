@@ -68,6 +68,8 @@ const ALIASES: Record<string, string> = {
   tamilnadu: 'Tamil Nadu',
   tn: 'Tamil Nadu',
   kerala: 'Kerala',
+  keralam: 'Kerala',
+  kerela: 'Kerala',
   kl: 'Kerala',
   kerla: 'Kerala',
   karnataka: 'Karnataka',

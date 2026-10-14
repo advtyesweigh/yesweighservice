@@ -10,7 +10,7 @@
  * A real ship-to GSTIN is shipping_gst_no — never replaced with URP.
  */
 import { fitZohoAddressLines } from './zoho-contact-fields.js';
-import { lookupPincodeLocation, normalizeStateName } from './location-utils.js';
+import { canonicalGstState, lookupPincodeLocation } from './location-utils.js';
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
@@ -110,7 +110,8 @@ function streetFromParts(parts, { attention, city, state, country, phone }) {
 }
 
 /**
- * True when IRP's billing street, city, state, zip, and country are all present.
+ * True when IRP's billing street, city, state, zip, and country are all present
+ * and the state is already the GST master name. "Keralam" is not ready.
  * A formatted blob sitting only in `address` is not ready.
  */
 export function billingAddressIsIrpReady(addr) {
@@ -118,9 +119,41 @@ export function billingAddressIsIrpReady(addr) {
   const street = text(addr.address || addr.street);
   const city = text(addr.city);
   const state = text(addr.state);
-  const zip = pinCode(addr.zip);
+  const zip = pinCode(addr.zip) || pinCode(addr.postal_code);
   const country = countryName(addr.country);
-  return Boolean(street && city && state && zip && country);
+  return Boolean(street && city && state && canonicalGstState(state) === state && zip && country);
+}
+
+/** True when a stored state must be rewritten before IRP. Blank is not a rewrite. */
+export function stateNeedsGstRewrite(value) {
+  const raw = text(value);
+  if (!raw) return false;
+  const canonical = canonicalGstState(raw);
+  return Boolean(canonical && canonical !== raw);
+}
+
+/**
+ * Seller Bill From address from a Zoho branch / location.
+ * IRP reads dispatch_from_address. An empty object has no state.
+ */
+export function dispatchAddressFromLocation(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const street = flatten(raw.street_address1 || raw.address || raw.street);
+  const street2 = flatten(raw.street_address2 || raw.street2);
+  const city = text(raw.city);
+  const state = canonicalGstState(raw.state) || canonicalGstState(raw.state_code);
+  const zip = pinCode(raw.postal_code || raw.zip || raw.zipcode);
+  const country = countryName(raw.country) || (state ? 'India' : '');
+  if (!street || !city || !state || !zip) return null;
+  return fitZohoAddressLines({
+    address: street,
+    street2,
+    city,
+    state,
+    zip,
+    country: country || 'India',
+    phone: text(raw.phone),
+  });
 }
 
 function addressScore(addr) {
@@ -170,7 +203,7 @@ export function structureBillingAddress(raw, pinLocation = null) {
   const street2 = flatten(raw.street2);
   let street = flatten(raw.address || raw.street);
   let city = text(raw.city);
-  let state = normalizeStateName(raw.state) || text(raw.state);
+  let state = canonicalGstState(raw.state);
   let zip = pinCode(raw.zip) || pinCode(street) || pinCode(street2);
   let country = countryName(raw.country);
 
@@ -196,7 +229,7 @@ export function structureBillingAddress(raw, pinLocation = null) {
   const blob = [street, street2, city, state, zip, country].filter(Boolean).join(', ');
   if (!zip) zip = pinCode(blob);
   if (!state) state = findState(blob);
-  if (state) state = normalizeStateName(state) || state;
+  if (state) state = canonicalGstState(state);
   if (!country && (/\bindia\b/i.test(blob) || street || zip || city || state)) country = 'India';
 
   const streetHoldsRest = Boolean(
@@ -217,7 +250,7 @@ export function structureBillingAddress(raw, pinLocation = null) {
     }
   }
   if (!city) city = pinCity(pinLocation);
-  if (!state && pinLocation?.state) state = normalizeStateName(pinLocation.state) || text(pinLocation.state);
+  if (!state && pinLocation?.state) state = canonicalGstState(pinLocation.state);
   if (!country && (street || city || state || zip)) country = 'India';
 
   if (streetHoldsRest) {

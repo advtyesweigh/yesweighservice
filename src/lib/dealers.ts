@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
 import type { DealerAddress } from './dealerAddress';
 import { isHiddenKamName } from './dealerKamDisplay';
+import { canonicalIndiaState, UNSPECIFIED_STATE } from './indiaStates';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -229,9 +230,11 @@ async function lookupPincodeFromPostalApi(
     PostOffice?: Array<{ Name?: string; District?: string; Block?: string; State?: string }>;
   }>;
   const office = data?.[0]?.Status === 'Success' ? data[0].PostOffice?.[0] : null;
-  const state = String(office?.State ?? '').trim();
+  const postalState = String(office?.State ?? '').trim();
   const district = String(office?.District ?? '').trim();
-  if (!state || !district) return null;
+  if (!postalState || !district) return null;
+  const canon = canonicalIndiaState(postalState);
+  const state = canon === UNSPECIFIED_STATE ? postalState : canon;
   const city = String(office?.Block || office?.Name || district).trim();
   return { state, district, city };
 }

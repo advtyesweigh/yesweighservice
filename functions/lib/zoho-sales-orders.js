@@ -14,10 +14,12 @@ import { KNOWN_ZOHO_WAREHOUSE_IDS, loadZohoLocationIdsBySite } from './zoho-loca
 import { ZOHO_CUSTOMER_ACCESS_DENIED_TEXT } from './zoho-contact-addresses.js';
 import {
   billingAddressIsIrpReady,
+  dispatchAddressFromLocation,
   normalizeShipGstin,
   preferBillingRaw,
   resolveStructuredBillingAddress,
   shippingRecipientGstFields,
+  stateNeedsGstRewrite,
 } from './zoho-einvoice-address.js';
 
 function hsnDigits(value) {
@@ -1643,8 +1645,10 @@ async function loadContactBillingAddress(accessToken, orgId, customerId) {
 async function einvoiceAddressFields(accessToken, orgId, doc, {
   shippingPhone = null,
   shippingGstin = null,
+  loadDispatchAddress = null,
 } = {}) {
   if (!doc || typeof doc !== 'object') return {};
+  await canonicalizeStoredContactStates(accessToken, orgId, doc.customer_id);
   const transactionBilling = doc.billing_address && typeof doc.billing_address === 'object'
     ? doc.billing_address
     : null;
@@ -1665,6 +1669,15 @@ async function einvoiceAddressFields(accessToken, orgId, doc, {
   const shipping = doc.shipping_address && typeof doc.shipping_address === 'object'
     ? doc.shipping_address
     : null;
+  const shippingStateNeedsRewrite = stateNeedsGstRewrite(shipping?.state);
+  const dispatchStateMissing = Boolean(doc.invoice_id)
+    && !billingAddressIsIrpReady({
+      ...(doc.dispatch_from_address || {}),
+      address: doc.dispatch_from_address?.address
+        || doc.dispatch_from_address?.street_address1
+        || doc.dispatch_from_address?.street,
+      zip: doc.dispatch_from_address?.zip || doc.dispatch_from_address?.postal_code,
+    });
   const gst = shippingRecipientGstFields({
     ...(shipping || {}),
     ...(shippingGstin ? { gstin: shippingGstin } : {}),
@@ -1677,6 +1690,20 @@ async function einvoiceAddressFields(accessToken, orgId, doc, {
 
   const patch = {};
   if (applyBilling) patch.billing_address = billing;
+  if (shippingStateNeedsRewrite && shipping) {
+    patch.shipping_address = fitZohoAddressLines({
+      ...shipping,
+      phone: shippingPhone || shipping.phone || '',
+    });
+  }
+  if (dispatchStateMissing && typeof loadDispatchAddress === 'function') {
+    try {
+      const dispatch = dispatchAddressFromLocation(await loadDispatchAddress(doc));
+      if (dispatch?.state) patch.dispatch_from_address = dispatch;
+    } catch (err) {
+      console.warn('Could not fill Bill From address:', err?.message || err);
+    }
+  }
   if (
     gst.shipping_gst_no
     && String(doc.shipping_gst_no || '').replace(/[\s-]/g, '').toUpperCase() !== gst.shipping_gst_no
@@ -1696,15 +1723,115 @@ async function einvoiceAddressFields(accessToken, orgId, doc, {
     // Inline phone. shipping_address_id reprints the bill-to phone.
     // Keep billing_address on the same PUT so street and city are not cleared.
     patch.shipping_address = shippingFields.shipping_address;
-    if (!patch.billing_address && hasBillingStreetAndCity(billing)) {
-      patch.billing_address = billing;
-    }
+  }
+  if (
+    (patch.shipping_address || patch.dispatch_from_address)
+    && !patch.billing_address
+    && hasBillingStreetAndCity(billing)
+  ) {
+    patch.billing_address = billing;
   }
   return patch;
 }
 
+function locationAddressOf(loc) {
+  if (!loc || typeof loc !== 'object') return null;
+  const address = loc.address && typeof loc.address === 'object' ? loc.address : loc;
+  return {
+    ...address,
+    phone: address.phone || loc.phone || '',
+  };
+}
+
+async function loadDispatchLocationAddress(accessToken, orgId, doc) {
+  const id = String(doc?.branch_id || doc?.location_id || '').trim();
+  if (!id) return null;
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/locations/${encodeURIComponent(id)}`);
+    const fromLocation = locationAddressOf(payload?.location || payload?.branch);
+    if (dispatchAddressFromLocation(fromLocation)) return fromLocation;
+  } catch (err) {
+    console.warn(`Could not load Zoho location ${id} for Bill From:`, err?.message || err);
+  }
+  try {
+    const url = new URL(`https://www.zohoapis.in/books/v3/branches/${encodeURIComponent(id)}`);
+    url.searchParams.set('organization_id', orgId);
+    const res = await fetch(url, { headers: authHeaders(accessToken, orgId) });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    return locationAddressOf(payload?.branch || payload?.location);
+  } catch (err) {
+    console.warn(`Could not load Zoho branch ${id} for Bill From:`, err?.message || err);
+    return null;
+  }
+}
+
+async function canonicalizeStoredContactStates(accessToken, orgId, customerId) {
+  const id = String(customerId || '').trim();
+  if (!id) return;
+  let contact = null;
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/contacts/${encodeURIComponent(id)}`);
+    contact = payload?.contact || null;
+  } catch (err) {
+    console.warn(`Could not read contact ${id} to correct state:`, err?.message || err);
+    return;
+  }
+  if (!contact) return;
+
+  const body = {};
+  if (stateNeedsGstRewrite(contact.billing_address?.state)) {
+    body.billing_address = fitZohoAddressLines(contact.billing_address);
+  }
+  if (stateNeedsGstRewrite(contact.shipping_address?.state)) {
+    body.shipping_address = fitZohoAddressLines(contact.shipping_address);
+  }
+  if (Object.keys(body).length) {
+    if (contact.contact_name) body.contact_name = contact.contact_name;
+    try {
+      await zohoJson(accessToken, orgId, `/contacts/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body,
+      });
+    } catch (err) {
+      console.warn(`Could not correct contact ${id} state:`, err?.message || err);
+    }
+  }
+
+  let addresses = [];
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/contacts/${encodeURIComponent(id)}/address`);
+    addresses = Array.isArray(payload?.addresses) ? payload.addresses : [];
+  } catch (err) {
+    console.warn(`Could not list contact ${id} addresses:`, err?.message || err);
+    return;
+  }
+  for (const row of addresses) {
+    if (!stateNeedsGstRewrite(row?.state)) continue;
+    const addressId = String(row.address_id || '').trim();
+    if (!addressId) continue;
+    try {
+      await zohoJson(
+        accessToken,
+        orgId,
+        `/contacts/${encodeURIComponent(id)}/address/${encodeURIComponent(addressId)}`,
+        { method: 'PUT', body: fitZohoAddressLines(row) },
+      );
+    } catch (err) {
+      console.warn(`Could not correct contact address ${addressId} state:`, err?.message || err);
+    }
+  }
+}
+
 async function applyEinvoiceAddress(accessToken, orgId, kind, doc, options = {}) {
-  const patch = await einvoiceAddressFields(accessToken, orgId, doc, options);
+  const patch = await einvoiceAddressFields(accessToken, orgId, doc, {
+    ...options,
+    loadDispatchAddress: current => loadDispatchLocationAddress(
+      accessToken,
+      orgId,
+      current || doc,
+    ),
+  });
   if (!Object.keys(patch).length) return false;
   const id = String(doc?.invoice_id || doc?.salesorder_id || '').trim();
   if (!id || !doc?.customer_id) return false;
@@ -1730,6 +1857,11 @@ async function applyEinvoiceAddress(accessToken, orgId, kind, doc, options = {})
     delete billingAndShip.shipping_gst_no;
     delete billingAndShip.shipping_legal_name;
     attempts.push(billingAndShip);
+  }
+  if (patch.dispatch_from_address) {
+    const withoutDispatch = { ...base };
+    delete withoutDispatch.dispatch_from_address;
+    attempts.push(withoutDispatch);
   }
 
   let lastErr = null;
@@ -1891,7 +2023,10 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
           || inv.shipping_gst_no
           || so.shipping_gst_no,
         shipping_legal_name: inv.shipping_legal_name || so.shipping_legal_name,
-      }, { shippingPhone: selectedShippingPhone });
+      }, {
+        shippingPhone: selectedShippingPhone,
+        loadDispatchAddress: current => loadDispatchLocationAddress(accessToken, orgId, current || inv),
+      });
     } catch (err) {
       console.warn(
         `Could not build e-invoice address for invoice ${invoiceId}:`,
@@ -1983,7 +2118,10 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
           || inv.shipping_gst_no
           || so.shipping_gst_no,
         shipping_legal_name: inv.shipping_legal_name || so.shipping_legal_name,
-      }, { shippingPhone: selectedShippingPhone });
+      }, {
+        shippingPhone: selectedShippingPhone,
+        loadDispatchAddress: current => loadDispatchLocationAddress(accessToken, orgId, current || inv),
+      });
     } catch (err) {
       console.warn(
         `Invoice ${invoiceId} billing address was not restored after Ship To:`,
