@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shortage review — items left for a decision</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e5e4;
+      --paper: #fafaf9;
+      --card: #fff;
+      --decide: #9a3412;
+      --decide-bg: #fff7ed;
+      --ok: #166534;
+      --ok-bg: #f0fdf4;
+      --look: #854d0e;
+      --look-bg: #fefce8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.5 "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 8px; }
+    h2 { font-size: 1.15rem; margin: 36px 0 8px; }
+    p { margin: 0 0 12px; }
+    .lede { color: var(--muted); max-width: 68ch; }
+    .banner {
+      border: 1px solid #bbf7d0;
+      background: var(--ok-bg);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 20px 0 8px;
+    }
+    .banner strong { color: var(--ok); }
+    article {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px 16px 8px;
+      margin: 12px 0;
+    }
+    article header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .sku { font-weight: 700; letter-spacing: 0.02em; }
+    .tag {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+    .tag.decide { color: var(--decide); background: var(--decide-bg); }
+    .tag.look { color: var(--look); background: var(--look-bg); }
+    .tag.ok { color: var(--ok); background: var(--ok-bg); }
+    .now { margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+    .now b { font-size: 1.05rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 8px 0 12px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .note { background: #f5f5f4; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+    ul { margin: 8px 0 16px; padding-left: 1.2rem; }
+    li { margin: 4px 0; }
+    .quiet { color: var(--muted); font-size: 0.92rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Items left for a manual decision</h1>
+  <p class="lede">15 Oct 2026. These 20 products were not rewritten. A goods receipt was posted after the last clean bin count, so the right difference is a stock decision, not a formula.</p>
+
+  <div class="banner">
+    <strong>This wipe will not run again.</strong>
+    A sale used to move a negative difference toward zero and make the audited quantity match Zoho. That rule is removed. A sale now keeps the difference, including a shortage. Only a new physical count, or a goods receipt that is still waiting to post in Zoho, changes it. The scheduled sync, the manual sync, and record-audit are already deployed with that rule. 64 other products, 409 missing pieces, were put back to their last clean count and are not listed here.
+  </div>
+
+  <h2>Decide these</h2>
+  <p>A shortage from a real count was cleared by a later sale, and a goods receipt in between made it unsafe to put the old number back automatically.</p>
+
+  <article>
+    <header>
+      <div><span class="sku">ECS5W</span> — Electronic cash scale Q8</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>6</b>, audit <b>6</b>, <b>0</b></p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>19 Jul</td><td>Faisal AK, shelf count</td><td class="num">6</td><td class="num">1</td><td class="num">−5</td></tr>
+        <tr><td>14 Aug, 7:54 pm</td><td>Sync, after a receipt had posted</td><td class="num">60</td><td class="num">55</td><td class="num">−5</td></tr>
+        <tr><td>17 Aug, 11:30 am</td><td>Sync, sale of 12</td><td class="num">48</td><td class="num">48</td><td class="num">0</td></tr>
+        <tr><td>23 Sep</td><td>Sivaprasad K, goods receipt</td><td class="num">6</td><td class="num">131</td><td class="num">+125</td></tr>
+        <tr><td>23 Sep, next sync</td><td>Zoho caught the receipt</td><td class="num">131</td><td class="num">131</td><td class="num">0</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The −5 came back once the August receipt posted, then the 17 Aug sale erased it. The September receipt posted in full and left the difference at 0. Count the scales if that July shortage of 5 is still on the floor. If the receipt replaced the missing units, leave 0.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">ECS814</span> — ECS5W printer</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>14</b>, audit <b>14</b>, <b>0</b></p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>10 Jul</td><td>Diya, shelf count</td><td class="num">2</td><td class="num">1</td><td class="num">−1</td></tr>
+        <tr><td>17 Aug</td><td>Sync, sale</td><td class="num">8</td><td class="num">8</td><td class="num">0</td></tr>
+        <tr><td>19 Aug</td><td>Shibin K P, goods receipt</td><td class="num">8</td><td class="num">8</td><td class="num">0</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The missing printer was cleared by the sale before the receipt. The receipt itself was saved as 0, and the bin total on that row (26) does not match the audit quantity (8). Count if one printer is still missing. Otherwise leave 0.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">ECS815</span> — ECS5W mother board</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>29</b>, audit <b>27</b>, <b>−2</b>. The July count was <b>−6</b>.</p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>22 Jul</td><td>Shibin K P, shelf count</td><td class="num">28</td><td class="num">22</td><td class="num">−6</td></tr>
+        <tr><td>19 Aug</td><td>Shibin K P, goods receipt</td><td class="num">28</td><td class="num">22</td><td class="num">−6</td></tr>
+        <tr><td>21 Aug – 16 Sep</td><td>Three sales</td><td class="num">29</td><td class="num">27</td><td class="num">−2</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The receipt kept −6, but its bin total was 27 against an audit quantity of 22, so it was not used as a clean count. Later sales then ate four of the six. If those six boards are still missing, the difference should be −6, not −2.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">ECS825</span> — ECS5W keyboard sticker</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>26</b>, audit <b>23</b>, <b>−3</b>. The July count was <b>+2</b>.</p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>16 Jul</td><td>Shelf count</td><td class="num">21</td><td class="num">23</td><td class="num">+2</td></tr>
+        <tr><td>19 Aug</td><td>Shibin K P, goods receipt</td><td class="num">21</td><td class="num">23</td><td class="num">+2</td></tr>
+        <tr><td>19 Aug, 11:30 am</td><td>Sync, Zoho rose by 10</td><td class="num">31</td><td class="num">23</td><td class="num">−8</td></tr>
+        <tr><td>19 Aug, 5:30 pm</td><td>Sync, sale of 5</td><td class="num">26</td><td class="num">23</td><td class="num">−3</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The receipt row still says +2, but the bin total on it is 33 while the audit quantity is 23. The next sync did not keep the +2. Books now show a shortage of 3. Count the stickers. Do not assume either +2 or −3 without a count.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">Q8623</span> — Motherboard TMA wifi</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>16</b>, audit <b>15</b>, <b>−1</b>. The July count was <b>−2</b>.</p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>22 Jul</td><td>Shibin K P, shelf count</td><td class="num">12</td><td class="num">10</td><td class="num">−2</td></tr>
+        <tr><td>19 Aug, receipt</td><td>Shibin K P</td><td class="num">12</td><td class="num">10</td><td class="num">−2</td></tr>
+        <tr><td>19 Aug, 11:30 am</td><td>Sync, Zoho rose</td><td class="num">17</td><td class="num">15</td><td class="num">−2</td></tr>
+        <tr><td>19 Aug, 5:30 pm</td><td>Sync, sale of 1</td><td class="num">16</td><td class="num">15</td><td class="num">−1</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The receipt kept the shortage, then one sale removed one of the two. The receipt bin total was 15 against an audit quantity of 10, so this was not auto-corrected. If both boards are still missing, set the difference back to −2.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">Q9703</span> — Q9LBL print head</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>24</b>, audit <b>24</b>, <b>0</b></p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>10 Jul</td><td>Diya, shelf count</td><td class="num">29</td><td class="num">26</td><td class="num">−3</td></tr>
+        <tr><td>24 Aug</td><td>Sales had cleared it</td><td class="num">14</td><td class="num">14</td><td class="num">0</td></tr>
+        <tr><td>26 Sep</td><td>Shibin K P, goods receipt</td><td class="num">7</td><td class="num">37</td><td class="num">+30</td></tr>
+        <tr><td>26 Sep, next sync</td><td>Zoho caught the receipt</td><td class="num">37</td><td class="num">37</td><td class="num">0</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The −3 was already gone before the receipt. The receipt then posted in full and correctly returned to 0, not to −3. Count only if those three heads from July are still missing after the new stock arrived.</p>
+  </article>
+
+  <article>
+    <header>
+      <div><span class="sku">Q9716</span> — Q9LBL printer roller</div>
+      <span class="tag decide">Decide</span>
+    </header>
+    <p class="now">Books now: Zoho <b>69</b>, audit <b>69</b>, <b>0</b>. July count was <b>−4</b>.</p>
+    <table>
+      <thead><tr><th>When</th><th>Who</th><th class="num">Zoho</th><th class="num">Audit</th><th class="num">+/-</th></tr></thead>
+      <tbody>
+        <tr><td>9 Jul</td><td>Diya, shelf count</td><td class="num">5</td><td class="num">1</td><td class="num">−4</td></tr>
+        <tr><td>23 Sep</td><td>Sales had reduced it</td><td class="num">23</td><td class="num">22</td><td class="num">−1</td></tr>
+        <tr><td>26 Sep</td><td>Shibin K P, goods receipt</td><td class="num">23</td><td class="num">72</td><td class="num">+49</td></tr>
+        <tr><td>26 Sep, next sync</td><td>Zoho caught most of the receipt</td><td class="num">73</td><td class="num">72</td><td class="num">−1</td></tr>
+        <tr><td>6 Oct</td><td>Sync, sale</td><td class="num">69</td><td class="num">69</td><td class="num">0</td></tr>
+      </tbody>
+    </table>
+    <p class="note">By the time of the receipt only 1 of the original 4 was still on the books, and the 6 Oct sale cleared that last one. The receipt bin total (66) also does not match the audit quantity (72). Count the rollers if a shortage should still be open.</p>
+  </article>
+
+  <h2>Glance, then leave if the receipt remainder is real</h2>
+
+  <article>
+    <header>
+      <div><span class="sku">BPPRMS</span> — Bench scale Pro MS</div>
+      <span class="tag look">Glance</span>
+    </header>
+    <p class="now">Books now: Zoho <b>755</b>, audit <b>767</b>, <b>+12</b></p>
+    <p class="note">The last clean count on 17 Jul was 0. On 24 Sep Sivaprasad recorded a goods receipt of 800. Zoho then rose by 788, and the difference settled at +12. That 12 is the part of the receipt Zoho did not absorb on the next sync. It is not a sale clearing a shortage. Leave +12 if those units are still not in Zoho. Change it only if the shelf does not actually have them.</p>
+  </article>
+
+  <h2>Already consistent — nothing was changed</h2>
+  <p>On these, the goods receipt posted into Zoho and the difference already matches the last clean count, or the old shortage is still intact. They were skipped only because a receipt sits in the log.</p>
+  <table>
+    <thead>
+      <tr><th>SKU</th><th>Item</th><th class="num">Now</th><th>Why it was left</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>BPCQZ2</td><td>Bench scale Qz2</td><td class="num">+7</td><td>Shalima’s 19 Sep count was +7. The 24 Sep receipt briefly showed +31, then Zoho posted it and +7 remained.</td></tr>
+      <tr><td>BPPRSS</td><td>Bench scale Pro SS</td><td class="num">0</td><td>Receipt of 99 posted into Zoho on the next sync. Difference returned to 0. Sales since then kept 0.</td></tr>
+      <tr><td>ECR105</td><td>ECR keypad</td><td class="num">0</td><td>July count was already 0. The August receipt row is also 0.</td></tr>
+      <tr><td>HGLBL</td><td>Label printing scale</td><td class="num">0</td><td>Receipt of 15 posted into Zoho. Difference returned to 0.</td></tr>
+      <tr><td>LBLIND</td><td>Label indicator</td><td class="num">0</td><td>Both receipts posted, and the following sync set the difference back to 0.</td></tr>
+      <tr><td>PFPC42X52SS</td><td>Platform scale 420×520 SS</td><td class="num">+10</td><td>Shalima’s count was +10. The receipt of 160 posted, and +10 remained.</td></tr>
+      <tr><td>PSC</td><td>Pallet scale</td><td class="num">0</td><td>Receipt of 18 posted into Zoho. Difference returned to 0.</td></tr>
+      <tr><td>Q10LBL</td><td>Label printing scale Q10</td><td class="num">−1</td><td>The old shortage was −1. After the receipt posted, −1 was still there. It was not wiped.</td></tr>
+      <tr><td>Q9719</td><td>Q9LBL printer motherboard</td><td class="num">+2</td><td>Diya’s count was +2. The receipt posted, and +2 remained.</td></tr>
+      <tr><td>Q9735</td><td>Q9LBL 5-pin wires</td><td class="num">−12</td><td>The July shortage of 12 is still the current difference. The receipt did not clear it.</td></tr>
+      <tr><td>Q9736</td><td>Q9LBL 15-pin wires</td><td class="num">−4</td><td>The July shortage of 4 is still the current difference.</td></tr>
+      <tr><td>Q9LBL</td><td>Label printing scale Q9</td><td class="num">0</td><td>The count before the receipts was 0. Both large receipts posted into Zoho and the difference returned to 0.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What a future sale will do</h2>
+  <ul>
+    <li>Zoho stock goes down: audited quantity goes down by the same amount. The +/− stays.</li>
+    <li>Zoho stock goes up with no pending goods receipt: the +/− stays. Audited quantity moves with Zoho.</li>
+    <li>A goods receipt that is not in Zoho yet: the difference includes that inbound until Zoho posts it, then the previous difference remains.</li>
+    <li>A new shelf count replaces the difference. That is the only way a shortage closes.</li>
+  </ul>
+  <p class="quiet">Figures are the audit log and the saved product snapshot on 15 Oct 2026, Asia/Kolkata. Open this file in a browser. It does not write back to stock.</p>
+</main>
+</body>
+</html>

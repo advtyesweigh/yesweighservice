@@ -6,8 +6,9 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
 /**
- * Sales keep Diff. Goods-receipt inbound is pending until it posts in Zoho;
- * that consume leaves the prior locked variance (e.g. +3 NC after a 30 receive).
+ * Sales keep Diff, including a shortage. Zoho stock falling does not close it.
+ * Goods-receipt inbound is pending until it posts in Zoho; that consume leaves
+ * the prior locked variance (e.g. +3 NC after a 30 receive).
  * Unsolicited Zoho inbound does not eat the locked Diff — only pending qty does.
  */
 export function nextAuditStateAfterZohoChange(
@@ -30,12 +31,6 @@ export function nextAuditStateAfterZohoChange(
     return {
       baselineDifference: diff - consumed,
       pendingZohoInbound: pending - consumed,
-    };
-  }
-  if (delta < 0 && diff < 0) {
-    return {
-      baselineDifference: Math.min(0, diff - delta),
-      pendingZohoInbound: pending,
     };
   }
   return { baselineDifference: diff, pendingZohoInbound: pending };
