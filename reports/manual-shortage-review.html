@@ -26,7 +26,7 @@
       color: var(--ink);
       background: var(--paper);
     }
-    main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+    main { max-width: 1040px; margin: 0 auto; padding: 32px 20px 64px; }
     h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 8px; }
     h2 { font-size: 1.15rem; margin: 36px 0 8px; }
     p { margin: 0 0 12px; }
@@ -74,12 +74,12 @@
 </head>
 <body>
 <main>
-  <h1>Items left for a manual decision</h1>
-  <p class="lede">15 Oct 2026. These 20 products were not rewritten. A goods receipt was posted after the last clean bin count, so the right difference is a stock decision, not a formula.</p>
+  <h1>Shortage repair record — 15 Oct 2026</h1>
+  <p class="lede">Decisions still open are first. The 64 products adjusted automatically are at the end, so this file is the full record of the repair and of what was left alone.</p>
 
   <div class="banner">
     <strong>This wipe will not run again.</strong>
-    A sale used to move a negative difference toward zero and make the audited quantity match Zoho. That rule is removed. A sale now keeps the difference, including a shortage. Only a new physical count, or a goods receipt that is still waiting to post in Zoho, changes it. The scheduled sync, the manual sync, and record-audit are already deployed with that rule. 64 other products, 409 missing pieces, were put back to their last clean count and are not listed here.
+    A sale used to move a negative difference toward zero and make the audited quantity match Zoho. That rule is removed. A sale now keeps the difference, including a shortage. Only a new physical count, or a goods receipt that is still waiting to post in Zoho, changes it. The scheduled sync, the manual sync, and record-audit are already deployed with that rule. The 64 products put back automatically, 409 pieces, are listed at the bottom of this page.
   </div>
 
   <h2>Decide these</h2>
@@ -251,6 +251,86 @@
     <li>A goods receipt that is not in Zoho yet: the difference includes that inbound until Zoho posts it, then the previous difference remains.</li>
     <li>A new shelf count replaces the difference. That is the only way a shortage closes.</li>
   </ul>
+  <h2>Adjusted automatically</h2>
+  <p>On 15 Oct 2026 these sync rows were rewritten. “Wiped to” is the difference Zoho sync had saved. “Restored to” is the last clean shelf count, which is also the difference on the books now. A later sale keeps that restored difference. 409 missing pieces in total.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Item</th>
+        <th>Last clean count</th>
+        <th class="num">Wiped to</th>
+        <th class="num">Restored to</th>
+        <th class="num">Pieces</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>EPGS</td><td>ECS printer gear small</td><td>Diya</td><td class="num">0</td><td class="num">−104</td><td class="num">104</td></tr>
+      <tr><td>CSP3</td><td>CPU socket 3 pin</td><td>Diya</td><td class="num">−80</td><td class="num">−110</td><td class="num">30</td></tr>
+      <tr><td>BPC114</td><td>ATM/bench PC mother board</td><td>Diya</td><td class="num">−11</td><td class="num">−34</td><td class="num">23</td></tr>
+      <tr><td>EPGB</td><td>ECS printer gear big</td><td>Diya</td><td class="num">0</td><td class="num">−22</td><td class="num">22</td></tr>
+      <tr><td>MPPQ</td><td>Motherboard PF PC(Q)</td><td>Diya</td><td class="num">0</td><td class="num">−19</td><td class="num">19</td></tr>
+      <tr><td>MP63</td><td>Motherboard PMS 63</td><td>Shalima K T</td><td class="num">−113</td><td class="num">−128</td><td class="num">15</td></tr>
+      <tr><td>ECS833</td><td>ECS/LBL display cable (45cm)</td><td>YesWeigh Admin</td><td class="num">−5</td><td class="num">−17</td><td class="num">12</td></tr>
+      <tr><td>BPGMB</td><td>Bench PC green main board</td><td>Diya</td><td class="num">−17</td><td class="num">−28</td><td class="num">11</td></tr>
+      <tr><td>ECS826</td><td>ECS5W / TMAQ9 dot matrix display</td><td>Diya</td><td class="num">−31</td><td class="num">−41</td><td class="num">10</td></tr>
+      <tr><td>MI171</td><td>Motherboard IS-171</td><td>Diya</td><td class="num">−1</td><td class="num">−11</td><td class="num">10</td></tr>
+      <tr><td>SBLC500</td><td>Shearbeam loadcell 500kg</td><td>Shalima K T</td><td class="num">−4</td><td class="num">−14</td><td class="num">10</td></tr>
+      <tr><td>ECS816</td><td>ECS5W power supply board</td><td>Diya</td><td class="num">0</td><td class="num">−9</td><td class="num">9</td></tr>
+      <tr><td>BPCFSS</td><td>Bench scale SS AD</td><td>Shalima K T</td><td class="num">0</td><td class="num">−8</td><td class="num">8</td></tr>
+      <tr><td>Q8604</td><td>SMPS 20V TMA</td><td>Shibin K P</td><td class="num">0</td><td class="num">−8</td><td class="num">8</td></tr>
+      <tr><td>ATM30RAD</td><td>ATM PC AD red</td><td>Shalima K T</td><td class="num">0</td><td class="num">−6</td><td class="num">6</td></tr>
+      <tr><td>DBRL6</td><td>Display board red (6 LED)</td><td>yesstore</td><td class="num">−159</td><td class="num">−165</td><td class="num">6</td></tr>
+      <tr><td>BPC105</td><td>Power cord with connector</td><td>Diya</td><td class="num">−9</td><td class="num">−14</td><td class="num">5</td></tr>
+      <tr><td>PTP</td><td>Scangle portable thermal printer</td><td>YesWeigh Admin</td><td class="num">−21</td><td class="num">−26</td><td class="num">5</td></tr>
+      <tr><td>TR12V</td><td>Transformer 12V</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−5</td><td class="num">5</td></tr>
+      <tr><td>APC201</td><td>ATM PC metalic keypad</td><td>Diya</td><td class="num">0</td><td class="num">−4</td><td class="num">4</td></tr>
+      <tr><td>APCPQ</td><td>ATM PC pole</td><td>Visakh B</td><td class="num">0</td><td class="num">−4</td><td class="num">4</td></tr>
+      <tr><td>ECS817</td><td>ECS5W SMPS 7V</td><td>Shalima K T</td><td class="num">0</td><td class="num">−4</td><td class="num">4</td></tr>
+      <tr><td>ECS835</td><td>ECS5W/Q10LBL keypad sticker</td><td>Diya</td><td class="num">−17</td><td class="num">−21</td><td class="num">4</td></tr>
+      <tr><td>EIKS</td><td>ECS indicator keypad sticker</td><td>Diya</td><td class="num">0</td><td class="num">−4</td><td class="num">4</td></tr>
+      <tr><td>BPC118</td><td>Load cell 130kg</td><td>Diya</td><td class="num">−25</td><td class="num">−28</td><td class="num">3</td></tr>
+      <tr><td>CCM115</td><td>CCM rotate wheel</td><td>Diya</td><td class="num">0</td><td class="num">−3</td><td class="num">3</td></tr>
+      <tr><td>CH602</td><td>Chottu motherboard 99MB 6V</td><td>Shalima K T</td><td class="num">0</td><td class="num">−3</td><td class="num">3</td></tr>
+      <tr><td>ECS832</td><td>ECS/LBL printer cable</td><td>Diya</td><td class="num">−1</td><td class="num">−4</td><td class="num">3</td></tr>
+      <tr><td>ECSINK</td><td>ECS indicator keypad</td><td>Diya</td><td class="num">0</td><td class="num">−3</td><td class="num">3</td></tr>
+      <tr><td>INDDBG</td><td>Double display indicator (green)</td><td>Visakh B</td><td class="num">0</td><td class="num">−3</td><td class="num">3</td></tr>
+      <tr><td>SBLC1T</td><td>Shearbeam loadcell 1000kg</td><td>Shalima K T</td><td class="num">0</td><td class="num">−3</td><td class="num">3</td></tr>
+      <tr><td>APC202</td><td>ATM PC keypad board</td><td>Shibin K P</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>APCPQP</td><td>APCPQ pole display</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>BATTER</td><td>Battery 4V 4Ah</td><td>Diya</td><td class="num">−207</td><td class="num">−209</td><td class="num">2</td></tr>
+      <tr><td>BLAIC5</td><td>BPC50DAD2 loadcell connector</td><td>YesWeigh Admin</td><td class="num">−1</td><td class="num">−3</td><td class="num">2</td></tr>
+      <tr><td>BPC101</td><td>Bench PC metallic keypad pouch</td><td>Shibin K P</td><td class="num">−66</td><td class="num">−68</td><td class="num">2</td></tr>
+      <tr><td>BPCGADF</td><td>Bench scale AD F</td><td>Shalima K T</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>BY003</td><td>BY display ATMPCP (green LED)</td><td>Diya</td><td class="num">−40</td><td class="num">−42</td><td class="num">2</td></tr>
+      <tr><td>BY019</td><td>BY bench dual display</td><td>Shibin K P</td><td class="num">−34</td><td class="num">−36</td><td class="num">2</td></tr>
+      <tr><td>ECR103</td><td>ECR display set front</td><td>Diya</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>ECS106</td><td>ECS printer cover</td><td>YesWeigh Admin</td><td class="num">−5</td><td class="num">−7</td><td class="num">2</td></tr>
+      <tr><td>ECS812</td><td>ECS5W interface board</td><td>Shibin K P</td><td class="num">−2</td><td class="num">−4</td><td class="num">2</td></tr>
+      <tr><td>ECS813</td><td>ECS5W calibration board</td><td>yesstore</td><td class="num">−1</td><td class="num">−3</td><td class="num">2</td></tr>
+      <tr><td>ECS828</td><td>Cordwire 2pin L type</td><td>yesstore</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>ECSCD</td><td>Cash box 5D ECS</td><td>Visakh B</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>Q9715</td><td>Q9LBL printer gearset</td><td>Diya</td><td class="num">−2</td><td class="num">−4</td><td class="num">2</td></tr>
+      <tr><td>SBLI10</td><td>Shear beam loadcell imported 1000kg</td><td>Diya</td><td class="num">0</td><td class="num">−2</td><td class="num">2</td></tr>
+      <tr><td>TRANSF</td><td>Transformer 9V</td><td>Diya</td><td class="num">−4</td><td class="num">−6</td><td class="num">2</td></tr>
+      <tr><td>14FRC</td><td>FRC cable (14 pin)</td><td>Diya</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>AIPOS</td><td>AI Pos scale</td><td>Shibin K P</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>ATSAS</td><td>ATMPCDQZ transformer/SMPS</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>BLIC</td><td>Bluetooth IC</td><td>Diya</td><td class="num">−12</td><td class="num">−13</td><td class="num">1</td></tr>
+      <tr><td>BPCQZ1</td><td>Bench scale Qz1</td><td>Shalima K T</td><td class="num">−4</td><td class="num">−5</td><td class="num">1</td></tr>
+      <tr><td>BPMXMS</td><td>Bench scale Pro Max Ms</td><td>Shalima K T</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>BY002</td><td>BY display bench (red LED)</td><td>Shibin K P</td><td class="num">−698</td><td class="num">−699</td><td class="num">1</td></tr>
+      <tr><td>BY005</td><td>BY keypad ATMPCP &amp; ATMPCW</td><td>YesWeigh Admin</td><td class="num">−14</td><td class="num">−15</td><td class="num">1</td></tr>
+      <tr><td>CCM118</td><td>CCM LCD display</td><td>Shibin K P</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>CH6VSF</td><td>Table top Chottu 6V</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>ECS810</td><td>ECS5W keyboard connect board</td><td>Diya</td><td class="num">−2</td><td class="num">−3</td><td class="num">1</td></tr>
+      <tr><td>ECS823</td><td>ECS5W display sticker front</td><td>Diya</td><td class="num">−34</td><td class="num">−35</td><td class="num">1</td></tr>
+      <tr><td>ECS861</td><td>ECS loadcell (13cm)</td><td>Diya</td><td class="num">−17</td><td class="num">−18</td><td class="num">1</td></tr>
+      <tr><td>KS05BAY</td><td>Weighing scale 5kg</td><td>Shalima K T</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>Q9720</td><td>Q9LBL printer roller mechanism</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+      <tr><td>XPDULP3R</td><td>Desktop printer USB/LAN 3"</td><td>YesWeigh Admin</td><td class="num">0</td><td class="num">−1</td><td class="num">1</td></tr>
+    </tbody>
+  </table>
   <p class="quiet">Figures are the audit log and the saved product snapshot on 15 Oct 2026, Asia/Kolkata. Open this file in a browser. It does not write back to stock.</p>
 </main>
 </body>
