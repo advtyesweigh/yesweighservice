@@ -21,9 +21,8 @@ import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 import {
   appendMachineQcDescription,
-  documentLooksLikeMachineQc,
   lineLooksLikeMachineQc,
-  stripBackBillNote,
+  stripMachineQcDescription,
 } from '../../lib/machineQc';
 
 export const InvoiceDocumentPage: React.FC = () => {
@@ -87,11 +86,7 @@ export const InvoiceDocumentPage: React.FC = () => {
         {invoice.lineItems.length ? (
           <ul className="invoice-detail-item-list">
             {invoice.lineItems.map(item => {
-              const qcRequested = !isFreightInvoiceLineItem(item) && (
-                Boolean(invoice.qcRequested)
-                || documentLooksLikeMachineQc(invoice)
-                || lineLooksLikeMachineQc(item)
-              );
+              const qcRequested = !isFreightInvoiceLineItem(item) && lineLooksLikeMachineQc(item);
               return (
               <li key={item.id} className="invoice-detail-item">
                 <div className="invoice-detail-item__image-wrap">
@@ -111,7 +106,7 @@ export const InvoiceDocumentPage: React.FC = () => {
                       qcEnabled: true,
                       qcFeePerUnit: item.qcFeePerUnit ?? 0,
                     })
-                    : stripBackBillNote(item.description)}
+                    : stripMachineQcDescription(item.description) || null}
                 >
                   <div className="invoice-detail-item__pricing">
                     <span>{formatCurrency(item.rate)} × {item.quantity}</span>

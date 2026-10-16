@@ -76,11 +76,6 @@ export function linesHaveMachineQc(
   );
 }
 
-export function descriptionHasMachineQc(description?: string | null): boolean {
-  const text = String(description ?? '');
-  return /\(back bill it\)/i.test(text) || /\bQC:\s*₹/i.test(text);
-}
-
 export function lineLooksLikeMachineQc(
   line?: {
     qcEnabled?: boolean | null;
@@ -90,9 +85,7 @@ export function lineLooksLikeMachineQc(
   } | null,
 ): boolean {
   if (!line) return false;
-  if (line.qcEnabled === true || Number(line.qcFeePerUnit) > 0) return true;
-  if (descriptionHasMachineQc(line.description)) return true;
-  return false;
+  return line.qcEnabled === true || Number(line.qcFeePerUnit) > 0;
 }
 
 /** Dealer invoice PDF and the "QC requested" label apply only after QC is ticked. */
@@ -106,6 +99,7 @@ export function lineSupportsDealerInvoicePdf(
   return lineLooksLikeMachineQc(line);
 }
 
+/** QC photos and the QC label follow an explicit tick or fee on a line. */
 export function documentLooksLikeMachineQc(input?: {
   qcRequested?: boolean | null;
   dealerCustomerInvoice?: { url?: string | null; storagePath?: string | null } | null;
@@ -116,7 +110,5 @@ export function documentLooksLikeMachineQc(input?: {
   } | null | undefined> | null;
 } | null): boolean {
   if (!input) return false;
-  if (input.qcRequested) return true;
-  if (input.dealerCustomerInvoice?.url || input.dealerCustomerInvoice?.storagePath) return true;
   return (input.lineItems ?? []).some(lineLooksLikeMachineQc);
 }

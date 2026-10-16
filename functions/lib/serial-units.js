@@ -173,8 +173,9 @@ export async function listAvailableSerialUnits({
   const unbound = [];
   snap.forEach(doc => {
     const data = doc.data() || {};
-    if (wantSeries && str(data.series) && str(data.series) !== wantSeries) return;
     const bound = Boolean(compactProductToken(data.productId) || compactProductToken(data.sku));
+    const boundToProduct = bound && filtered && unitMatchesProduct(data, filter);
+    if (wantSeries && str(data.series) && str(data.series) !== wantSeries && !boundToProduct) return;
     const serial = str(data.serial) || doc.id;
     const row = {
       id: doc.id,

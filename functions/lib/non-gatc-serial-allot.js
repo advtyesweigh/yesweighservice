@@ -340,6 +340,17 @@ export function isXSeriesSerial(serial) {
   return serialPrefix(serial) === 'X';
 }
 
+/** Shared sticker tanks. Every other prefix (YJ, …) is a product series. */
+const SHARED_TANK_PREFIXES = new Set(['X', 'Y', 'YZ']);
+
+function isSharedTankPrefix(prefix) {
+  return SHARED_TANK_PREFIXES.has(String(prefix || '').toUpperCase());
+}
+
+function allotmentRangePrefix(row) {
+  return serialPrefix(row?.from) || serialPrefix(row?.to);
+}
+
 function isSharedXStampingLot(row) {
   if (serialPrefix(row?.from) !== 'X' && serialPrefix(row?.to) !== 'X') return false;
   return !allotmentSkuBound(row);
@@ -374,13 +385,6 @@ export function productHasDedicatedNonGatcAllotment(allotments, filter = {}) {
   return productHasDedicatedAllotment(allotments, filter, NON_GATC_SERIES);
 }
 
-function allotmentInPickerPool(row, filter = {}, dedicated = false, series = NON_GATC_SERIES) {
-  if (str(row?.series) !== str(series)) return false;
-  const bound = allotmentIsBound(row);
-  if (dedicated) return bound && allotmentMatchesProduct(row, filter);
-  return !bound;
-}
-
 export function seriesHasAllotments(allotments, series) {
   const wanted = str(series);
   return (Array.isArray(allotments) ? allotments : []).some(row => str(row?.series) === wanted);
@@ -412,22 +416,47 @@ function uniqueSerialPool(serials) {
   });
 }
 
+function pushAllotmentRange(out, seenRows, row) {
+  if (!row || seenRows.has(row)) return;
+  seenRows.add(row);
+  out.push(...expandAllotmentRange(row));
+}
+
+/**
+ * Series id only chooses the shared sticker tank (X, Y, YZ).
+ * A product prefix such as YJ stays with that product even when the lot
+ * was saved under 50 kg GATC, SL, or non-GATC.
+ */
 export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_GATC_SERIES) {
   const rows = Array.isArray(allotments) ? allotments : [];
-  const dedicated = productHasDedicatedAllotment(rows, filter, series);
-  const out = [];
+  const wantedSeries = str(series);
   const seenRows = new Set();
+  const product = [];
+  const shared = [];
+  const prefixes = [];
   for (const row of rows) {
-    if (!allotmentInPickerPool(row, filter, dedicated, series)) continue;
-    seenRows.add(row);
-    out.push(...expandAllotmentRange(row));
+    if (allotmentIsBound(row) && allotmentMatchesProduct(row, filter)) {
+      pushAllotmentRange(product, seenRows, row);
+    }
+  }
+  for (const row of rows) {
+    if (seenRows.has(row)) continue;
+    const prefix = allotmentRangePrefix(row);
+    if (!prefix) continue;
+    if (isSharedTankPrefix(prefix)) {
+      if (str(row?.series) !== wantedSeries || allotmentIsBound(row)) continue;
+      pushAllotmentRange(shared, seenRows, row);
+      continue;
+    }
+    if (allotmentIsBound(row)) continue;
+    pushAllotmentRange(prefixes, seenRows, row);
   }
   // Shared X lots have no SKU. A product's own preallotted range must not hide them.
   for (const row of rows) {
     if (seenRows.has(row) || !isSharedXStampingLot(row)) continue;
-    out.push(...expandAllotmentRange(row));
+    pushAllotmentRange(shared, seenRows, row);
   }
-  return uniqueSerialPool(out);
+  return uniqueSerialPool([...product, ...shared, ...prefixes]);
 }
 
 export function productHasGatcPickerLots(allotments, filter = {}, series) {
@@ -445,29 +474,41 @@ export function productHasGatcPickerLots(allotments, filter = {}, series) {
  */
 export function expandGatcPickerPool(allotments, filter = {}, series) {
   const rows = Array.isArray(allotments) ? allotments : [];
-  // A product's own lot is that scale's serials, including GR lots saved as non_gatc.
-  // Series (50 kg vs SL) only splits the shared unbound sticker tank.
-  const productLots = rows.filter(row => (
-    allotmentIsBound(row)
-    && allotmentMatchesProduct(row, filter)
-  ));
-  const source = productLots.length
-    ? productLots
-    : rows.filter(row => str(row?.series) === str(series) && !allotmentIsBound(row));
-  const seenRows = new Set(source);
-  const out = [];
-  for (const row of source) {
-    out.push(...expandAllotmentRange(row));
+  const wantedSeries = str(series);
+  const seenRows = new Set();
+  const product = [];
+  const prefixes = [];
+  const shared = [];
+  for (const row of rows) {
+    if (allotmentIsBound(row) && allotmentMatchesProduct(row, filter)) {
+      pushAllotmentRange(product, seenRows, row);
+    }
   }
-  // X lots are often saved as non_gatc with no SKU. A product's own lot must not hide them.
+  for (const row of rows) {
+    if (seenRows.has(row)) continue;
+    const prefix = allotmentRangePrefix(row);
+    if (!prefix) continue;
+    if (isSharedTankPrefix(prefix)) {
+      // 50 kg vs SL only splits the unbound Y / YZ / X tank.
+      if (str(row?.series) !== wantedSeries || allotmentIsBound(row)) continue;
+      pushAllotmentRange(shared, seenRows, row);
+      continue;
+    }
+    // YJ and other product prefixes are not the 50 kg tank.
+    if (wantedSeries === GATC_50KG_SERIES && !(allotmentIsBound(row) && allotmentMatchesProduct(row, filter))) {
+      continue;
+    }
+    if (allotmentIsBound(row) && !allotmentMatchesProduct(row, filter)) continue;
+    pushAllotmentRange(prefixes, seenRows, row);
+  }
   for (const row of rows) {
     if (seenRows.has(row) || !isSharedXStampingLot(row)) continue;
-    out.push(...expandAllotmentRange(row));
+    pushAllotmentRange(shared, seenRows, row);
   }
   for (const range of IWP_GATC_UNUSED_RANGES) {
-    out.push(...expandAllotmentRange(range));
+    shared.push(...expandAllotmentRange(range));
   }
-  return uniqueSerialPool(out);
+  return uniqueSerialPool([...product, ...prefixes, ...shared]);
 }
 
 export function isIwpGatcUnusedSerial(serial) {
@@ -496,6 +537,7 @@ export async function listAvailableNonGatcSerials(maxOrOpts = 2000) {
   const productId = str(opts.productId || opts.itemId);
   const sku = str(opts.sku);
   const productName = str(opts.productName);
+  const query = str(opts.query);
   const filter = { productId, sku, productName };
   const limit = Math.min(5000, Math.max(1, Number(opts.max) || 2000));
   const db = getFirestore();
@@ -526,13 +568,44 @@ export async function listAvailableNonGatcSerials(maxOrOpts = 2000) {
       serialNumber: serial,
     });
   }
-  const pinned = [];
-  const rest = [];
-  for (const row of [...unitRows, ...extra]) {
-    if (isXSeriesSerial(row.serialNumber)) pinned.push(row);
-    else rest.push(row);
+  const productKeys = new Set();
+  for (const row of Array.isArray(allotments) ? allotments : []) {
+    if (!allotmentIsBound(row) || !allotmentMatchesProduct(row, filter)) continue;
+    for (const serial of expandAllotmentRange(row)) productKeys.add(compactSerialKey(serial));
   }
-  return [...pinned, ...rest].slice(0, Math.max(limit, pinned.length));
+  return orderAvailableSerialRows([...unitRows, ...extra], productKeys, { limit, query });
+}
+
+function bySerialNumber(a, b) {
+  return str(a?.serialNumber).localeCompare(str(b?.serialNumber), 'en', { numeric: true });
+}
+
+/** Product lots first, then a sample of product prefixes (YJ…), then the shared tank. */
+function orderAvailableSerialRows(rows, productKeys, { limit, query }) {
+  const product = [];
+  const shared = [];
+  const prefixes = [];
+  for (const row of rows) {
+    const key = compactSerialKey(row?.serialNumber || row?.id);
+    if (productKeys.has(key)) product.push(row);
+    else if (isSharedTankPrefix(serialPrefix(row?.serialNumber))) shared.push(row);
+    else prefixes.push(row);
+  }
+  product.sort(bySerialNumber);
+  shared.sort(bySerialNumber);
+  prefixes.sort(bySerialNumber);
+  const needle = str(query).toLowerCase();
+  if (needle) {
+    return [...product, ...prefixes, ...shared]
+      .filter(row => str(row.serialNumber).toLowerCase().includes(needle))
+      .slice(0, limit);
+  }
+  const head = product.slice(0, limit);
+  let room = limit - head.length;
+  const prefixBudget = Math.min(prefixes.length, room > 0 ? Math.ceil(room / 2) : 0);
+  const prefixTake = prefixes.slice(0, prefixBudget);
+  room -= prefixTake.length;
+  return [...head, ...prefixTake, ...shared.slice(0, Math.max(0, room))];
 }
 
 async function loadTakenSerialKeys(db, exceptInvoiceId = '') {

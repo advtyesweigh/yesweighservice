@@ -42,9 +42,8 @@ import {
 } from '../../lib/invoiceSerialGate';
 import {
   appendMachineQcDescription,
-  documentLooksLikeMachineQc,
   lineLooksLikeMachineQc,
-  stripBackBillNote,
+  stripMachineQcDescription,
 } from '../../lib/machineQc';
 import { INVOICE_QC_REQUIRED } from '../../lib/invoiceMachineQc';
 import { canSuperAdminWrite, canVoidAdminInvoice, isInternalOpsUser } from '../../lib/staffAccess';
@@ -133,17 +132,17 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
 
   const displayInvoice = useMemo(() => {
     if (!invoice) return null;
-    const qcOrder = documentLooksLikeMachineQc(invoice);
     return {
       ...invoice,
       lineItems: overlayLocalFreightOnLineItems(invoice).map(item => {
         if (isFreightInvoiceLineItem(item)) return item;
-        const description = (qcOrder || lineLooksLikeMachineQc(item))
+        const qcLine = lineLooksLikeMachineQc(item);
+        const description = qcLine
           ? appendMachineQcDescription(item.description, {
-            qcEnabled: item.qcEnabled === true || lineLooksLikeMachineQc(item),
+            qcEnabled: true,
             qcFeePerUnit: item.qcFeePerUnit ?? 0,
           })
-          : stripBackBillNote(item.description);
+          : stripMachineQcDescription(item.description) || null;
         return description === item.description ? item : { ...item, description };
       }),
     };
@@ -510,11 +509,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         itemMeta={item => {
           const nonGatc = isNonGatcSerialEligibleLine(item);
           const gatcStamped = isGatcStampedSerialEligibleLine(item);
-          const qcRequested = !isFreightInvoiceLineItem(item) && (
-            Boolean(invoice.qcRequested)
-            || documentLooksLikeMachineQc(invoice)
-            || lineLooksLikeMachineQc(item)
-          );
+          const qcRequested = !isFreightInvoiceLineItem(item) && lineLooksLikeMachineQc(item);
           if (!nonGatc && !gatcStamped && !qcRequested) return null;
           const serials = serialNumbersFromLineItem(item);
           const short = nonGatc ? nonGatcSerialShortage(item) : gatcStampedSerialShortage(item);

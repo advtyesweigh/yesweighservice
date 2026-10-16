@@ -7769,6 +7769,7 @@ export const listAvailableNonGatcSerialsFn = onCall(
           productId: productId || undefined,
           sku: sku || undefined,
           productName: String(request.data?.productName || '').trim() || undefined,
+          query: String(request.data?.query || '').trim() || undefined,
         }),
       };
     } catch (err) {

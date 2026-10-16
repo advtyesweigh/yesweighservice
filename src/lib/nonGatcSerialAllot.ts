@@ -82,10 +82,11 @@ export async function listAvailableNonGatcSerials(input: {
   productId?: string | null;
   sku?: string | null;
   productName?: string | null;
+  query?: string | null;
 } | number = 2000): Promise<AvailableNonGatcSerial[]> {
   const opts = typeof input === 'number' ? { max: input } : input;
   const fn = httpsCallable<
-    { max?: number; productId?: string; sku?: string; productName?: string },
+    { max?: number; productId?: string; sku?: string; productName?: string; query?: string },
     { rows?: AvailableNonGatcSerial[] }
   >(
     getFunctions(app, 'asia-south1'),
@@ -95,11 +96,13 @@ export async function listAvailableNonGatcSerials(input: {
   const productId = String(opts.productId ?? '').trim();
   const sku = String(opts.sku ?? '').trim();
   const productName = String(opts.productName ?? '').trim();
+  const query = String(opts.query ?? '').trim();
   return (await fn({
     max: opts.max,
     ...(productId ? { productId } : {}),
     ...(sku ? { sku } : {}),
     ...(productName ? { productName } : {}),
+    ...(query ? { query } : {}),
   })).data.rows ?? [];
 }
 

@@ -58,7 +58,7 @@ export function invoiceMachineQcComplete(
   return (images?.length ?? 0) >= INVOICE_QC_REQUIRED;
 }
 
-/** QC-requested invoices cannot dispatch until 5 warehouse photos are uploaded. */
+/** Invoices with QC ticked cannot dispatch until 5 warehouse photos are uploaded. */
 export function invoiceNeedsMandatoryQcPhotos(
   invoice: {
     qcRequested?: boolean | null;

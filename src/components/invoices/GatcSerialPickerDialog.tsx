@@ -104,7 +104,12 @@ export function GatcSerialPickerDialog({
     setLoading(true);
     setLoadError('');
     const load = mode === 'nongatc'
-      ? listAvailableNonGatcSerials({ productId, sku, productName: productName || title }).then(list => list.map(row => ({
+      ? listAvailableNonGatcSerials({
+        productId,
+        sku,
+        productName: productName || title,
+        query: serverQuery,
+      }).then(list => list.map(row => ({
         id: row.id || row.serialNumber,
         serialNumber: row.serialNumber,
       })))
@@ -149,7 +154,6 @@ export function GatcSerialPickerDialog({
   }, [capacityKg, invoiceId, invoiceNumber, mode, productId, productName, serverQuery, sku, title]);
 
   useEffect(() => {
-    if (mode !== 'gatc') return undefined;
     const needle = query.trim();
     if (needle.length < 4) {
       if (serverQuery) setServerQuery('');
