@@ -126,8 +126,8 @@ export function formatItemLocationShort(
   return `${rackId.toUpperCase()} · ${rowNumber} · ${binNumber}`;
 }
 
+/** Counted bin qty. Zero is a real count (bin emptied). Missing or invalid reads as 0. */
 export function readItemQuantity(item: Pick<YesStoreItemDoc, 'quantity'>): number {
-  return typeof item.quantity === 'number' && item.quantity > 0
-    ? Math.floor(item.quantity)
-    : 1;
+  if (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity)) return 0;
+  return Math.max(0, Math.floor(item.quantity));
 }

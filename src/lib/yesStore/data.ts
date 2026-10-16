@@ -243,6 +243,15 @@ export async function getItem(itemId: string): Promise<YesStoreItemDoc | null> {
   return snap.data() as YesStoreItemDoc;
 }
 
+/** Physical count. Zero means the bin was emptied and must be stored, not bumped to 1. */
+function countedQuantity(value: number): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error('Quantity must be 0 or greater.');
+  }
+  return n;
+}
+
 function buildCountStamp(counter?: { uid: string; displayName?: string | null }) {
   if (!counter?.uid) return {};
   return {
@@ -264,7 +273,7 @@ export async function createItem(input: {
   if (input.photos.length > MAX_ITEM_PHOTOS) {
     throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
   }
-  const quantity = Math.max(1, Math.floor(input.quantity));
+  const quantity = countedQuantity(input.quantity);
   await ensureBin(input.rackId, input.rowNumber, input.binNumber);
   const itemId = doc(collection(db, 'yesStoreItems')).id;
   const createdAt = now();
@@ -298,7 +307,7 @@ export async function updateItem(
   }
   const payload: Record<string, unknown> = { updatedAt: now(), ...buildCountStamp(countedBy) };
   if (patch.quantity != null) {
-    payload.quantity = Math.max(1, Math.floor(patch.quantity));
+    payload.quantity = countedQuantity(patch.quantity);
   }
   if (patch.photos != null) {
     payload.photos = patch.photos.slice(0, MAX_ITEM_PHOTOS);
@@ -325,7 +334,7 @@ export async function updateItemDetails(
   if (input.photos.length > MAX_ITEM_PHOTOS) {
     throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
   }
-  const quantity = Math.max(1, Math.floor(input.quantity));
+  const quantity = countedQuantity(input.quantity);
   await ensureBin(rackId, input.rowNumber, input.binNumber);
   await updateDoc(itemRef(itemId), {
     rackId,
@@ -358,7 +367,7 @@ export async function updateStoreItemLocationAndQty(
   if (!isValidRackId(rackId)) throw new Error('Select a valid rack.');
   if (!isValidRowNumber(input.rowNumber)) throw new Error('Select a valid row.');
   if (!isValidBinNumber(input.binNumber)) throw new Error('Select a valid bin.');
-  const quantity = Math.max(1, Math.floor(input.quantity));
+  const quantity = countedQuantity(input.quantity);
   await ensureBin(rackId, input.rowNumber, input.binNumber);
   await updateDoc(itemRef(itemId), {
     rackId,
@@ -396,7 +405,7 @@ export async function createLinkedStoreItem(input: {
   if (!isValidRackId(rackId)) throw new Error('Select a valid rack.');
   if (!isValidRowNumber(input.rowNumber)) throw new Error('Select a valid row.');
   if (!isValidBinNumber(input.binNumber)) throw new Error('Select a valid bin.');
-  const quantity = Math.max(1, Math.floor(input.quantity));
+  const quantity = countedQuantity(input.quantity);
   const mode = input.mode === 'part' ? 'part' : 'unit';
   const unitsPerProduct = Math.max(1, Math.floor(input.unitsPerProduct ?? 1));
   const partLabel = input.partLabel?.trim() || null;
@@ -435,7 +444,7 @@ export async function updateInventoryAuditCount(
   quantity: number,
   _auditor: { uid: string; displayName?: string | null },
 ): Promise<YesStoreItemDoc> {
-  const normalizedQty = Math.max(1, Math.floor(quantity));
+  const normalizedQty = countedQuantity(quantity);
   await updateDoc(itemRef(itemId), {
     quantity: normalizedQty,
     updatedAt: now(),

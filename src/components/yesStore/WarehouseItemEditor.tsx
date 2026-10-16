@@ -13,7 +13,10 @@ import {
   type YesStoreItemDoc,
 } from '../../types/yes-store';
 import { deleteItem, updateItemDetails } from '../../lib/yesStore/data';
-import { recordCatalogProductAuditForYesStoreItem } from '../../lib/catalogProductAudit/data';
+import {
+  recordCatalogProductAuditForYesStoreItem,
+  refreshHeadOfficeAuditSnapshot,
+} from '../../lib/catalogProductAudit/data';
 import {
   deleteYesStorePhotos,
   uploadYesStorePhoto,
@@ -41,7 +44,7 @@ type WarehouseItemEditorProps = {
 function parseQuantity(value: string): number | null {
   if (value.trim() === '') return null;
   const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function revokePending(slot: PhotoSlot | null) {
@@ -227,8 +230,12 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
     setError('');
     setDeleting(true);
     try {
+      const catalogProductId = item.catalogProductId?.trim() || '';
       await deleteItem(item.id);
       if (originalPhotos.length) await deleteYesStorePhotos(originalPhotos).catch(() => undefined);
+      if (catalogProductId) {
+        void refreshHeadOfficeAuditSnapshot(catalogProductId).catch(() => undefined);
+      }
       onSaved?.();
       onHome();
     } catch (err: unknown) {
@@ -251,8 +258,12 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
 
     setReplacing(true);
     try {
+      const catalogProductId = item.catalogProductId?.trim() || '';
       await deleteItem(item.id);
       if (originalPhotos.length) await deleteYesStorePhotos(originalPhotos).catch(() => undefined);
+      if (catalogProductId) {
+        void refreshHeadOfficeAuditSnapshot(catalogProductId).catch(() => undefined);
+      }
       onSaved?.();
       if (onReplacedInBin) {
         onReplacedInBin({
@@ -403,8 +414,8 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
             <button
               type="button"
               className="wh-qty-stepper__btn"
-              onClick={() => setQuantity(String(Math.max(1, (parsedQty ?? 1) - 1)))}
-              disabled={busy || (parsedQty ?? 1) <= 1}
+              onClick={() => setQuantity(String(Math.max(0, (parsedQty ?? 0) - 1)))}
+              disabled={busy || (parsedQty ?? 0) <= 0}
               aria-label="Decrease quantity"
             >
               <Minus size={18} aria-hidden />

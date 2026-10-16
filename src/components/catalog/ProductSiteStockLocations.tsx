@@ -14,10 +14,12 @@ import {
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
   createLinkedStoreItem,
+  deleteItem,
   listItemsByCatalogProduct,
   unlinkYesStoreItemFromCatalog,
   updateStoreItemLocationAndQty,
 } from '../../lib/yesStore/data';
+import { deleteYesStorePhotos } from '../../lib/yesStore/photos';
 import {
   listWarehouseZoneRows,
   listWarehouseZones,
@@ -373,7 +375,7 @@ function HeadOfficeLocationSection({
   const removeRow = (key: string) => {
     setRows(prev => {
       const next = prev.filter(row => row.key !== key);
-      return next.length ? next : [createHeadOfficeEditableRow()];
+      return next.length ? next : [createHeadOfficeEditableRow({ quantity: '' })];
     });
   };
 
@@ -408,26 +410,42 @@ function HeadOfficeLocationSection({
       });
 
     for (const entry of prepared) {
-      if (!Number.isFinite(entry.qty) || entry.qty < 1) {
-        setError('Quantity must be at least 1 for every location.');
+      if (!Number.isFinite(entry.qty) || entry.qty < 0) {
+        setError('Quantity must be 0 or greater for every location.');
         return;
       }
+    }
+
+    const keptIds = new Set(
+      prepared.map(entry => entry.row.itemId).filter((id): id is string => Boolean(id)),
+    );
+    const removedItems = auditItems.filter(item => !keptIds.has(item.id));
+    if (prepared.length === 0 && removedItems.length === 0) {
+      setError('Add a location, enter 0 for an emptied bin, or mark as no stock.');
+      return;
+    }
+    if (removedItems.length > 0) {
+      const ok = await confirm({
+        title: removedItems.length === 1 ? 'Delete this bin item?' : `Delete ${removedItems.length} bin items?`,
+        message: 'Removed locations are deleted from the store room bin, including their photos. A quantity of 0 keeps the bin and records it as empty.',
+        confirmLabel: 'Delete from bin',
+        destructive: true,
+      });
+      if (!ok) return;
     }
 
     setSaving(true);
     setError('');
     const counter = { uid: editorUid, displayName: editorName };
-    const keptIds = new Set(
-      prepared.map(entry => entry.row.itemId).filter((id): id is string => Boolean(id)),
-    );
-    const removedItems = auditItems.filter(item => !keptIds.has(item.id));
     const template = auditItems[0];
     const linkMode = template?.catalogLinkMode === 'part' ? 'part' : 'unit';
 
     try {
       for (const removed of removedItems) {
-        // Unlink only — keep the warehouse item and its photos.
-        await unlinkYesStoreItemFromCatalog(removed.id);
+        await deleteItem(removed.id);
+        if (removed.photos?.length) {
+          await deleteYesStorePhotos(removed.photos).catch(() => undefined);
+        }
       }
 
       for (const entry of prepared) {
@@ -460,7 +478,15 @@ function HeadOfficeLocationSection({
         }
       }
 
-      if (prepared.length > 0 && zeroStockRecord) {
+      if (prepared.length === 0) {
+        const saved = await markCatalogSiteNoStock({
+          catalogProductId: product.id,
+          site: 'head_office',
+          updatedByUid: editorUid,
+          updatedByName: editorName,
+        });
+        onZeroStockSaved(saved);
+      } else if (zeroStockRecord) {
         await deleteCatalogSiteInventory(product.id, 'head_office');
         onZeroStockSaved(null);
       }
@@ -871,7 +897,7 @@ function CochinLocationSection({
   };
 
   const removeRow = (id: string) => {
-    setRows(prev => (prev.length <= 1 ? prev : prev.filter(row => row.id !== id)));
+    setRows(prev => prev.filter(row => row.id !== id));
   };
 
   const handleSave = async () => {
@@ -879,19 +905,35 @@ function CochinLocationSection({
       setError('No open audit cycle — counting locked for Cochin.');
       return;
     }
+    const locations = rows
+      .filter(row => row.zoneId && row.zoneRowNumber)
+      .map(row => ({
+        zoneId: row.zoneId,
+        zoneRowNumber: Number(row.zoneRowNumber),
+        quantity: Number(row.quantity),
+      }));
+    for (const location of locations) {
+      if (!Number.isFinite(location.quantity) || location.quantity < 0) {
+        setError('Quantity must be 0 or greater for every location.');
+        return;
+      }
+    }
+    if (locations.length === 0 && readOnlyLocations.length > 0) {
+      const ok = await confirm({
+        title: 'Delete warehouse locations?',
+        message: 'This removes every zone and row for this product and records counted quantity as 0. Enter 0 on a row to keep the location and mark it empty.',
+        confirmLabel: 'Delete locations',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     setError('');
     try {
       const saved = await saveCatalogSiteInventory({
         catalogProductId: product.id,
         site: 'cochin',
-        locations: rows
-          .filter(row => row.zoneId && row.zoneRowNumber)
-          .map(row => ({
-            zoneId: row.zoneId,
-            zoneRowNumber: Number(row.zoneRowNumber),
-            quantity: Number(row.quantity),
-          })),
+        locations,
         updatedByUid: editorUid,
         updatedByName: editorName,
       });
@@ -998,7 +1040,7 @@ function CochinLocationSection({
               zones={zones}
               zoneRows={row.zoneId ? (rowsByZone[row.zoneId] ?? []) : []}
               saving={saving}
-              canRemove={rows.length > 1}
+              canRemove
               onUpdate={patch => updateRow(row.id, patch)}
               onRemove={() => removeRow(row.id)}
             />

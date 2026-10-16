@@ -15,7 +15,10 @@ import {
   listItemsInBin,
   updateItem,
 } from '../../lib/yesStore/data';
-import { recordCatalogProductAuditForYesStoreItem } from '../../lib/catalogProductAudit/data';
+import {
+  recordCatalogProductAuditForYesStoreItem,
+  refreshHeadOfficeAuditSnapshot,
+} from '../../lib/catalogProductAudit/data';
 import { deleteYesStorePhotos, uploadYesStorePhoto, validateYesStoreImage } from '../../lib/yesStore/photos';
 import { YesStorePhotoImg } from './YesStorePhotoImg';
 import { pendingFromFile, type PhotoSlot } from './ItemPhotoQtyForm';
@@ -24,6 +27,7 @@ import { WarehouseWizardShell, WizardNextButton } from './WarehouseWizardShell';
 type ItemRowState = {
   key: string;
   itemId?: string;
+  catalogProductId?: string | null;
   slots: [PhotoSlot | null, PhotoSlot | null];
   quantity: string;
   saving: boolean;
@@ -45,7 +49,7 @@ type WarehouseBinEditorProps = {
 function parseQuantity(value: string): number | null {
   if (value.trim() === '') return null;
   const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function rowHasContent(row: ItemRowState): boolean {
@@ -72,6 +76,7 @@ function itemToRow(item: YesStoreItemDoc): ItemRowState {
   return {
     key: item.id,
     itemId: item.id,
+    catalogProductId: item.catalogProductId ?? null,
     slots: [
       photos[0] ? { kind: 'saved', photo: photos[0] } : null,
       photos[1] ? { kind: 'saved', photo: photos[1] } : null,
@@ -359,9 +364,13 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
     if (row.itemId) {
       setRows(prev => prev.map(r => (r.key === rowKey ? { ...r, saving: true, error: '' } : r)));
       try {
+        const catalogProductId = row.catalogProductId?.trim() || '';
         await deleteItem(row.itemId);
         const photos = savedPhotos(row.slots);
         if (photos.length) await deleteYesStorePhotos(photos);
+        if (catalogProductId) {
+          void refreshHeadOfficeAuditSnapshot(catalogProductId).catch(() => undefined);
+        }
         onSaved?.();
       } catch (err: unknown) {
         setRows(prev =>
@@ -405,9 +414,13 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
 
     setRows(prev => prev.map(r => (r.key === rowKey ? { ...r, saving: true, error: '' } : r)));
     try {
+      const catalogProductId = row.catalogProductId?.trim() || '';
       await deleteItem(row.itemId);
       const photos = savedPhotos(row.slots);
       if (photos.length) await deleteYesStorePhotos(photos).catch(() => undefined);
+      if (catalogProductId) {
+        void refreshHeadOfficeAuditSnapshot(catalogProductId).catch(() => undefined);
+      }
       onSaved?.();
     } catch (err: unknown) {
       setRows(prev =>
