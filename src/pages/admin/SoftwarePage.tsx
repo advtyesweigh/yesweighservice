@@ -50,7 +50,7 @@ import {
   formatSoftwareEndDays,
   formatSoftwareRenewalCharge,
   shopRenewalQuote,
-  softwareCallRenewalCharge,
+  softwareRenewalPayableCharge,
   isWeighvoxSource,
   markSoftwareWhatsAppRenewalSent,
   normalizeSoftwareSubscription,
@@ -256,13 +256,13 @@ function endDateClass(status: SoftwareShopStatus): string {
 }
 
 function RenewalChargeValue({ shop }: { shop: SoftwareShop }) {
-  const charge = softwareCallRenewalCharge(shop);
+  const charge = softwareRenewalPayableCharge(shop);
   if (!charge) return <>{formatSoftwareRenewalCharge(shop)}</>;
   const amount = charge.amount.toLocaleString(charge.currency === 'AED' ? 'en-AE' : 'en-IN', {
     maximumFractionDigits: 0,
   });
   return (
-    <span className="software-charge">
+    <span className="software-charge" title={charge.currency === 'INR' ? 'Including 18% GST' : undefined}>
       {charge.currency === 'AED' ? <AedMark className="software-aed" /> : '₹'}
       {amount}
     </span>
@@ -433,7 +433,7 @@ function ShopWhatsAppCard({
   if (quote) {
     rows.push([quote.subscriptionLabel, quote.subscriptionAmount]);
     if (quote.smartScaleAmount) rows.push(['Smart Scale', quote.smartScaleAmount]);
-    rows.push(['Total', quote.totalAmount]);
+    rows.push([quote.totalLabel, quote.totalAmount]);
   }
   return (
     <div
@@ -1165,7 +1165,7 @@ export const SoftwareDetailsModal: React.FC<{
                   {renewalQuote.smartScaleAmount ? (
                     <FieldRow label="Smart Scale" value={<span className="software-charge">{renewalQuote.smartScaleAmount}</span>} />
                   ) : null}
-                  <FieldRow label="Total" value={<span className="software-charge">{renewalQuote.totalAmount}</span>} />
+                  <FieldRow label={renewalQuote.totalLabel} value={<span className="software-charge">{renewalQuote.totalAmount}</span>} />
                 </>
               ) : null}
               {hasShopFieldValue(shop.currency) ? <FieldRow label="Currency" value={dash(shop.currency)} /> : null}

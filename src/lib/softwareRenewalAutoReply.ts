@@ -1,6 +1,7 @@
 import { parseSoftwareShopIdFromText } from './whatsappInbox';
 import {
   formatShopRateCardMessage,
+  formatSoftwareRenewalCharge,
   resolveSoftwareShopForRenewal,
   softwareCallRenewalCharge,
 } from './softwareShops';
@@ -31,9 +32,11 @@ function formatInr(amount: number): string {
 export function softwareRenewalPaymentText(shop: SoftwareShop | null, shopId: number): string {
   const name = shop?.name?.trim() || `Shop ${shopId}`;
   const charge = shop ? softwareCallRenewalCharge(shop) : null;
-  const total = charge?.amount || 0;
-  const amountLine = total
-    ? `Please pay ${formatInr(total)} to renew ${name}.`
+  const payableText = shop ? formatSoftwareRenewalCharge(shop) : '';
+  const amountLine = charge && payableText && payableText !== '—'
+    ? charge.currency === 'INR'
+      ? `Please pay ${payableText} to renew ${name} (${formatInr(charge.amount)} + 18% GST).`
+      : `Please pay ${payableText} to renew ${name}.`
     : `Please pay the renewal amount for ${name}.`;
   return [
     amountLine,

@@ -142,6 +142,15 @@ export function softwareRenewalCharge(shop: {
 /** Added only when quoting or calling. Never written back onto the shop. */
 export const SMART_SCALE_CALL_EXTRA_INR = 1500;
 
+/** Indian renewal quotes are exclusive until display. AED quotes stay as entered. */
+export const SOFTWARE_RENEWAL_GST_RATE = 0.18;
+
+export function renewalAmountInclGst(amount: number, currency: 'INR' | 'AED'): number {
+  const base = Number(amount) || 0;
+  if (currency !== 'INR' || base <= 0) return base;
+  return base + Math.round(base * SOFTWARE_RENEWAL_GST_RATE);
+}
+
 type ShopQuoteFields = {
   subscription: string;
   sourceAccount?: string;
@@ -181,11 +190,21 @@ export function smartScaleCallExtraInr(shop: ShopQuoteFields): number {
   return SMART_SCALE_CALL_EXTRA_INR;
 }
 
-/** Base renewal plus the Smart Scale call extra. Does not change the stored charge. */
+/** Base renewal plus the Smart Scale call extra, before GST. Does not change the stored charge. */
 export function softwareCallRenewalCharge(shop: ShopQuoteFields): SoftwareRenewalCharge | null {
   const base = softwareRenewalCharge(shop);
   if (!base) return null;
   return { amount: base.amount + smartScaleCallExtraInr(shop), currency: base.currency };
+}
+
+/** Amount the customer pays. INR includes 18% GST. */
+export function softwareRenewalPayableCharge(shop: ShopQuoteFields): SoftwareRenewalCharge | null {
+  const charge = softwareCallRenewalCharge(shop);
+  if (!charge) return null;
+  return {
+    amount: renewalAmountInclGst(charge.amount, charge.currency),
+    currency: charge.currency,
+  };
 }
 
 function formatRenewalAmount(charge: SoftwareRenewalCharge): string {
@@ -196,7 +215,7 @@ function formatRenewalAmount(charge: SoftwareRenewalCharge): string {
 }
 
 export function formatSoftwareRenewalCharge(shop: ShopQuoteFields): string {
-  const charge = softwareCallRenewalCharge(shop);
+  const charge = softwareRenewalPayableCharge(shop);
   if (!charge) return '—';
   return formatRenewalAmount(charge);
 }
@@ -204,26 +223,37 @@ export function formatSoftwareRenewalCharge(shop: ShopQuoteFields): string {
 export function formatSmartScaleCallExtra(shop: ShopQuoteFields): string {
   const extra = smartScaleCallExtraInr(shop);
   if (!extra) return '';
-  return formatRenewalAmount({ amount: extra, currency: 'INR' });
+  return formatRenewalAmount({
+    amount: renewalAmountInclGst(extra, 'INR'),
+    currency: 'INR',
+  });
 }
 
 export type ShopRenewalQuote = {
   subscriptionLabel: string;
   subscriptionAmount: string;
   smartScaleAmount: string;
+  totalLabel: string;
   totalAmount: string;
 };
 
-/** Display quote only. The shop record keeps the base renewal. */
+/** Display quote only. The shop record keeps the base renewal. INR amounts include 18% GST. */
 export function shopRenewalQuote(shop: ShopQuoteFields): ShopRenewalQuote | null {
   const base = softwareRenewalCharge(shop);
   const total = softwareCallRenewalCharge(shop);
   if (!base || !total) return null;
   return {
     subscriptionLabel: String(shop.subscription ?? '').trim() || 'Subscription',
-    subscriptionAmount: formatRenewalAmount(base),
+    subscriptionAmount: formatRenewalAmount({
+      amount: renewalAmountInclGst(base.amount, base.currency),
+      currency: base.currency,
+    }),
     smartScaleAmount: formatSmartScaleCallExtra(shop),
-    totalAmount: formatRenewalAmount(total),
+    totalLabel: base.currency === 'INR' ? 'Total (incl. 18% GST)' : 'Total',
+    totalAmount: formatRenewalAmount({
+      amount: renewalAmountInclGst(total.amount, total.currency),
+      currency: total.currency,
+    }),
   };
 }
 
@@ -1621,7 +1651,7 @@ export function formatShopRateCardMessage(shop: SoftwareShop): string {
     ...(quote ? [
       `${quote.subscriptionLabel}: ${quote.subscriptionAmount}`,
       ...(quote.smartScaleAmount ? [`Smart Scale: ${quote.smartScaleAmount}`] : []),
-      `Total: ${quote.totalAmount}`,
+      `${quote.totalLabel}: ${quote.totalAmount}`,
     ] : []),
     `End date: ${endLine}`,
   ].join('\n');

@@ -10,6 +10,13 @@ export const SOFTWARE_RENEWAL_CHARGES_INR = {
 };
 
 const SMART_SCALE_CALL_EXTRA_INR = 1500;
+const GST_RATE = 0.18;
+
+function inclGst(amount) {
+  const n = Number(amount) || 0;
+  if (!n) return 0;
+  return n + Math.round(n * GST_RATE);
+}
 
 const GPAY_NUMBER = '8803333444';
 
@@ -62,10 +69,13 @@ export function softwareRenewalBaseInr(subscription) {
 
 export function softwareRenewalPayableInr(shop) {
   const base = softwareRenewalBaseInr(shop?.subscription);
-  if (!base) return { base: 0, extra: 0, subtotal: 0, total: 0 };
+  if (!base) return { base: 0, extra: 0, subtotal: 0, gst: 0, total: 0, baseIncl: 0, extraIncl: 0 };
   const extra = shopHasSmartScale(shop) ? SMART_SCALE_CALL_EXTRA_INR : 0;
   const subtotal = base + extra;
-  return { base, extra, subtotal, total: subtotal };
+  const baseIncl = inclGst(base);
+  const extraIncl = inclGst(extra);
+  const total = baseIncl + extraIncl;
+  return { base, extra, subtotal, gst: total - subtotal, total, baseIncl, extraIncl };
 }
 
 function formatInr(amount) {
@@ -108,10 +118,10 @@ export function softwareRenewalCardText(shop, shopId) {
     `Phone: ${asString(shop?.phone) || '—'}`,
     `Subscription: ${asString(shop?.subscription) || '—'}`,
   ];
-  if (payable.subtotal) {
-    lines.push(`${asString(shop?.subscription) || 'Renewal'}: ${formatInr(payable.base)}`);
-    if (payable.extra) lines.push(`Smart Scale: ${formatInr(payable.extra)}`);
-    lines.push(`Total: ${formatInr(payable.subtotal)}`);
+  if (payable.total) {
+    lines.push(`${asString(shop?.subscription) || 'Renewal'}: ${formatInr(payable.baseIncl)}`);
+    if (payable.extra) lines.push(`Smart Scale: ${formatInr(payable.extraIncl)}`);
+    lines.push(`Total (incl. 18% GST): ${formatInr(payable.total)}`);
   }
   lines.push(`End date: ${days ? `${end} (${days})` : end}`);
   return lines.join('\n');
@@ -122,8 +132,8 @@ export function softwareRenewalPaymentText(shop, shopId) {
   const name = asString(shop?.name) || `Shop ${id}`;
   const payable = softwareRenewalPayableInr(shop);
   const amountLine = payable.total
-    ? `Please pay ${formatInr(payable.total)} to renew ${name}.`
-    : `Please pay the renewal amount for ${name}.`;
+    ? `Please pay ${formatInr(payable.total)} to renew ${name} (${formatInr(payable.subtotal)} + 18% GST).`
+    : `Please pay the renewal amount + 18% GST for ${name}.`;
   return [
     amountLine,
     '',
