@@ -15,7 +15,7 @@ const { GoogleAuth } = require('google-auth-library');
 const PROJECT_ID = 'yesweigh-service';
 const ROLE = 'roles/secretmanager.secretAccessor';
 /** Bound on an older sendDealerLoginOtp revision; not declared in source anymore. */
-const LEFTOVER_SECRETS = ['WATI_TOKEN'];
+const LEFTOVER_SECRETS = ['WATI_TOKEN', 'WATI_ENDPOINT'];
 
 function warn(message) {
   console.warn(`::warning::${message}`);
@@ -56,14 +56,20 @@ async function main() {
     const base = `https://secretmanager.googleapis.com/v1/projects/${PROJECT_ID}/secrets/${secret}`;
     const policyRes = await fetch(`${base}:getIamPolicy`, { headers });
     const policy = await policyRes.json().catch(() => ({}));
-    if (policyRes.status === 404) continue;
+    if (policyRes.status === 404) {
+      warn(`Secret ${secret} was not found.`);
+      continue;
+    }
     if (!policyRes.ok) {
       warn(`Could not read IAM for secret ${secret} (${policyRes.status}).`);
       continue;
     }
     const bindings = Array.isArray(policy.bindings) ? policy.bindings : [];
     const existing = bindings.find(row => row?.role === ROLE);
-    if (existing?.members?.includes(member)) continue;
+    if (existing?.members?.includes(member)) {
+      console.log(`Runtime service account already has ${ROLE} on ${secret}.`);
+      continue;
+    }
 
     const nextBindings = bindings.map(row => ({ ...row, members: [...(row.members || [])] }));
     const target = nextBindings.find(row => row.role === ROLE);
