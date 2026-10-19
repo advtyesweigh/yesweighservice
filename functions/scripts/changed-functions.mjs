@@ -28,6 +28,13 @@ const DEPLOY_ALL_FILES = new Set([
   'functions/package-lock.json',
 ]);
 
+/**
+ * sendDealerLoginOtp's live Cloud Run service still mounts WATI_TOKEN and
+ * WATI_ENDPOINT. The runtime account cannot read them, and CI gets 404 on
+ * both secrets, so any update fails the deploy. Leave that revision in place.
+ */
+const BLOCKED_FUNCTIONS = new Set(['sendDealerLoginOtp']);
+
 const IGNORE_FILES = [
   /^functions\/scripts\//,
   /^functions\/\.env/,
@@ -321,9 +328,12 @@ function main() {
     }
   }
 
+  const blocked = [...names].filter(name => BLOCKED_FUNCTIONS.has(name)).sort();
+  for (const name of blocked) names.delete(name);
+
   if (names.size === 0) {
     console.log('skip=true');
-    console.log('reason=no deployable function changes detected');
+    console.log(`reason=${blocked.length ? `only blocked function(s): ${blocked.join(',')}` : 'no deployable function changes detected'}`);
     return;
   }
 
@@ -336,6 +346,9 @@ function main() {
   console.log(`deploy_only=${deployOnly}`);
   console.log(`count=${names.size}`);
   console.log(`functions=${[...names].sort().join(',')}`);
+  if (blocked.length) {
+    console.log(`blocked=${blocked.join(',')}`);
+  }
 }
 
 main();
