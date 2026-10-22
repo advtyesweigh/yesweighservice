@@ -14,14 +14,15 @@ const { GoogleAuth } = require('google-auth-library');
 
 const PROJECT_ID = 'yesweigh-service';
 const ROLE = 'roles/secretmanager.secretAccessor';
-/** Bound on an older sendDealerLoginOtp revision; not declared in source anymore. */
-const LEFTOVER_SECRETS = ['WATI_TOKEN', 'WATI_ENDPOINT'];
+/** Add a secret id here only when a live revision still mounts one the runtime account cannot read. */
+const LEFTOVER_SECRETS = [];
 
 function warn(message) {
   console.warn(`::warning::${message}`);
 }
 
 async function main() {
+  if (LEFTOVER_SECRETS.length === 0) return;
   if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     warn('Skipping runtime secret access check (no GOOGLE_APPLICATION_CREDENTIALS).');
     return;
