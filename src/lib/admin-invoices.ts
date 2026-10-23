@@ -20,7 +20,11 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
-import { parseDealerCustomerInvoice, toSalesOrderDateKey } from './admin-sales-orders';
+import {
+  fetchStaffCreatedCloudSpareSalesOrders,
+  parseDealerCustomerInvoice,
+  toSalesOrderDateKey,
+} from './admin-sales-orders';
 import { firstShipToGstin, preferShippingPhone } from './logisticsDealers';
 import { buildContactLinks } from './phoneLinks';
 import {
@@ -288,6 +292,54 @@ export function mapAdminInvoiceDoc(
       ? documentLooksLikeMachineQc({ lineItems: mappedLines })
       : false,
   };
+}
+
+export function mergeInvoiceRows(
+  primary: AdminFirestoreInvoice[],
+  extra: AdminFirestoreInvoice[],
+): AdminFirestoreInvoice[] {
+  const seen = new Set(primary.map(row => row.id));
+  const next = [...primary];
+  for (const row of extra) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    next.push(row);
+  }
+  return next;
+}
+
+/**
+ * Invoices for Cloud / Spare sales orders this staff member created.
+ * Those invoices keep Shibin / Cloud Charges as salesperson, so the salesperson query misses them.
+ */
+export async function fetchStaffCreatedCloudSpareInvoices(
+  uid: string,
+): Promise<AdminFirestoreInvoice[]> {
+  const orders = await fetchStaffCreatedCloudSpareSalesOrders(uid);
+  const targets = orders.filter(row => row.zohoInvoiceId && row.customerId).slice(0, 80);
+  const rows: AdminFirestoreInvoice[] = [];
+  await Promise.all(targets.map(async order => {
+    const invoiceId = String(order.zohoInvoiceId || '').trim();
+    const customerId = String(order.customerId || '').trim();
+    if (!invoiceId || !customerId) return;
+    try {
+      const summarySnap = await getDoc(doc(
+        db,
+        'zohoCustomers',
+        customerId,
+        'invoiceSummaries',
+        invoiceId,
+      ));
+      const snap = summarySnap.exists()
+        ? summarySnap
+        : await getDoc(doc(db, 'zohoCustomers', customerId, 'invoices', invoiceId));
+      if (!snap.exists()) return;
+      rows.push(mapAdminInvoiceDoc(snap as QueryDocumentSnapshot<DocumentData>));
+    } catch {
+      /* one missing invoice should not hide the rest */
+    }
+  }));
+  return rows;
 }
 
 function mapInvoiceListLogistics(raw: unknown): AdminFirestoreInvoice['logistics'] {

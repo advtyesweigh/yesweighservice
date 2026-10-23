@@ -290,6 +290,15 @@
       "collectionGroup": "salesOrders",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "yesOneCreatedByUid", "order": "ASCENDING" },
+        { "fieldPath": "yesOneOrderSegment", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "customerId", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "DESCENDING" }
       ]

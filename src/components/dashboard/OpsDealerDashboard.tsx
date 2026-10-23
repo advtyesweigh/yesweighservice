@@ -20,7 +20,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
 import { loadAdminInvoiceKpis } from '../../lib/admin-invoices';
 import { countAdminPurchaseOrders } from '../../lib/admin-purchase-orders';
-import { countAdminSalesOrdersByYesOneStages } from '../../lib/admin-sales-orders';
+import {
+  countAdminSalesOrdersByYesOneStages,
+  fetchStaffCreatedCloudSpareSalesOrders,
+  tallyCreatorCloudSpareOutsideScope,
+} from '../../lib/admin-sales-orders';
 import {
   defaultDashboardCustomRange,
   formatDashboardPeriodLabel,
@@ -175,12 +179,15 @@ export function OpsDealerDashboard({ basePath, variant }: OpsDealerDashboardProp
     const loadOps = async () => {
       setOpsLoading(true);
       try {
-        const [stages, invoiceKpi, warrantySupport, openComplaints, purchaseOrders] = await Promise.all([
+        const [stages, createdOrders, invoiceKpi, warrantySupport, openComplaints, purchaseOrders] = await Promise.all([
           countAdminSalesOrdersByYesOneStages({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
             salespersonIds,
           }),
+          kamScoped && user?.uid
+            ? fetchStaffCreatedCloudSpareSalesOrders(user.uid)
+            : Promise.resolve([]),
           loadAdminInvoiceKpis({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
@@ -204,10 +211,14 @@ export function OpsDealerDashboard({ basePath, variant }: OpsDealerDashboardProp
             }),
         ]);
         if (cancelled) return;
+        const createdOutside = tallyCreatorCloudSpareOutsideScope(createdOrders, salespersonIds, {
+          dateStart: periodBounds.start,
+          dateEnd: periodBounds.end,
+        });
         const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
         setOpsCounts({
-          newOrders: stages.review,
-          pendingApproval: stages.payment_submitted,
+          newOrders: stages.review + createdOutside.review,
+          pendingApproval: stages.payment_submitted + createdOutside.payment_submitted,
           toDispatch: invoiceStatuses.to_dispatch ?? 0,
           warrantySupport,
           openComplaints,
@@ -231,6 +242,7 @@ export function OpsDealerDashboard({ basePath, variant }: OpsDealerDashboardProp
     periodBounds.end,
     periodBounds.start,
     salespersonIds,
+    user?.uid,
   ]);
 
   const periodFilter = useMemo(

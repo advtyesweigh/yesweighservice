@@ -437,11 +437,50 @@ async function assertDealerOwnsSo(user, data) {
   }
 }
 
-/** Dealer owner, or staff/super_admin with orders.manage (phone-order payment proof). */
+function isCloudOrSpareOrder(data) {
+  const segment = String(data?.yesOneOrderSegment || '').trim().toLowerCase();
+  if (segment === 'spare' || segment === 'software') return true;
+  const category = String(data?.salesOrderCategory || '').trim().toLowerCase();
+  if (category === 'spare' || category === 'software_key') return true;
+  const categories = Array.isArray(data?.categories) ? data.categories : [];
+  return categories.some(value => {
+    const key = String(value || '').trim().toLowerCase();
+    return key === 'spare' || key === 'software_key';
+  });
+}
+
+function isSpareOrder(data) {
+  const segment = String(data?.yesOneOrderSegment || '').trim().toLowerCase();
+  if (segment === 'spare') return true;
+  const category = String(data?.salesOrderCategory || '').trim().toLowerCase();
+  return category === 'spare';
+}
+
+/**
+ * Salesperson who created a Cloud or Spare order may attach payment proof
+ * after it is awaiting payment (Spare Incharge approval, or Cloud which skips review).
+ */
+function assertCreatorCanAttachPayment(user, data) {
+  if (user.role !== 'staff') return false;
+  const createdBy = String(data?.yesOneCreatedByUid || '').trim();
+  if (!createdBy || createdBy !== user.uid) return false;
+  if (!isCloudOrSpareOrder(data)) return false;
+  const stage = yesOneStageOf(data);
+  if (stage === 'ready_for_payment' || stage === 'payment_submitted') return true;
+  throw new HttpsError(
+    'failed-precondition',
+    isSpareOrder(data)
+      ? 'Attach the payment screenshot after Spare Incharge approves this order.'
+      : 'This sales order is not awaiting payment.',
+  );
+}
+
+/** Dealer owner, staff/super_admin with orders.manage, or the Cloud/Spare order's creator. */
 async function assertCanSubmitPayment(user, data) {
   if (OPS_ROLES.has(user.role)) {
-    requireOrdersManage(user);
-    return;
+    if (user.role === 'super_admin' || staffHasPermission(user, 'orders.manage')) return;
+    if (assertCreatorCanAttachPayment(user, data)) return;
+    throw new HttpsError('permission-denied', 'You do not have permission to manage orders.');
   }
   await assertDealerOwnsSo(user, data);
 }

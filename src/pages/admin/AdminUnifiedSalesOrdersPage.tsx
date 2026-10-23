@@ -39,10 +39,14 @@ import {
   countZohoRowsByCategory,
   fetchAdminSalesOrderDealerLifetimeAggregates,
   fetchAdminSalesOrdersForCustomers,
+  creatorCloudSpareOrderVisible,
   fetchAdminSalesOrdersPageDetailed,
   fetchAllAdminSalesOrdersInRange,
-  fetchStaffOpenFollowOnSalesOrders,
+  fetchStaffCreatedCloudSpareSalesOrders,
+  isCreatorCloudOrSpareSalesOrder,
   mergeSalesOrderRows,
+  salesOrderInSalespersonScope,
+  tallyCreatorCloudSpareOutsideScope,
   filterAdminSalesOrders,
   loadAdminSalesOrderCursorDocs,
   toSalesOrderDateKey,
@@ -336,11 +340,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
-  const attachFollowOnOrders = useCallback(async (rows: AdminFirestoreSalesOrder[]) => {
-    if (salespersonIds == null || !user?.uid) return rows;
-    const extra = await fetchStaffOpenFollowOnSalesOrders(user.uid);
-    return mergeSalesOrderRows(rows, extra);
-  }, [salespersonIds, user?.uid]);
   const scrollRef = useRevealScrollbarOnScroll();
 
   const restored = pendingReturnRef.current;
@@ -401,6 +400,28 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped || lifetimeAggregateAllowed;
   const useAggregate = aggregate && aggregateAllowed;
   const useLifetimeDealerRollups = useAggregate && lifetimeAggregateAllowed;
+  const attachFollowOnOrders = useCallback(async (rows: AdminFirestoreSalesOrder[]) => {
+    if (salespersonIds == null || !user?.uid) return rows;
+    if (page !== 1 && !searchActive && !useAggregate) return rows;
+    const extra = await fetchStaffCreatedCloudSpareSalesOrders(user.uid);
+    const visible = extra.filter(row => creatorCloudSpareOrderVisible(row, {
+      dateStart,
+      dateEnd,
+      category,
+      stageFilter,
+    }));
+    return mergeSalesOrderRows(rows, visible);
+  }, [
+    salespersonIds,
+    user?.uid,
+    page,
+    searchActive,
+    useAggregate,
+    dateStart,
+    dateEnd,
+    category,
+    stageFilter,
+  ]);
   const selectedCustomerIds = useMemo(
     () => selectedDealers.map(d => d.id),
     [selectedDealers],
@@ -582,12 +603,43 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         category,
         salespersonIds,
       }),
+      salespersonIds != null && user?.uid
+        ? fetchStaffCreatedCloudSpareSalesOrders(user.uid)
+        : Promise.resolve([] as AdminFirestoreSalesOrder[]),
     ])
-      .then(([categoryCounts, stages]) => {
+      .then(([categoryCounts, stages, created]) => {
         if (cancelled) return;
-        setZohoCategoryCounts(categoryCounts);
-        setZohoTotal(category === 'all' ? categoryCounts.all : categoryCounts[category]);
-        setServerStageCounts(stages);
+        const outside = tallyCreatorCloudSpareOutsideScope(created, salespersonIds, {
+          dateStart,
+          dateEnd,
+        });
+        const nextStages = {
+          review: stages.review + outside.review,
+          ready_for_payment: stages.ready_for_payment + outside.ready_for_payment,
+          payment_submitted: stages.payment_submitted + outside.payment_submitted,
+          completed: stages.completed + outside.completed,
+        };
+        const visibleCreated = created.filter(row => (
+          creatorCloudSpareOrderVisible(row, {
+            dateStart,
+            dateEnd,
+            category: 'all',
+            stageFilter,
+          })
+          && !salesOrderInSalespersonScope(row, salespersonIds)
+        ));
+        const extraCategories = countZohoRowsByCategory(visibleCreated);
+        const nextCategories = {
+          all: categoryCounts.all + extraCategories.all,
+          product: categoryCounts.product + extraCategories.product,
+          spare: categoryCounts.spare + extraCategories.spare,
+          software_key: categoryCounts.software_key + extraCategories.software_key,
+          service: categoryCounts.service + extraCategories.service,
+          gatc: categoryCounts.gatc + extraCategories.gatc,
+        };
+        setZohoCategoryCounts(nextCategories);
+        setZohoTotal(category === 'all' ? nextCategories.all : nextCategories[category]);
+        setServerStageCounts(nextStages);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -606,6 +658,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     stageFilter,
     salespersonIds,
     salespersonScopeKey,
+    user?.uid,
   ]);
 
   // Dealer-scoped: load full date window for selected customers (newest-first).
@@ -836,11 +889,28 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     return zohoRows;
   }, [clientPaged, page, zohoRows]);
 
+  const creatorExtraOnPage = useMemo(() => {
+    if (salespersonIds == null || !serverStageQuery) return 0;
+    return zohoOrders.filter(row => {
+      if (!isCreatorCloudOrSpareSalesOrder(row)) return false;
+      if (salesOrderInSalespersonScope(row, salespersonIds)) return false;
+      return String(row.yesOneStage || '').trim() !== stageFilter;
+    }).length;
+  }, [salespersonIds, serverStageQuery, zohoOrders, stageFilter]);
+
   const filteredTotal = useMemo(() => {
     if (clientPaged) return zohoRows.length;
-    if (serverStageQuery) return stageCounts[stageFilter] || 0;
-    return zohoTotal;
-  }, [clientPaged, zohoRows.length, zohoTotal, serverStageQuery, stageCounts, stageFilter]);
+    const base = serverStageQuery ? (stageCounts[stageFilter] || 0) : zohoTotal;
+    return base + creatorExtraOnPage;
+  }, [
+    clientPaged,
+    zohoRows.length,
+    zohoTotal,
+    serverStageQuery,
+    stageCounts,
+    stageFilter,
+    creatorExtraOnPage,
+  ]);
 
   const totalPages = useMemo(() => {
     if (filteredTotal <= 0) return 1;

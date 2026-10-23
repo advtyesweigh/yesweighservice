@@ -36,7 +36,9 @@ import {
   fetchAdminPortalStampingInvoices,
   fetchAdminInvoicesPageResult,
   fetchAllAdminInvoicesInRange,
+  fetchStaffCreatedCloudSpareInvoices,
   filterAdminInvoices,
+  mergeInvoiceRows,
   invoiceChipCategoryCounts,
   invoiceChipStatusCounts,
   overlayPortalStampingOnInvoices,
@@ -527,6 +529,18 @@ export const AdminInvoicesPage: React.FC = () => {
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds ? toInvoiceDateKey(bounds.start) : null;
   const dateEnd = bounds ? toInvoiceDateKey(bounds.end) : null;
+  const attachCreatorInvoices = useCallback(async (list: AdminFirestoreInvoice[]) => {
+    if (salespersonIds == null || !user?.uid) return list;
+    const extra = await fetchStaffCreatedCloudSpareInvoices(user.uid);
+    const dated = extra.filter(row => {
+      const date = String(row.date ?? '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return true;
+      if (dateStart && date < dateStart) return false;
+      if (dateEnd && date > dateEnd) return false;
+      return true;
+    });
+    return mergeInvoiceRows(list, dated);
+  }, [salespersonIds, user?.uid, dateStart, dateEnd]);
   const orgWide = salespersonIds == null;
   const lifetimeAggregateAllowed = rangePreset === 'lifetime' && orgWide;
   const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped || lifetimeAggregateAllowed;
@@ -700,13 +714,15 @@ export const AdminInvoicesPage: React.FC = () => {
         });
 
       void load
-        .then(({ rows: next, truncated: wasTruncated }) => {
+        .then(async ({ rows: next, truncated: wasTruncated }) => {
           if (cancelled) return;
-          setRows(next);
+          const withCreated = await attachCreatorInvoices(next);
+          if (cancelled) return;
+          setRows(withCreated);
           setTruncated(wasTruncated);
           setHasMore(false);
           setLoading(false);
-          setTableCache(cacheKey, { rows: next, truncated: wasTruncated, hasMore: false });
+          setTableCache(cacheKey, { rows: withCreated, truncated: wasTruncated, hasMore: false });
           if (useLifetimeDealerRollups) return;
           void fetchAdminPortalStampingInvoices({
             sort,
@@ -715,7 +731,7 @@ export const AdminInvoicesPage: React.FC = () => {
             salespersonIds,
           }).then(portal => {
             if (cancelled) return;
-            setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+            setRows(overlayPortalStampingOnInvoices(withCreated, portal.rows, sort));
           });
         })
         .catch(err => {
@@ -738,12 +754,14 @@ export const AdminInvoicesPage: React.FC = () => {
         dateEnd,
         salespersonIds,
       })
-        .then(({ rows: next }) => {
+        .then(async ({ rows: next }) => {
           if (cancelled) return;
-          setRows(next);
+          const withCreated = await attachCreatorInvoices(next);
+          if (cancelled) return;
+          setRows(withCreated);
           setHasMore(false);
           setLoading(false);
-          setTableCache(cacheKey, { rows: next, hasMore: false });
+          setTableCache(cacheKey, { rows: withCreated, hasMore: false });
           if (category !== 'gatc') return;
           void fetchAdminPortalStampingInvoices({
             sort,
@@ -752,7 +770,7 @@ export const AdminInvoicesPage: React.FC = () => {
             salespersonIds,
           }).then(portal => {
             if (cancelled) return;
-            setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+            setRows(overlayPortalStampingOnInvoices(withCreated, portal.rows, sort));
           });
         })
         .catch(err => {
@@ -836,8 +854,19 @@ export const AdminInvoicesPage: React.FC = () => {
       limitCount: 12,
       salespersonIds,
     })
-      .then(hits => {
-        if (!cancelled) setSearchHits(hits);
+      .then(async hits => {
+        if (cancelled) return;
+        if (salespersonIds == null || !user?.uid) {
+          setSearchHits(hits);
+          return;
+        }
+        const created = await fetchStaffCreatedCloudSpareInvoices(user.uid);
+        const needle = debouncedSearch.toLowerCase();
+        const matched = created.filter(row => (
+          [row.invoiceNumber, row.customerName, row.salesOrderNumber, row.referenceNumber]
+            .some(value => String(value ?? '').toLowerCase().includes(needle))
+        ));
+        if (!cancelled) setSearchHits(mergeInvoiceRows(hits, matched));
       })
       .catch(() => {
         if (!cancelled) setSearchHits([]);
@@ -848,7 +877,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, searchOpen, salespersonIds, salespersonScopeKey]);
+  }, [debouncedSearch, searchOpen, salespersonIds, salespersonScopeKey, user?.uid]);
 
   useEffect(() => {
     if (!searchOpen) {

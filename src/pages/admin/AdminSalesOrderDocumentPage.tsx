@@ -65,6 +65,7 @@ import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
+  staffCanAttachCreatorPaymentProof,
   isSalesOrderInvoicingMismatch,
   updateDraftSalesOrderLines,
   updateDraftSalesOrderSparePackaging,
@@ -210,8 +211,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     && canEditDraft
     && Boolean(salesOrder?.customerId?.trim());
   const allowRateEdit = isOps && canEditLines;
+  const creatorCanAttachPayment = staffCanAttachCreatorPaymentProof({
+    uid: user?.uid,
+    role: user?.role,
+    createdByUid: salesOrder?.yesOneCreatedByUid,
+    segment: salesOrder?.yesOneOrderSegment,
+    category: salesOrder?.salesOrderCategory,
+    stage,
+  });
   const canPay = (
-    ((isDealer && !hideCommercials) || canManageOrders)
+    ((isDealer && !hideCommercials) || canManageOrders || creatorCanAttachPayment)
     && (stage === 'ready_for_payment' || stage === 'payment_submitted')
   );
   const canUploadPayment = canPay && stage === 'ready_for_payment';

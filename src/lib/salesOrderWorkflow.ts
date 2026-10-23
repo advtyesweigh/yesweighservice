@@ -172,6 +172,33 @@ export function normalizeSalesOrderZohoStatus(status: string | null | undefined)
 }
 
 /** Whether lines/shipping on a portal SO can still be edited. */
+/**
+ * Creating salesperson may attach a payment screenshot on their Cloud / Spare order
+ * once it is awaiting payment (after Spare Incharge approval, or immediately for Cloud).
+ */
+export function staffCanAttachCreatorPaymentProof(input: {
+  uid?: string | null;
+  role?: string | null;
+  createdByUid?: string | null;
+  segment?: string | null;
+  category?: string | null;
+  stage?: string | null;
+}): boolean {
+  if (input.role !== 'staff') return false;
+  const uid = String(input.uid ?? '').trim();
+  const createdBy = String(input.createdByUid ?? '').trim();
+  if (!uid || uid !== createdBy) return false;
+  const segment = String(input.segment ?? '').trim();
+  const category = String(input.category ?? '').trim();
+  const cloudOrSpare = segment === 'spare'
+    || segment === 'software'
+    || category === 'spare'
+    || category === 'software_key';
+  if (!cloudOrSpare) return false;
+  const stage = String(input.stage ?? '').trim();
+  return stage === 'ready_for_payment' || stage === 'payment_submitted';
+}
+
 export function canEditSalesOrderDraft(input: {
   role?: string | null;
   yesOneStage?: string | null;

@@ -112,7 +112,7 @@ export interface AdminFirestoreSalesOrder {
   yesOneStage?: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
   yesOneCreatedFromCart?: boolean;
-  /** Portal user who placed the SO (dealer owner after staff approval). */
+  /** Portal user who placed the SO (staff uid for staff-created Cloud / Spare). */
   yesOneCreatedByUid?: string | null;
   yesOneOrderSegment?: 'product' | 'spare' | 'software' | null;
   /** Dealer staff who submitted the cart for approval. */
@@ -215,6 +215,8 @@ export interface AdminSalesOrderDetail {
   notes: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
   yesOneCreatedFromCart?: boolean;
+  /** Portal user who placed the SO. Staff-created Cloud / Spare keep this after Zoho salesperson changes. */
+  yesOneCreatedByUid?: string | null;
   /** Create/submit segment stamp (product | spare | software). */
   yesOneOrderSegment?: 'product' | 'spare' | 'software' | null;
   /** Create/submit inventory site stamp (cochin | head_office). */
@@ -441,28 +443,147 @@ export function isSalesOrderInvoiced(
   return Boolean(so.zohoInvoiceId);
 }
 
-/** Spare / software SOs this staff created that are not invoiced yet. */
-export async function fetchStaffOpenFollowOnSalesOrders(
+/** Cloud (software) and Spare orders. Zoho salesperson is Cloud Charges / Shibin, not the creator. */
+export function isCreatorCloudOrSpareSalesOrder(row: {
+  yesOneOrderSegment?: string | null;
+  salesOrderCategory?: InvoiceCategory | null;
+  categories?: InvoiceCategory[];
+}): boolean {
+  const segment = String(row.yesOneOrderSegment ?? '').trim();
+  if (segment === 'spare' || segment === 'software') return true;
+  const category = String(row.salesOrderCategory ?? '').trim();
+  if (category === 'spare' || category === 'software_key') return true;
+  return (row.categories ?? []).some(value => value === 'spare' || value === 'software_key');
+}
+
+/** True when the Zoho salesperson on the doc is already inside this staff member's scope. */
+export function salesOrderInSalespersonScope(
+  row: { salespersonId?: string | null },
+  salespersonIds: string[] | null | undefined,
+): boolean {
+  if (salespersonIds == null) return true;
+  const id = String(row.salespersonId ?? '').trim();
+  return Boolean(id && salespersonIds.includes(id));
+}
+
+function salesOrderDateInWindow(
+  date: string | null | undefined,
+  dateStart?: string | null,
+  dateEnd?: string | null,
+): boolean {
+  const key = String(date ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return true;
+  if (dateStart && key < dateStart) return false;
+  if (dateEnd && key > dateEnd) return false;
+  return true;
+}
+
+/**
+ * Creator's Cloud / Spare SOs stay on their list after Zoho salesperson is reassigned.
+ * Uninvoiced ones also stay on the default "pending approval" chip so a new order does not disappear.
+ */
+export function creatorCloudSpareOrderVisible(
+  row: AdminFirestoreSalesOrder,
+  options: {
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    category?: InvoiceCategory | 'all';
+    stageFilter?: string | 'all';
+  },
+): boolean {
+  if (!isCreatorCloudOrSpareSalesOrder(row)) return false;
+  if (!salesOrderDateInWindow(row.date, options.dateStart, options.dateEnd)) return false;
+  const category = options.category ?? 'all';
+  if (category !== 'all' && !invoiceHasCategory({
+    categories: row.categories,
+    invoiceCategory: row.salesOrderCategory,
+  }, category)) return false;
+  const stage = String(row.yesOneStage || '').trim();
+  if (stage === 'void') return false;
+  const filter = options.stageFilter ?? 'all';
+  if (filter === 'all') return true;
+  if (stage === filter) return true;
+  if (filter === 'payment_submitted' && !isSalesOrderInvoiced(row)) return true;
+  if (filter === 'completed' && isSalesOrderInvoiced(row)) return true;
+  return false;
+}
+
+export function tallyCreatorCloudSpareOutsideScope(
+  rows: AdminFirestoreSalesOrder[],
+  salespersonIds: string[] | null | undefined,
+  options?: { dateStart?: string | null; dateEnd?: string | null },
+): AdminSalesOrderYesOneStageCounts {
+  const counts: AdminSalesOrderYesOneStageCounts = {
+    review: 0,
+    ready_for_payment: 0,
+    payment_submitted: 0,
+    completed: 0,
+  };
+  for (const row of rows) {
+    if (!isCreatorCloudOrSpareSalesOrder(row)) continue;
+    if (salesOrderInSalespersonScope(row, salespersonIds)) continue;
+    if (!salesOrderDateInWindow(row.date, options?.dateStart, options?.dateEnd)) continue;
+    const stage = String(row.yesOneStage || '').trim();
+    if (
+      stage === 'review'
+      || stage === 'ready_for_payment'
+      || stage === 'payment_submitted'
+      || stage === 'completed'
+    ) {
+      counts[stage] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Cloud and Spare sales orders this staff member created.
+ * Segment query is newest-first. If that index is still building, fall back to creator uid only.
+ */
+export async function fetchStaffCreatedCloudSpareSalesOrders(
   uid: string,
 ): Promise<AdminFirestoreSalesOrder[]> {
   const id = String(uid ?? '').trim();
   if (!id) return [];
+  const mapRows = (docs: QueryDocumentSnapshot<DocumentData>[]) => docs
+    .map(mapAdminSalesOrderDoc)
+    .filter(isCreatorCloudOrSpareSalesOrder);
+
   try {
     const snap = await getDocs(query(
       collection(db, 'salesOrders'),
       where('yesOneCreatedByUid', '==', id),
-      limit(80),
+      where('yesOneOrderSegment', 'in', ['spare', 'software']),
+      orderBy('date', 'desc'),
+      limit(120),
     ));
-    return snap.docs
-      .map(mapAdminSalesOrderDoc)
-      .filter(row => {
-        const segment = String(row.yesOneOrderSegment ?? '').trim();
-        if (segment !== 'spare' && segment !== 'software') return false;
-        return !isSalesOrderInvoiced(row);
-      });
-  } catch {
+    return mapRows(snap.docs);
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) {
+      console.warn('Creator cloud/spare sales orders query failed', err);
+      return [];
+    }
+  }
+
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'salesOrders'),
+      where('yesOneCreatedByUid', '==', id),
+      limit(250),
+    ));
+    return mapRows(snap.docs);
+  } catch (err) {
+    console.warn('Creator cloud/spare sales orders fallback failed', err);
     return [];
   }
+}
+
+/** @deprecated Prefer fetchStaffCreatedCloudSpareSalesOrders — this drops invoiced rows. */
+export async function fetchStaffOpenFollowOnSalesOrders(
+  uid: string,
+): Promise<AdminFirestoreSalesOrder[]> {
+  const rows = await fetchStaffCreatedCloudSpareSalesOrders(uid);
+  return rows.filter(row => !isSalesOrderInvoiced(row));
 }
 
 export function mergeSalesOrderRows(
@@ -1075,6 +1196,7 @@ export function mapAdminSalesOrderDetail(
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+    yesOneCreatedByUid: data.yesOneCreatedByUid ? String(data.yesOneCreatedByUid) : null,
     yesOneOrderSegment: (() => {
       const segment = String(data.yesOneOrderSegment ?? '').trim().toLowerCase();
       return segment === 'product' || segment === 'spare' || segment === 'software'
