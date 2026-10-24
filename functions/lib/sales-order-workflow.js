@@ -27,6 +27,7 @@ import { resolveSalespersonForCustomer, resolveSalespersonForStaff } from './sal
 import {
   mapSalesOrderDoc,
   mirrorSalesOrderFromZoho,
+  persistSourceMachineQc,
   withCatalogLineImages,
   withResolvedShippingAddress,
 } from './sales-order-sync.js';
@@ -1019,6 +1020,7 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
 
   await updateSalesOrderLines(secrets, orgId, id, lines);
   await mirrorSalesOrderFromZoho(secrets, orgId, id);
+  await persistSourceMachineQc(id, lines);
 
   const at = nowIso();
   const actorName = displayName(user);

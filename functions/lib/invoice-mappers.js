@@ -1,4 +1,5 @@
 import { freightSkuFromInvoiceLines } from './freight-lines.js';
+import { lineWithMachineQcFields } from './machine-qc.js';
 import { Timestamp } from 'firebase-admin/firestore';
 
 function serializeInvoiceDate(value) {
@@ -191,7 +192,7 @@ export function extractLineItemSerialNumbers(raw) {
 
 export function mapInvoiceLineItem(raw, imageUrl = null) {
   const hsnRaw = raw.hsn_or_sac ?? raw.hsnOrSac ?? raw.hsn ?? null;
-  return {
+  return lineWithMachineQcFields({
     id: String(raw.line_item_id ?? raw.item_id ?? raw.id ?? ''),
     itemId: raw.item_id ?? raw.itemId ? String(raw.item_id ?? raw.itemId) : null,
     name: String(raw.name ?? raw.item_name ?? 'Item'),
@@ -203,7 +204,7 @@ export function mapInvoiceLineItem(raw, imageUrl = null) {
     imageUrl,
     hsn: hsnRaw != null && String(hsnRaw).trim() ? String(hsnRaw) : null,
     serialNumbers: extractLineItemSerialNumbers(raw),
-  };
+  });
 }
 
 export function buildInvoiceSearchBlob(invoiceRaw) {

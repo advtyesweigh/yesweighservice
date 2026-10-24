@@ -9,6 +9,7 @@ const MACHINE_QC_FEES: Record<string, number> = {
 export const MACHINE_QC_BACK_BILL_NOTE = '(back bill it)';
 
 const LEGACY_QC_FEE_NOTE_RE = /\n?QC:\s*₹[\d,.]+\s*per machine/gi;
+const MACHINE_QC_NOTE_RE = /QC:\s*₹\s*([\d,]+(?:\.\d+)?)\s*per machine/i;
 const BACK_BILL_NOTE_RE = /\n?\(back bill it\)/gi;
 
 export function normalizeCategoryName(categoryName: string | null | undefined): string {
@@ -53,17 +54,52 @@ export function stripMachineQcDescription(description: string | null | undefined
     .trim();
 }
 
+/** Fee written by appendMachineQcDescription. This is the QC tick Zoho can store. */
+export function parseMachineQcNote(
+  description?: string | null,
+): { qcEnabled: true; qcFeePerUnit: number } | null {
+  const match = String(description ?? '').match(MACHINE_QC_NOTE_RE);
+  if (!match) return null;
+  const fee = Number(String(match[1]).replace(/,/g, ''));
+  if (!Number.isFinite(fee) || fee <= 0) return null;
+  return { qcEnabled: true, qcFeePerUnit: Math.round(fee * 100) / 100 };
+}
+
+/**
+ * Explicit tick/fee wins. Otherwise the `QC: ₹… per machine` note is the tick
+ * that survived a Zoho round-trip (Zoho has no QC field).
+ */
+export function machineQcFieldsFromLine(
+  line?: {
+    qcEnabled?: boolean | null;
+    qcFeePerUnit?: number | null;
+    description?: string | null;
+  } | null,
+): { qcEnabled: boolean; qcFeePerUnit: number } {
+  const noted = parseMachineQcNote(line?.description);
+  const feeFlag = Number(line?.qcFeePerUnit);
+  const flagged = line?.qcEnabled === true || (Number.isFinite(feeFlag) && feeFlag > 0);
+  if (flagged) {
+    const fee = feeFlag > 0 ? feeFlag : (noted?.qcFeePerUnit ?? 0);
+    if (!(fee > 0)) return { qcEnabled: false, qcFeePerUnit: 0 };
+    return { qcEnabled: true, qcFeePerUnit: Math.round(fee * 100) / 100 };
+  }
+  return noted ?? { qcEnabled: false, qcFeePerUnit: 0 };
+}
+
 export function appendMachineQcDescription(
   description: string | null | undefined,
   input: { qcEnabled?: boolean | null; qcFeePerUnit?: number | null } = {},
 ): string | null {
+  const noted = parseMachineQcNote(description);
   const base = stripMachineQcDescription(description);
   if (!input.qcEnabled) return base || null;
-  const fee = Number(input.qcFeePerUnit) || 0;
-  if (fee <= 0) return base || null;
+  const explicit = Number(input.qcFeePerUnit);
+  const fee = explicit > 0 ? explicit : (noted?.qcFeePerUnit ?? 0);
+  if (!(fee > 0)) return base || null;
   const amount = fee.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   const note = `QC: ₹${amount} per machine`;
-  if (base.includes(note) || /\bQC:/i.test(base)) return base || null;
+  if (/\bQC:\s*₹/i.test(base)) return base || null;
   return base ? `${base}\n${note}` : note;
 }
 
@@ -71,9 +107,7 @@ export function appendMachineQcDescription(
 export function linesHaveMachineQc(
   lines: Array<{ qcEnabled?: boolean | null; qcFeePerUnit?: number | null } | null | undefined> | null | undefined,
 ): boolean {
-  return (lines ?? []).some(
-    line => line?.qcEnabled === true || Number(line?.qcFeePerUnit) > 0,
-  );
+  return (lines ?? []).some(line => machineQcFieldsFromLine(line).qcEnabled);
 }
 
 export function lineLooksLikeMachineQc(
@@ -85,7 +119,7 @@ export function lineLooksLikeMachineQc(
   } | null,
 ): boolean {
   if (!line) return false;
-  return line.qcEnabled === true || Number(line.qcFeePerUnit) > 0;
+  return machineQcFieldsFromLine(line).qcEnabled;
 }
 
 /** Dealer invoice PDF and the "QC requested" label apply only after QC is ticked. */

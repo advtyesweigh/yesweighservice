@@ -45,7 +45,7 @@ import {
   mapPackageInfo,
   resolveFreightZone,
 } from './st-courier-cart-freight.js';
-import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
+import { mirrorSalesOrderFromZoho, persistSourceMachineQc } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId, withSelectedShippingPhone } from './zoho-contact-addresses.js';
@@ -708,6 +708,7 @@ async function createSegmentSalesOrders({
 
     try {
       await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId, { orderSegment: segment });
+      await persistSourceMachineQc(salesOrderId, segmentLines);
       await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
     } catch (mirrorErr) {
       console.warn(

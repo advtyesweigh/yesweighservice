@@ -624,6 +624,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               quantity: Math.max(1, Math.floor(line.quantity || 1)),
               unit: 'pcs',
               stockStatus: null,
+              qcEnabled: line.qcEnabled === true,
+              qcFeePerUnit: Number(line.qcFeePerUnit) || 0,
             };
           }),
         ),

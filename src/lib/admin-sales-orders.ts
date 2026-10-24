@@ -36,7 +36,7 @@ import {
 } from './salespersonScope';
 import { buildContactLinks } from './phoneLinks';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
-import { appendMachineQcDescription } from './machineQc';
+import { appendMachineQcDescription, machineQcFieldsFromLine } from './machineQc';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -292,16 +292,18 @@ function timestampToIso(value: unknown): string | null {
 }
 
 function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
+  const qc = machineQcFieldsFromLine({
+    description: raw.description ? String(raw.description) : null,
+    qcEnabled: raw.qcEnabled === true,
+    qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
+  });
   return {
     id: String(raw.id ?? ''),
     itemId: raw.itemId ? String(raw.itemId) : null,
     name: String(raw.name ?? 'Item'),
     description: appendMachineQcDescription(
       raw.description ? String(raw.description) : null,
-      {
-        qcEnabled: raw.qcEnabled === true,
-        qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
-      },
+      qc,
     ),
     sku: raw.sku ? String(raw.sku) : null,
     quantity: Number(raw.quantity ?? 0),
@@ -311,8 +313,8 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
     categoryName: raw.categoryName ? String(raw.categoryName) : null,
     categoryId: raw.categoryId ? String(raw.categoryId) : null,
-    qcEnabled: raw.qcEnabled === true,
-    qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
+    qcEnabled: qc.qcEnabled,
+    qcFeePerUnit: qc.qcFeePerUnit,
   };
 }
 

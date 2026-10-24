@@ -60,7 +60,7 @@ import {
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import { salesOrderDataIsCustomerPickup } from './orderFreight';
-import { documentLooksLikeMachineQc } from './machineQc';
+import { documentLooksLikeMachineQc, machineQcFieldsFromLine } from './machineQc';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -2519,6 +2519,11 @@ function mapAdminInvoiceSerialNumbers(raw: Record<string, unknown>): string[] {
 
 function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
   const serialNumbers = mapAdminInvoiceSerialNumbers(raw);
+  const qc = machineQcFieldsFromLine({
+    description: raw.description ? String(raw.description) : null,
+    qcEnabled: raw.qcEnabled === true,
+    qcFeePerUnit: raw.qcFeePerUnit != null ? Number(raw.qcFeePerUnit) : 0,
+  });
   return {
     id: String(raw.id ?? ''),
     itemId: raw.itemId ? String(raw.itemId) : null,
@@ -2537,8 +2542,7 @@ function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLin
       ? { categoryName: String(raw.categoryName) }
       : {}),
     ...(raw.isWeighingScale === true ? { isWeighingScale: true } : {}),
-    ...(raw.qcEnabled === true ? { qcEnabled: true } : {}),
-    ...(Number(raw.qcFeePerUnit) > 0 ? { qcFeePerUnit: Number(raw.qcFeePerUnit) } : {}),
+    ...(qc.qcEnabled ? { qcEnabled: true, qcFeePerUnit: qc.qcFeePerUnit } : {}),
     ...(serialNumbers.length ? { serialNumbers } : {}),
   };
 }

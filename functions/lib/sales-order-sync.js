@@ -20,6 +20,11 @@ import {
 } from './invoice-category.js';
 import { parseOrderSegment, segmentToInvoiceCategory } from './sales-order-segments.js';
 import { freightSkuFromInvoiceLines } from './freight-lines.js';
+import {
+  applySourceMachineQc,
+  lineWithMachineQcFields,
+  preserveMachineQcLines,
+} from './machine-qc.js';
 import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
@@ -201,7 +206,7 @@ async function fetchSalesOrderRaw(accessToken, orgId, soId) {
 }
 
 function mapLineItem(raw) {
-  return {
+  return lineWithMachineQcFields({
     id: String(raw.line_item_id ?? raw.item_id ?? ''),
     itemId: raw.item_id != null ? String(raw.item_id) : null,
     name: String(raw.name ?? raw.item_name ?? 'Item'),
@@ -212,7 +217,7 @@ function mapLineItem(raw) {
     total: Number(raw.item_total ?? raw.total ?? 0),
     imageUrl: null,
     hsn: raw.hsn_or_sac != null ? String(raw.hsn_or_sac) : (raw.hsn != null ? String(raw.hsn) : null),
-  };
+  });
 }
 
 function buildSearchBlob(doc) {
@@ -329,6 +334,7 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
   const ref = soCollection().doc(mapped.id);
   const beforeSnap = await ref.get();
   const before = beforeSnap.exists ? { id: beforeSnap.id, ...(beforeSnap.data() || {}) } : null;
+  mapped.lineItems = preserveMachineQcLines(mapped.lineItems, before?.lineItems);
   const forcedSegment = parseOrderSegment(before?.yesOneOrderSegment)
     || parseOrderSegment(options.orderSegment);
   if (forcedSegment) {
@@ -1033,6 +1039,22 @@ export async function mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId, opt
   const raw = await fetchSalesOrderRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Sales order not found in Zoho.');
   return upsertSalesOrderFromRaw(raw, options);
+}
+
+/**
+ * Zoho line items have no QC field. After create or line edit, write the ticks
+ * we just sent back onto the mirrored lines (and keep the QC note on the description).
+ */
+export async function persistSourceMachineQc(salesOrderId, sourceLines) {
+  const id = String(salesOrderId || '').trim();
+  const sources = Array.isArray(sourceLines) ? sourceLines : [];
+  if (!id || !sources.length) return;
+  const ref = soCollection().doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const current = Array.isArray(snap.data()?.lineItems) ? snap.data().lineItems : [];
+  const next = applySourceMachineQc(current, sources);
+  await ref.set({ lineItems: next }, { merge: true });
 }
 
 /**

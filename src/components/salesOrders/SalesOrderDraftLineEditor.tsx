@@ -21,6 +21,7 @@ import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
+import { machineQcFieldsFromLine } from '../../lib/machineQc';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
@@ -970,24 +971,29 @@ export async function draftLinesFromSalesOrderItems(
     const catalogRate = product
       ? Math.round(Number(product.rate) * 100) / 100
       : Math.round(Number(item.rate ?? 0) * 100) / 100;
+    const qc = machineQcFieldsFromLine(item);
+    const qcFeePerUnit = qc.qcFeePerUnit;
     // Existing SO lines already have combined rate; we cannot recover fee without meta.
     // Treat full rate as base with no stamping unless product has GATC and rate matches base+fee.
+    // The stored rate already includes the QC fee, so peel that off before GATC matching.
     // Freight catalog list price is often ₹0 — prefer SO line rate/total.
     const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
     const fromTotal = Math.round((Number(item.total ?? 0) / qty) * 100) / 100;
     const lineRate = Math.round(Number(item.rate ?? 0) * 100) / 100;
+    const gross = Math.round((lineRate || fromTotal || 0) * 100) / 100;
+    const netOfQc = gross > qcFeePerUnit
+      ? Math.round((gross - qcFeePerUnit) * 100) / 100
+      : gross;
     let gatcFeePerUnit = 0;
     let gatcStampingPriceId: string | null = null;
     let gatcStampingRange: string | null = null;
-    let baseRate = Math.round(Number(
-      lineRate || fromTotal || catalogRate || 0,
-    ) * 100) / 100;
+    let baseRate = Math.round(Number(netOfQc || catalogRate || 0) * 100) / 100;
 
     if (product && productHasLinkedGatc(product)) {
       const linked = new Set(
         (product.gatcStampingPriceIds ?? []).map(id => String(id).trim()).filter(Boolean),
       );
-      const combined = Math.round(Number(item.rate ?? 0) * 100) / 100;
+      const combined = netOfQc;
       const match = gatcEntries.find(entry => (
         linked.has(entry.id)
         && Math.round((catalogRate + entry.price) * 100) / 100 === combined
@@ -1017,9 +1023,9 @@ export async function draftLinesFromSalesOrderItems(
       gatcFeePerUnit,
       gatcStampingPriceId,
       gatcStampingRange,
-      qcEnabled: item.qcEnabled === true,
-      qcFeePerUnit: Number(item.qcFeePerUnit) || 0,
-      rate: combinedCartRate(baseRate, gatcFeePerUnit, Number(item.qcFeePerUnit) || 0),
+      qcEnabled: qc.qcEnabled,
+      qcFeePerUnit,
+      rate: combinedCartRate(baseRate, gatcFeePerUnit, qcFeePerUnit),
       unit: item.unit || product?.unit || 'pcs',
       quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
       stockStatus: item.stockStatus ?? product?.stockStatus ?? null,
