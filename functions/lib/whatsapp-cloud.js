@@ -896,6 +896,17 @@ function templateParameter(value) {
     .slice(0, 80);
 }
 
+/** Utility template body text params are rejected above 30 characters (#100). */
+const WA_UTILITY_BODY_PARAM_MAX = 30;
+
+function utilityBodyParameter(value) {
+  const cleaned = templateParameter(value);
+  if (cleaned.length <= WA_UTILITY_BODY_PARAM_MAX) return cleaned;
+  const cut = cleaned.slice(0, WA_UTILITY_BODY_PARAM_MAX);
+  const space = cut.lastIndexOf(' ');
+  return (space >= 10 ? cut.slice(0, space) : cut).trim();
+}
+
 /** Dealer login OTP. Uses the approved Utility template `otp` (en_US): {{1}} name, {{2}} code. */
 export async function sendWhatsAppLoginOtp(phone10, code, name) {
   const config = await requireSendConfig();
@@ -917,8 +928,8 @@ export async function sendWhatsAppLoginOtp(phone10, code, name) {
         components: [{
           type: 'body',
           parameters: [
-            { type: 'text', text: templateParameter(name) || 'there' },
-            { type: 'text', text: templateParameter(code) },
+            { type: 'text', text: utilityBodyParameter(name) || 'there' },
+            { type: 'text', text: utilityBodyParameter(code) },
           ],
         }],
       },
