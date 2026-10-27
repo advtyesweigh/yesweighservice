@@ -286,6 +286,16 @@ export type PublicSalaryShareSwitchPeriodInput = {
   month: number;
 };
 
+/** Token-gated pull of the live holiday calendar into this salary link. */
+export async function refreshPublicSalaryShareHolidays(token: string): Promise<void> {
+  const fn = httpsCallable<{ token: string }, { updated?: boolean }>(
+    functions,
+    'refreshPublicSalaryShareHolidays',
+    { timeout: 60_000 },
+  );
+  await fn({ token: token.trim() });
+}
+
 /** Token-gated month switch — loads month data into the same share link. */
 export async function switchPublicSalarySharePeriodViaCallable(
   input: PublicSalaryShareSwitchPeriodInput,

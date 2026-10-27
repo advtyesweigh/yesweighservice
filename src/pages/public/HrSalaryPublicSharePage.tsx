@@ -13,6 +13,7 @@ import {
   workProjectIdForDate,
 } from '../../lib/hrSalary';
 import {
+  refreshPublicSalaryShareHolidays,
   subscribeSalaryShare,
   switchPublicSalarySharePeriodViaCallable,
   updatePublicSalaryShareViaCallable,
@@ -97,6 +98,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
   const draftRef = useRef<DraftState | null>(null);
   const shareUpdatedAtRef = useRef('');
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holidayRefreshKey = useRef('');
 
   useEffect(() => {
     draftRef.current = draft;
@@ -142,6 +144,14 @@ export const HrSalaryPublicSharePage: React.FC = () => {
     if (!share) return;
     document.title = `${share.displayName} · ${share.period} · ${APP_NAME}`;
   }, [share]);
+
+  useEffect(() => {
+    if (!token.trim() || !share) return;
+    const key = `${token.trim()}:${share.year}-${String(share.month).padStart(2, '0')}`;
+    if (holidayRefreshKey.current === key) return;
+    holidayRefreshKey.current = key;
+    void refreshPublicSalaryShareHolidays(token).catch(() => {});
+  }, [share, token]);
 
   const persistDraft = useCallback(async () => {
     const current = draftRef.current;

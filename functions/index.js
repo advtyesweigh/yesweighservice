@@ -353,6 +353,11 @@ import { fetchBlueDartAirSurcharges } from './lib/blue-dart-air-surcharges.js';
 import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
 import { switchPublicSalarySharePeriod as switchPublicSalarySharePeriodRecord } from './lib/hr-salary-share-switch-period.js';
 import {
+  periodsFromHolidayDocs,
+  refreshPublicSalaryShareHolidays as refreshPublicSalaryShareHolidaysRecord,
+  syncSalarySharesForPeriod,
+} from './lib/hr-salary-share-holidays.js';
+import {
   fetchGatcVerificationEmbedSrc,
   GATC_VERIFICATION_EMBED_URL,
 } from './lib/gatc-verification-embed.js';
@@ -7554,6 +7559,44 @@ export const switchPublicSalarySharePeriod = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not switch salary month.');
+    }
+  },
+);
+
+/** Public salary page asks for the current holiday calendar (token is the credential). */
+export const refreshPublicSalaryShareHolidays = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      return await refreshPublicSalaryShareHolidaysRecord(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not refresh salary holidays.');
+    }
+  },
+);
+
+/** Holiday calendar edits rewrite the holiday snapshot on salary links for that month. */
+export const syncHrHolidaysToSalaryShares = onDocumentWritten(
+  {
+    document: 'hrHolidays/{holidayId}',
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async event => {
+    const before = event.data?.before?.exists ? (event.data.before.data() || null) : null;
+    const after = event.data?.after?.exists ? (event.data.after.data() || null) : null;
+    const periods = periodsFromHolidayDocs(before, after);
+    if (periods.length === 0) return;
+    const db = getFirestore();
+    for (const period of periods) {
+      await syncSalarySharesForPeriod(db, period.year, period.month);
     }
   },
 );

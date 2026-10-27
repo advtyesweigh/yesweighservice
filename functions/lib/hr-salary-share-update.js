@@ -6,6 +6,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { randomUUID } from 'node:crypto';
 import { dropRegularMarksWhenOtOnClosedDays } from './hr-salary-closed-day.js';
+import { fetchMonthHolidays } from './hr-salary-share-holidays.js';
 
 const SHARE_COLLECTION = 'hrSalaryShares';
 const MONTH_COLLECTION = 'hrSalaryMonths';
@@ -179,16 +180,6 @@ function normalizeDayJoinEntries(raw, key) {
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function normalizeHolidays(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map(h => ({
-      date: String(h?.date ?? '').trim(),
-      name: String(h?.name ?? '').trim().slice(0, 120) || 'Holiday',
-    }))
-    .filter(h => h.date);
-}
-
 function normalizeWorklogEntries(raw, key) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -258,7 +249,7 @@ export async function updatePublicSalaryShare(payload = {}) {
 
   const key = periodKey(year, month);
   const sourceDocId = String(existing.sourceDocId ?? '').trim() || `${uid}_${key}`;
-  const holidays = normalizeHolidays(existing.holidays);
+  const holidays = await fetchMonthHolidays(db, year, month);
   const projects = normalizeProjects(payload.projects);
   const projectIds = new Set(projects.map(p => p.id));
   const leaveEntries = normalizeLeave(payload.leaveEntries, key);
