@@ -60,7 +60,7 @@ import {
   cartLinesForFreightEstimate,
   listProductsMissingFreightPackageInfo,
 } from '../../lib/stCourierCartFreight';
-import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
+import { canSuperAdminWrite, canVerifySalesOrderPayment, hasStaffPermission } from '../../lib/staffAccess';
 import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   submitSalesOrderPayment,
@@ -932,8 +932,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       setPaymentNotes('');
       window.alert(
         isDealer
-          ? 'Payment details submitted. Staff will verify and complete your order.'
-          : 'Payment details submitted. Super admin can verify and invoice.',
+          ? 'Payment details submitted. Safna or Shalima will verify and complete your order.'
+          : 'Payment details submitted. Safna or Shalima can verify and invoice.',
       );
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
@@ -1756,7 +1756,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <WhatsAppIcon size={16} />
           {sharing ? 'Sharing…' : 'WhatsApp'}
         </button>
-        {isOps ? (
+        {canVerifySalesOrderPayment(user) ? (
           <button
             type="button"
             className="btn so-detail__fetch-bank-btn"

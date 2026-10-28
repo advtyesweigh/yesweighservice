@@ -42,7 +42,7 @@ import {
 } from '../../lib/salesOrderWorkflow';
 import { listAssignableDealerStaff } from '../../lib/dealers';
 import { sealKindForSalesOrder } from '../../lib/unified-sales-orders';
-import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
+import { canSuperAdminWrite, canVerifySalesOrderPayment, hasStaffPermission } from '../../lib/staffAccess';
 import type {
   AdminSalesOrderDetailOutletContext,
   SalesOrderActionBusy,
@@ -65,7 +65,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     canSuperAdminWrite(user)
     || hasStaffPermission(user, 'orders.manage')
   );
-  const canVerifyPayment = canManageZoho;
+  const canVerifyPayment = canVerifySalesOrderPayment(user);
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');
@@ -78,7 +78,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [markInvoicedGuide, setMarkInvoicedGuide] = useState<{ message: string } | null>(null);
   const [showInvoicedStamp, setShowInvoicedStamp] = useState(false);
   const [kamCardOpen, setKamCardOpen] = useState(false);
-  const showKamOnTitle = !isDealerView && canVerifyPayment && !isPdfView;
+  const showKamOnTitle = !isDealerView && canManageZoho && !isPdfView;
 
   const handleBack = useCallback(() => {
     if (isPdfView) {

@@ -178,6 +178,16 @@ export function canVoidAdminInvoice(user: User | null | undefined): boolean {
   return VOID_INVOICE_ADMIN_NAMES.some(name => parts.has(name));
 }
 
+const PAYMENT_VERIFIER_NAMES = ['safna', 'shalima'] as const;
+
+/** Verify payment and invoice a sales order: Safna and Shalima only. */
+export function canVerifySalesOrderPayment(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role !== 'staff' && user.role !== 'super_admin') return false;
+  const parts = new Set(yesGatcFilterIdentityParts(user));
+  return PAYMENT_VERIFIER_NAMES.some(name => parts.has(name));
+}
+
 export function canViewHr(user: User | null | undefined): boolean {
   if (!user) return false;
   if (user.role === 'super_admin') return true;

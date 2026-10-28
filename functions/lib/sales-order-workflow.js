@@ -366,9 +366,22 @@ function requireOrdersManage(user) {
   throw new HttpsError('permission-denied', 'You do not have permission to manage orders.');
 }
 
-function requireSuperAdmin(user) {
-  if (user.role !== 'super_admin') {
-    throw new HttpsError('permission-denied', 'Only super admin can verify payment.');
+const PAYMENT_VERIFIER_NAMES = ['safna', 'shalima'];
+
+function paymentVerifierIdentityParts(data) {
+  return [data?.displayName, data?.loginId, data?.email]
+    .flatMap(value => String(value ?? '').toLowerCase().split(/[\s@._-]+/))
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function requirePaymentVerifier(user) {
+  if (user.role !== 'staff' && user.role !== 'super_admin') {
+    throw new HttpsError('permission-denied', 'Only Safna or Shalima can verify payment.');
+  }
+  const parts = new Set(paymentVerifierIdentityParts(user.data));
+  if (!PAYMENT_VERIFIER_NAMES.some(name => parts.has(name))) {
+    throw new HttpsError('permission-denied', 'Only Safna or Shalima can verify payment.');
   }
 }
 
@@ -917,6 +930,7 @@ export async function reserveKotakFeedForSalesOrder(uid, role, payload = {}) {
  * → categorize the bank feed onto that invoice (marked paid in Zoho).
  */
 export async function selectKotakFeedAndInvoiceSalesOrder(uid, role, payload = {}, secrets, orgId) {
+  requirePaymentVerifier(await loadUser(uid));
   await reserveKotakFeedForSalesOrder(uid, role, payload);
 
   const user = await loadUser(uid);
@@ -1366,14 +1380,14 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
 }
 
 /**
- * Super admin or ops with orders.manage: verify payment → Confirm Zoho SO
+ * Safna or Shalima: verify payment → Confirm Zoho SO
  * → create Invoice → (B2B only) push e-invoice to IRP (no e-way bill)
  * → mark invoice Sent → completed.
  * E-way bills are generated later by logistics (Generate e-way bill).
  */
 export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);
-  requireOrdersManage(user);
+  requirePaymentVerifier(user);
 
   const { ref, id, data } = await loadSoOrThrow(salesOrderId);
   if (yesOneStageOf(data) !== 'payment_submitted') {
