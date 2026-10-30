@@ -165,7 +165,7 @@ export function formatEwayBillPortalError(message) {
       + 'The e-way number can still be saved on the booking and sent to Delhivery.'
     );
   }
-  if (isEwayAlreadyGeneratedError(text) || isZohoNotAuthorizedError(text)) {
+  if (isEwayAlreadyGeneratedError(text)) {
     return (
       'GST already created the e-way bill for this invoice IRN, so Zoho cannot generate it again '
       + '(Save and Generate will keep failing). YesOne will fetch that GST number and attach it in Zoho. '
@@ -944,8 +944,12 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   const einvoiceEwayBody = (distanceValue) => ({
     transporter_id: String(input.transporterId),
     transportation_mode: 'road',
+    sub_supply_type: 'supply',
+    transaction_type: 'regular',
     distance: distanceValue,
+    transporter_document_date: todayIsoDate(),
     ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
+    ...vehicleFields,
   });
 
   const draftGenerateBody = (distanceValue) => ({
@@ -957,6 +961,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     transporter_document_date: todayIsoDate(),
     action: 'save_generate',
     ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
+    ...vehicleFields,
   });
 
   const usableEwayRecord = (record) => {
@@ -979,39 +984,74 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     return usableEwayRecord(updated?.ewaybill ?? updated);
   };
 
+  const trySaveGenerateDraft = async (draftId, distanceValue) => {
+    const id = String(draftId ?? '').trim();
+    if (!id) return null;
+    try {
+      const generated = await putSaveGenerate(id, distanceValue);
+      if (generated) return generated;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isEwayAlreadyGeneratedError(message)) {
+        const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+        if (recovered) return recovered;
+        throw err;
+      }
+      if (isEwayRecoverableGenerateError(message)) {
+        const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+        if (recovered) return recovered;
+      } else {
+        throw err;
+      }
+    }
+    return null;
+  };
+
   const postEway = async (distanceValue) => {
     const payloadBody = { ...body, distance: distanceValue };
-    const draftId = await findDraftEwayBillId(accessToken, orgId, invoice);
+    let draftId = await findDraftEwayBillId(accessToken, orgId, invoice);
 
     if (hasIrn) {
-      const fromEinvoice = await createEwayBillFromEinvoice(
-        accessToken,
-        orgId,
-        invoice,
-        einvoiceEwayBody(distanceValue),
-      );
+      let fromEinvoice = null;
+      try {
+        fromEinvoice = await createEwayBillFromEinvoice(
+          accessToken,
+          orgId,
+          invoice,
+          einvoiceEwayBody(distanceValue),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isEwayAlreadyGeneratedError(message)) {
+          const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+          if (recovered && isActiveGeneratedRecord(recovered)) return recovered;
+          throw err;
+        }
+        throw err;
+      }
       const usable = usableEwayRecord(fromEinvoice) || usableEwayRecord(ewayRecordFromPayload(fromEinvoice));
       if (usable) return usable;
+      if (fromEinvoice && isDraftEwayRecord(fromEinvoice)) {
+        const draftFromEinvoice = String(
+          fromEinvoice.ewaybill_id ?? fromEinvoice.eway_bill_id ?? '',
+        ).trim();
+        if (draftFromEinvoice) {
+          draftId = draftId || draftFromEinvoice;
+          const generated = await trySaveGenerateDraft(draftFromEinvoice, distanceValue);
+          if (generated) return generated;
+        }
+      }
       const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
       if (recovered && isActiveGeneratedRecord(recovered)) return recovered;
-      // IRN invoices cannot use Save and Generate — GST already owns the e-way for this IRN.
-      throw new Error('EwayBill is already generated for this IRN');
+      // Fall through to draft save_generate / POST /ewaybills (same path Zoho UI uses).
     }
 
     if (draftId) {
       const synced = await syncZohoEwayBillFromGstPortal(accessToken, orgId, draftId);
       const usableSynced = usableEwayRecord(synced);
       if (usableSynced) return usableSynced;
-      try {
-        const generated = await putSaveGenerate(draftId, distanceValue);
-        if (generated) return generated;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (isEwayRecoverableGenerateError(message)) {
-          const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
-          if (recovered) return recovered;
-        }
-      }
+      const generated = await trySaveGenerateDraft(draftId, distanceValue);
+      if (generated) return generated;
     }
 
     try {
@@ -1117,17 +1157,33 @@ async function createEwayBillFromEinvoice(accessToken, orgId, invoice, body) {
   }
 
   let lastError = null;
+  let draftRecord = null;
   for (const path of paths) {
     try {
       const payload = await zohoJson(accessToken, orgId, path, { method: 'POST', body });
       const record = payload?.ewaybill ?? ewayRecordFromPayload(payload);
-      if (record && isDraftEwayRecord(record)) continue;
+      if (record && isDraftEwayRecord(record)) {
+        draftRecord = record;
+        continue;
+      }
       if (record && isActiveGeneratedRecord(record)) return record;
       if (recordEwayBillNumber(record)) return record;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       lastError = err;
       if (isMissingZohoEndpointError(message)) continue;
+      if (isEwayAlreadyGeneratedError(message)) {
+        try {
+          const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+          if (recovered && isActiveGeneratedRecord(recovered)) return recovered;
+        } catch {
+          // keep looking
+        }
+        const einvoice = await fetchZohoEinvoice(accessToken, orgId, invoice);
+        const record = ewayRecordFromPayload(einvoice);
+        if (record && isActiveGeneratedRecord(record)) return record;
+        throw err;
+      }
       if (isEwayRecoverableGenerateError(message)) {
         try {
           const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
@@ -1144,12 +1200,13 @@ async function createEwayBillFromEinvoice(accessToken, orgId, invoice, body) {
       throw err;
     }
   }
-  if (lastError && !isMissingZohoEndpointError(
-    lastError instanceof Error ? lastError.message : String(lastError),
-  ) && !isEwayRecoverableGenerateError(
-    lastError instanceof Error ? lastError.message : String(lastError),
-  )) {
-    throw lastError;
+  if (draftRecord) return draftRecord;
+  if (lastError) {
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    if (isEwayAlreadyGeneratedError(message)) throw lastError;
+    if (!isMissingZohoEndpointError(message) && !isEwayRecoverableGenerateError(message)) {
+      throw lastError;
+    }
   }
   return null;
 }
