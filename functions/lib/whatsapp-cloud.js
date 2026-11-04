@@ -32,7 +32,12 @@ import {
 } from './whatsapp-voice-translate.js';
 import { markTranscriptionPending } from './whatsapp-transcribe.js';
 import {
+  ECS_LITE_RENEWAL_FLYER_FILE_NAME,
+  ECS_LITE_RENEWAL_FLYER_MIME,
+  ECS_LITE_RENEWAL_STORAGE_PATH,
+  ECS_LITE_RENEWAL_STORAGE_TOKEN,
   SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED,
+  ecsLiteRenewalFlyerAssetPath,
   isSoftwareRenewalRequest,
   softwareRenewalCardText,
   softwareRenewalMissingShopText,
@@ -946,26 +951,61 @@ export async function sendWhatsAppLoginOtp(phone10, code, name) {
   return { ok: true, id: String(payload?.messages?.[0]?.id ?? '').trim() };
 }
 
+async function ensureEcsLiteRenewalFlyerInStorage(buffer) {
+  const bucket = getStorage().bucket();
+  const file = bucket.file(ECS_LITE_RENEWAL_STORAGE_PATH);
+  try {
+    const [exists] = await file.exists();
+    if (!exists) {
+      await file.save(buffer, {
+        resumable: false,
+        metadata: {
+          contentType: ECS_LITE_RENEWAL_FLYER_MIME,
+          cacheControl: 'public,max-age=31536000',
+          metadata: { firebaseStorageDownloadTokens: ECS_LITE_RENEWAL_STORAGE_TOKEN },
+        },
+      });
+    }
+  } catch (err) {
+    console.warn('ecs lite flyer storage upload skipped', err?.message || err);
+  }
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(ECS_LITE_RENEWAL_STORAGE_PATH)}?alt=media&token=${ECS_LITE_RENEWAL_STORAGE_TOKEN}`;
+}
+
 async function sendSoftwareRenewalAutoReply({ waId, shopId, shop }) {
   const actor = { uid: '', name: 'YesWeigh' };
+  const payment = softwareRenewalPaymentText(shop, shopId);
   if (!shop?.id) {
     await sendWhatsAppCloudText({
       waId,
       text: softwareRenewalMissingShopText(shopId),
       skipTranslation: true,
     }, actor);
-    return;
+  } else {
+    await sendWhatsAppCloudText({
+      waId,
+      text: softwareRenewalCardText(shop, shopId),
+      skipTranslation: true,
+    }, actor);
   }
-  await sendWhatsAppCloudText({
-    waId,
-    text: softwareRenewalCardText(shop, shopId),
-    skipTranslation: true,
-  }, actor);
-  await sendWhatsAppCloudText({
-    waId,
-    text: softwareRenewalPaymentText(shop, shopId),
-    skipTranslation: true,
-  }, actor);
+  try {
+    const buffer = await fs.readFile(ecsLiteRenewalFlyerAssetPath());
+    await ensureEcsLiteRenewalFlyerInStorage(buffer);
+    await sendWhatsAppCloudFile({
+      waId,
+      fileBase64: buffer.toString('base64'),
+      mimeType: ECS_LITE_RENEWAL_FLYER_MIME,
+      fileName: ECS_LITE_RENEWAL_FLYER_FILE_NAME,
+      caption: payment,
+    }, actor);
+  } catch (err) {
+    console.warn('ecs lite flyer send failed; falling back to text', err?.message || err);
+    await sendWhatsAppCloudText({
+      waId,
+      text: payment,
+      skipTranslation: true,
+    }, actor);
+  }
 }
 
 export async function sendWhatsAppCloudText(data, actor) {

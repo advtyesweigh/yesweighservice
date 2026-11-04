@@ -1,16 +1,31 @@
 /** Auto-reply for inbound “Renew Subscription, ShopId=…” WhatsApp messages. */
 
-/** Kill switch: when false, webhook must not auto-send renewal payment messages. Manual compose still works. */
-export const SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED = false;
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
+/** Kill switch: when false, webhook must not auto-send renewal messages. Manual compose still works. */
+export const SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED = true;
+
+/** ECS Lite / Standard / Premium: ₹1,900 + 18% GST = ₹2,242. */
 export const SOFTWARE_RENEWAL_CHARGES_INR = {
   'sanoft lite': 4500,
   'sanoft pro': 5500,
   'sanoft elite': 7500,
-  standard: 2500,
-  premium: 3500,
+  'ecs lite': 1900,
+  standard: 1900,
+  premium: 1900,
   'double standard': 5000,
 };
+
+export const ECS_LITE_RENEWAL_BASE_INR = 1900;
+export const ECS_LITE_RENEWAL_FLYER_FILE_NAME = 'ecs-lite-renewal.jpg';
+export const ECS_LITE_RENEWAL_FLYER_MIME = 'image/jpeg';
+/** Firebase Hosting path after deploy (`public/whatsapp/` → site root). */
+export const ECS_LITE_RENEWAL_FLYER_HOSTING_URL =
+  'https://yesweigh-service.web.app/whatsapp/ecs-lite-renewal.jpg';
+/** Stable Storage object written on first auto-reply (production credentials). */
+export const ECS_LITE_RENEWAL_STORAGE_PATH = 'whatsappPromo/ecs-lite-renewal.jpg';
+export const ECS_LITE_RENEWAL_STORAGE_TOKEN = 'ecs-lite-renewal-v1';
 
 const SMART_SCALE_CALL_EXTRA_INR = 1500;
 const GST_RATE = 0.18;
@@ -134,9 +149,9 @@ export function softwareRenewalPaymentText(shop, shopId) {
   const id = Number(shop?.shopId || shopId) || 0;
   const name = asString(shop?.name) || `Shop ${id}`;
   const payable = softwareRenewalPayableInr(shop);
-  const amountLine = payable.total
-    ? `Please pay ${formatInr(payable.total)} to renew ${name} (${formatInr(payable.subtotal)} + 18% GST).`
-    : `Please pay the renewal amount + 18% GST for ${name}.`;
+  const base = payable.subtotal || ECS_LITE_RENEWAL_BASE_INR;
+  const total = payable.total || inclGst(ECS_LITE_RENEWAL_BASE_INR);
+  const amountLine = `Please pay ${formatInr(total)} to renew ${name} (${formatInr(base)} + 18% GST).`;
   return [
     amountLine,
     '',
@@ -151,4 +166,14 @@ export function softwareRenewalPaymentText(shop, shopId) {
 
 export function softwareRenewalMissingShopText(shopId) {
   return `We could not find Shop ID ${shopId} in Software. Our team will help you shortly.`;
+}
+
+export function ecsLiteRenewalFlyerAssetPath() {
+  return path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'assets',
+    'whatsapp',
+    ECS_LITE_RENEWAL_FLYER_FILE_NAME,
+  );
 }

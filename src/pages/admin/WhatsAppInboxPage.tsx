@@ -86,6 +86,7 @@ import { resolveSoftwareShopForRenewal } from '../../lib/softwareShops';
 import {
   SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED,
   buildSoftwareRenewalAutoReply,
+  loadEcsLiteRenewalFlyerBase64,
   renewalShopIdFromText,
 } from '../../lib/softwareRenewalAutoReply';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
@@ -672,7 +673,7 @@ export const WhatsAppInboxPage: React.FC = () => {
       if (chat.lastDirection !== 'inbound') continue;
       const shopId = renewalShopIdFromText(chat.lastText);
       if (!shopId) continue;
-      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}:v2`;
+      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}:v3`;
       if (renewalAutoRef.current.has(key)) continue;
       try {
         if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
@@ -691,7 +692,21 @@ export const WhatsAppInboxPage: React.FC = () => {
           try {
             const { card, payment } = await buildSoftwareRenewalAutoReply(shopId, waId);
             await sendWhatsAppText(waId, card, { skipTranslation: true });
-            if (payment) await sendWhatsAppText(waId, payment, { skipTranslation: true });
+            if (payment) {
+              try {
+                const flyer = await loadEcsLiteRenewalFlyerBase64();
+                await sendWhatsAppFile({
+                  waId,
+                  fileBase64: flyer.fileBase64,
+                  mimeType: flyer.mimeType,
+                  fileName: flyer.fileName,
+                  caption: payment,
+                });
+              } catch (flyerErr) {
+                console.warn('ecs lite flyer send failed; text fallback', flyerErr);
+                await sendWhatsAppText(waId, payment, { skipTranslation: true });
+              }
+            }
             try {
               sessionStorage.setItem(`waRenewalAuto:${key}`, '1');
             } catch {
@@ -717,11 +732,13 @@ export const WhatsAppInboxPage: React.FC = () => {
     const shopId = renewalShopIdFromText(inbound.text);
     const alreadyPaid = messages.some(item => (
       item.direction === 'outbound'
-      && /Please pay /i.test(item.text)
-      && /Interweighing Pvt Ltd/i.test(item.text)
+      && (
+        (/Please pay /i.test(item.text) && /Interweighing Pvt Ltd/i.test(item.text))
+        || /ecs-lite-renewal/i.test(item.fileName || '')
+      )
     ));
     if (alreadyPaid) return undefined;
-    const key = `retry:${active.waId}:${inbound.id}:${shopId}`;
+    const key = `retry:${active.waId}:${inbound.id}:${shopId}:v3`;
     try {
       if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
         renewalAutoRef.current.add(key);
@@ -743,7 +760,19 @@ export const WhatsAppInboxPage: React.FC = () => {
             return;
           }
           await sendWhatsAppText(waId, card, { skipTranslation: true });
-          await sendWhatsAppText(waId, payment, { skipTranslation: true });
+          try {
+            const flyer = await loadEcsLiteRenewalFlyerBase64();
+            await sendWhatsAppFile({
+              waId,
+              fileBase64: flyer.fileBase64,
+              mimeType: flyer.mimeType,
+              fileName: flyer.fileName,
+              caption: payment,
+            });
+          } catch (flyerErr) {
+            console.warn('ecs lite flyer send failed; text fallback', flyerErr);
+            await sendWhatsAppText(waId, payment, { skipTranslation: true });
+          }
           try {
             sessionStorage.setItem(`waRenewalAuto:${key}`, '1');
           } catch {

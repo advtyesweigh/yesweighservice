@@ -69,8 +69,10 @@ export const SOFTWARE_RENEWAL_CHARGES_INR: Record<string, number> = {
   'sanoft lite': 4500,
   'sanoft pro': 5500,
   'sanoft elite': 7500,
-  'standard': 2500,
-  'premium': 3500,
+  /** ECS Lite / Standard / Premium renewals: ₹1,900 + 18% GST = ₹2,242. */
+  'ecs lite': 1900,
+  'standard': 1900,
+  'premium': 1900,
   'double standard': 5000,
 };
 
