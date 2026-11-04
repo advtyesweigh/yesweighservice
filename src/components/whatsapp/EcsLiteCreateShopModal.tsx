@@ -324,12 +324,6 @@ export function EcsLiteCreateShopModal({
         onClick={(ev) => ev.stopPropagation()}
       >
         <header className="wa-ecs-modal__head">
-          <div>
-            <h2>Create Shop with Key</h2>
-            <p className="wa-ecs-modal__hint">
-              Submits a pending request to ECS (dealer PIN approval). Username must be unique across ECS Lite.
-            </p>
-          </div>
           <button type="button" className="wa-ecs-modal__close" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
