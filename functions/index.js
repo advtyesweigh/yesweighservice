@@ -8883,19 +8883,25 @@ export const verifyEcsLiteMacFn = onCall(
  * Submit Create Shop with Key as a pending ECS dealer approval
  * (employee session → /api/dealer/shops/create → pending:true).
  * Does not activate the shop; dealer approves with PIN on ecs.benchpc.online/dealer#overview.
+ * On success: Zoho sales invoice (Retail Cloud service) + WhatsApp session PDF (not template).
  */
 export const submitEcsLitePendingShopFn = onCall(
   {
     ...ECS_DEALER_CALL_OPTS,
-    timeoutSeconds: 90,
+    timeoutSeconds: 120,
+    memory: '512MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
   },
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     try {
       return await submitEcsPendingShop(request.data ?? {}, {
         createdByUid: request.auth?.uid,
+        zohoSecrets: zohoSecrets(),
+        zohoOrgId: zohoOrganizationId.value(),
       });
     } catch (err) {
+      throwIfZohoQuota(err);
       throwEcsDealerError(err, 'Could not submit pending ECS shop.');
     }
   },

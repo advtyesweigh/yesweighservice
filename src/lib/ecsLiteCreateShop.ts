@@ -173,6 +173,13 @@ export type EcsLitePendingShopResult = {
   username?: string;
   summary?: string;
   paymentStatus?: EcsLitePaymentStatus;
+  /** Zoho Books invoice for Retail Cloud service (ECS Lite Key). */
+  zohoInvoiceId?: string | null;
+  zohoInvoiceNumber?: string | null;
+  zohoInvoiceError?: string | null;
+  /** Session document send (not template); false when 24h window closed or phone invalid. */
+  whatsappInvoiceSent?: boolean;
+  whatsappInvoiceError?: string | null;
 };
 
 export function normalizeEcsMacInput(value: string): string {

@@ -289,6 +289,8 @@ export function validateEcsCreateShopInput(input = {}) {
  * Submit create-shop as an ECS employee so the portal queues a pending approval.
  * Refuses to proceed if the response would activate the shop immediately.
  * paymentStatus is stored on YesWeigh (ecsLitePendingShops) — not sent to ECS.
+ * On success, creates a Zoho sales invoice (Retail Cloud service) and sends the PDF
+ * via WhatsApp Cloud session document message (not a template).
  */
 export async function submitEcsPendingShop(input = {}, opts = {}) {
   const validated = validateEcsCreateShopInput(input);
@@ -305,6 +307,9 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
   if (body?.pending) {
     const approval = body.approval || {};
     const approvalId = asString(approval.id);
+    const keyPreview = asString(approval.keyPreview)
+      || asString(input.keyPreview)
+      || asString(input.licenseKey);
     const result = {
       ok: true,
       pending: true,
@@ -312,16 +317,22 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
       message: 'Sent to the dealer for PIN approval. It does not apply until then.',
       approvalId,
       keyId: asString(approval.keyId || ecsPayload.keyId),
-      keyPreview: asString(approval.keyPreview),
+      keyPreview: keyPreview || null,
       shopName: asString(approval.shopName || ecsPayload.shopName),
       username: asString(approval.username || ecsPayload.username),
       summary: asString(approval.summary),
       paymentStatus,
+      zohoInvoiceId: null,
+      zohoInvoiceNumber: null,
+      zohoInvoiceError: null,
+      whatsappInvoiceSent: false,
+      whatsappInvoiceError: null,
     };
 
+    let docId = approvalId || null;
     try {
       const db = getFirestore();
-      const docId = approvalId || db.collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc().id;
+      docId = approvalId || db.collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc().id;
       await db.collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc(docId).set({
         approvalId: approvalId || null,
         keyId: result.keyId || null,
@@ -342,6 +353,49 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
         'ecsLitePendingShops persist failed (ECS pending still queued):',
         persistErr?.message ?? persistErr,
       );
+    }
+
+    if (opts.zohoSecrets && opts.zohoOrgId) {
+      try {
+        const { afterEcsLitePendingShopInvoice } = await import('./ecs-lite-zoho-invoice.js');
+        const invoiceOutcome = await afterEcsLitePendingShopInvoice(
+          opts.zohoSecrets,
+          opts.zohoOrgId,
+          {
+            docId,
+            fields: {
+              approvalId,
+              keyId: result.keyId,
+              keyPreview: result.keyPreview,
+              licenseKey: asString(input.licenseKey) || null,
+              shopName: result.shopName,
+              username: result.username,
+              phone: ecsPayload.phone,
+              mac: ecsPayload.mac,
+            },
+            actor: {
+              uid: asString(opts.createdByUid) || null,
+            },
+          },
+        );
+        result.zohoInvoiceId = invoiceOutcome.zohoInvoiceId;
+        result.zohoInvoiceNumber = invoiceOutcome.zohoInvoiceNumber;
+        result.zohoInvoiceError = invoiceOutcome.zohoInvoiceError;
+        result.whatsappInvoiceSent = Boolean(invoiceOutcome.whatsappSent);
+        result.whatsappInvoiceError = invoiceOutcome.whatsappError;
+        if (invoiceOutcome.zohoInvoiceError) {
+          result.message = `${result.message} Zoho invoice failed: ${invoiceOutcome.zohoInvoiceError}`;
+        } else if (invoiceOutcome.whatsappError) {
+          result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created; WhatsApp PDF not sent: ${invoiceOutcome.whatsappError}`;
+        } else if (invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId) {
+          result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created and PDF sent on WhatsApp.`;
+        }
+      } catch (invoiceErr) {
+        const msg = asString(invoiceErr?.message) || 'Zoho invoice step failed.';
+        result.zohoInvoiceError = msg;
+        result.message = `${result.message} Zoho invoice step failed: ${msg}`;
+        console.warn('ECS Lite post-submit invoice step failed:', msg);
+      }
     }
 
     return result;

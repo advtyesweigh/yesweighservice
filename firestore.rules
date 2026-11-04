@@ -1367,6 +1367,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /**
+     * ECS Lite Create Shop pending approvals (YesWeigh mirror).
+     * Written only by Cloud Functions (Admin SDK). Staff/admins may read for follow-up.
+     * Includes zohoInvoiceId / zohoInvoiceNumber / WhatsApp PDF send status fields.
+     */
+    match /ecsLitePendingShops/{docId} {
+      allow read: if canUseWhatsApp();
+      allow create, update, delete: if false;
+    }
+
     /** Meta WhatsApp inbox. Staff and full-access admins. View-only admins are excluded. */
     match /whatsappConversations/{chatId} {
       allow read: if canUseWhatsApp();
