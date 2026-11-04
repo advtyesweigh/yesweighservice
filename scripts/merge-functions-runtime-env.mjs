@@ -1,6 +1,6 @@
 /**
  * Decrypt functions/runtime.env.enc into functions/.env.yesweigh-service
- * and (in CI) seed Firestore so Cloud Functions can load Sanoft / Sarvam
+ * and (in CI) seed Firestore so Cloud Functions can load Sanoft / Sarvam / ECS
  * without putting plaintext secrets in git or changing the workflow YAML.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -14,6 +14,16 @@ const encPath = join(root, 'functions/runtime.env.enc');
 const envPath = join(root, 'functions/.env.yesweigh-service');
 const KEY_MATERIAL = 'yesweigh-service-runtime-env-v1';
 const PROJECT_ID = 'yesweigh-service';
+
+const RUNTIME_ENV_KEYS = [
+  'SANOFT_YESWEIGH_USERNAME',
+  'SANOFT_YESWEIGH_PASSWORD',
+  'SARVAM_API_KEY',
+  'ECS_DEALER_USER',
+  'ECS_DEALER_PASSWORD',
+  'ECS_EMPLOYEE_AADHAAR',
+  'ECS_EMPLOYEE_PASSWORD',
+];
 
 function key() {
   return createHash('sha256').update(KEY_MATERIAL).digest();
@@ -46,6 +56,10 @@ function payloadFromEnv() {
     SANOFT_YESWEIGH_USERNAME: String(process.env.SANOFT_YESWEIGH_USERNAME || '').trim(),
     SANOFT_YESWEIGH_PASSWORD: String(process.env.SANOFT_YESWEIGH_PASSWORD || ''),
     SARVAM_API_KEY: String(process.env.SARVAM_API_KEY || '').trim(),
+    ECS_DEALER_USER: String(process.env.ECS_DEALER_USER || '').trim(),
+    ECS_DEALER_PASSWORD: String(process.env.ECS_DEALER_PASSWORD || ''),
+    ECS_EMPLOYEE_AADHAAR: String(process.env.ECS_EMPLOYEE_AADHAAR || '').replace(/\D/g, ''),
+    ECS_EMPLOYEE_PASSWORD: String(process.env.ECS_EMPLOYEE_PASSWORD || ''),
   };
 }
 
@@ -61,23 +75,22 @@ if (process.argv.includes('--encrypt')) {
 }
 
 if (!existsSync(encPath)) {
-  console.warn('functions/runtime.env.enc is missing — Sanoft/Sarvam runtime env not merged.');
+  console.warn('functions/runtime.env.enc is missing — Sanoft/Sarvam/ECS runtime env not merged.');
   process.exit(0);
 }
 
 const payload = decryptJson(readFileSync(encPath, 'utf8'));
-const block = [
-  dotenvLine('SANOFT_YESWEIGH_USERNAME', payload.SANOFT_YESWEIGH_USERNAME),
-  dotenvLine('SANOFT_YESWEIGH_PASSWORD', payload.SANOFT_YESWEIGH_PASSWORD),
-  dotenvLine('SARVAM_API_KEY', payload.SARVAM_API_KEY),
-].join('');
+const block = RUNTIME_ENV_KEYS
+  .filter((name) => payload[name] != null && String(payload[name]) !== '')
+  .map((name) => dotenvLine(name, payload[name]))
+  .join('');
 
 let existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
-for (const name of ['SANOFT_YESWEIGH_USERNAME', 'SANOFT_YESWEIGH_PASSWORD', 'SARVAM_API_KEY']) {
+for (const name of RUNTIME_ENV_KEYS) {
   existing = existing.replace(new RegExp(`^${name}=.*$\\n?`, 'm'), '');
 }
 writeFileSync(envPath, `${existing.replace(/\s+$/, '')}\n${block}`, 'utf8');
-console.log('Merged Sanoft and Sarvam into functions/.env.yesweigh-service');
+console.log('Merged Sanoft, Sarvam, and ECS into functions/.env.yesweigh-service');
 
 if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) process.exit(0);
 
@@ -90,19 +103,40 @@ try {
   }
   const db = getFirestore();
   const stamp = new Date().toISOString();
-  await db.doc('whatsappSettings/aiAgent').set(
-    { sarvamApiKey: payload.SARVAM_API_KEY, updatedAt: stamp },
-    { merge: true },
-  );
-  await db.doc('whatsappSettings/sanoft').set(
-    {
-      username: payload.SANOFT_YESWEIGH_USERNAME,
-      password: payload.SANOFT_YESWEIGH_PASSWORD,
-      updatedAt: stamp,
-    },
-    { merge: true },
-  );
-  console.log('Seeded Sanoft and Sarvam into Firestore (admin SDK).');
+  if (payload.SARVAM_API_KEY) {
+    await db.doc('whatsappSettings/aiAgent').set(
+      { sarvamApiKey: payload.SARVAM_API_KEY, updatedAt: stamp },
+      { merge: true },
+    );
+  }
+  if (payload.SANOFT_YESWEIGH_USERNAME && payload.SANOFT_YESWEIGH_PASSWORD) {
+    await db.doc('whatsappSettings/sanoft').set(
+      {
+        username: payload.SANOFT_YESWEIGH_USERNAME,
+        password: payload.SANOFT_YESWEIGH_PASSWORD,
+        updatedAt: stamp,
+      },
+      { merge: true },
+    );
+  }
+  if (
+    payload.ECS_DEALER_USER
+    || payload.ECS_DEALER_PASSWORD
+    || payload.ECS_EMPLOYEE_AADHAAR
+    || payload.ECS_EMPLOYEE_PASSWORD
+  ) {
+    await db.doc('whatsappSettings/ecsDealer').set(
+      {
+        dealerUser: String(payload.ECS_DEALER_USER || '').trim(),
+        dealerPassword: String(payload.ECS_DEALER_PASSWORD || ''),
+        employeeAadhaar: String(payload.ECS_EMPLOYEE_AADHAAR || '').replace(/\D/g, ''),
+        employeePassword: String(payload.ECS_EMPLOYEE_PASSWORD || ''),
+        updatedAt: stamp,
+      },
+      { merge: true },
+    );
+  }
+  console.log('Seeded Sanoft, Sarvam, and ECS into Firestore (admin SDK).');
 } catch (err) {
   console.warn('Firestore seed skipped:', err instanceof Error ? err.message : err);
 }

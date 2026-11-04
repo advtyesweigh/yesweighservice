@@ -1753,3 +1753,229 @@ a.wa-inbox-icon {
   font-size: 0.78rem;
   cursor: pointer;
 }
+
+/* ECS Lite create-shop modal (WhatsApp inbox) */
+.wa-ecs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(4px);
+}
+
+.wa-ecs-modal {
+  width: min(100%, 28rem);
+  max-height: min(92vh, 44rem);
+  overflow: auto;
+  padding: 1rem 1.05rem 1.1rem;
+  border-radius: 14px;
+  background: #121820;
+  color: var(--text-main, #f3f4f6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.wa-ecs-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.wa-ecs-modal__head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.wa-ecs-modal__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted, #94a3b8);
+}
+
+.wa-ecs-modal__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0.2rem;
+}
+
+.wa-ecs-modal__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.wa-ecs-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  font-size: 0.8rem;
+}
+
+.wa-ecs-modal__field > span {
+  font-weight: 650;
+  color: #fdba74;
+}
+
+.wa-ecs-modal__field input,
+.wa-ecs-modal__field select {
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  font: inherit;
+}
+
+.wa-ecs-modal__mac-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.wa-ecs-modal__mac-row input {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.wa-ecs-modal__help {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.wa-ecs-modal__mac-note {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.wa-ecs-modal__mac-note.is-ok { color: #86efac; }
+.wa-ecs-modal__mac-note.is-err { color: #fca5a5; }
+
+.wa-ecs-modal__pw {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.wa-ecs-modal__pw input { flex: 1; }
+
+.wa-ecs-modal__pw-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.wa-ecs-modal__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #fca5a5;
+}
+
+.wa-ecs-modal__success {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #86efac;
+}
+
+.wa-ecs-modal__status {
+  margin: 0 0 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.wa-ecs-modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.wa-ecs-modal__secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wa-ecs-modal__primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.wa-ecs-modal__primary:disabled,
+.wa-ecs-modal__secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wa-ecs-spin {
+  animation: wa-ecs-spin 0.9s linear infinite;
+}
+
+@keyframes wa-ecs-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wa-ecs-qr {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.wa-ecs-qr__card {
+  width: min(100%, 22rem);
+  padding: 0.9rem;
+  border-radius: 12px;
+  background: #121820;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.wa-ecs-qr__video {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #000;
+}

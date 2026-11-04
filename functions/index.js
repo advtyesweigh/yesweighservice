@@ -7,6 +7,11 @@ import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow, isKotakBankFeedWindow } from './lib/business-hours.js';
 import { SOURCE_ACCOUNT_YESWEIGH, syncSanoftShopsHandler } from './lib/sanoft-shops.js';
 import {
+  listEcsUnusedKeysAndCountries,
+  submitEcsPendingShop,
+  verifyEcsMac,
+} from './lib/ecs-dealer-portal.js';
+import {
   getAccessToken,
   resolveOrganizationId,
   fetchProductDetail,
@@ -8826,6 +8831,70 @@ export const listYesGatcRcDetailsFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load RC details.');
+    }
+  },
+);
+
+const ECS_DEALER_CALL_OPTS = {
+  region: 'asia-south1',
+  timeoutSeconds: 60,
+  memory: '256MiB',
+};
+
+function throwEcsDealerError(err, fallback) {
+  if (err instanceof HttpsError) throw err;
+  const message = err?.message || fallback;
+  if (/not configured/i.test(message)) {
+    throw new HttpsError('failed-precondition', message);
+  }
+  if (err?.status === 401 || /sign in|password|aadhaar/i.test(message)) {
+    throw new HttpsError('unauthenticated', message);
+  }
+  throw new HttpsError('internal', message);
+}
+
+/** Unused ECS license keys + countries for WhatsApp "Ecs lite" create-shop modal. */
+export const listEcsLiteCreateShopOptionsFn = onCall(
+  ECS_DEALER_CALL_OPTS,
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await listEcsUnusedKeysAndCountries();
+    } catch (err) {
+      throwEcsDealerError(err, 'Could not load ECS license keys.');
+    }
+  },
+);
+
+/** Verify MAC is online/unregistered before pending create-shop submit. */
+export const verifyEcsLiteMacFn = onCall(
+  ECS_DEALER_CALL_OPTS,
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await verifyEcsMac(request.data?.mac);
+    } catch (err) {
+      throwEcsDealerError(err, 'Could not verify MAC ID.');
+    }
+  },
+);
+
+/**
+ * Submit Create Shop with Key as a pending ECS dealer approval
+ * (employee session → /api/dealer/shops/create → pending:true).
+ * Does not activate the shop; dealer approves with PIN on ecs.benchpc.online/dealer#overview.
+ */
+export const submitEcsLitePendingShopFn = onCall(
+  {
+    ...ECS_DEALER_CALL_OPTS,
+    timeoutSeconds: 90,
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
+    try {
+      return await submitEcsPendingShop(request.data ?? {});
+    } catch (err) {
+      throwEcsDealerError(err, 'Could not submit pending ECS shop.');
     }
   },
 );
