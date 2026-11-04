@@ -84,6 +84,7 @@ import {
 } from '../../lib/outboundVoiceLanguages';
 import { resolveSoftwareShopForRenewal } from '../../lib/softwareShops';
 import {
+  SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED,
   buildSoftwareRenewalAutoReply,
   renewalShopIdFromText,
 } from '../../lib/softwareRenewalAutoReply';
@@ -666,7 +667,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [shopNameById]);
 
   useEffect(() => {
-    if (!settings?.configured) return;
+    if (!SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED || !settings?.configured) return;
     for (const chat of chats) {
       if (chat.lastDirection !== 'inbound') continue;
       const shopId = renewalShopIdFromText(chat.lastText);
@@ -706,7 +707,9 @@ export const WhatsAppInboxPage: React.FC = () => {
   }, [chats, settings?.configured]);
 
   useEffect(() => {
-    if (!settings?.configured || !active || !messages.length) return undefined;
+    if (!SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED || !settings?.configured || !active || !messages.length) {
+      return undefined;
+    }
     const inbound = [...messages].reverse().find(item => (
       item.direction === 'inbound' && Boolean(renewalShopIdFromText(item.text))
     ));

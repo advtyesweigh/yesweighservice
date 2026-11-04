@@ -1,5 +1,8 @@
 /** Auto-reply for inbound “Renew Subscription, ShopId=…” WhatsApp messages. */
 
+/** Kill switch: when false, webhook must not auto-send renewal payment messages. Manual compose still works. */
+export const SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED = false;
+
 export const SOFTWARE_RENEWAL_CHARGES_INR = {
   'sanoft lite': 4500,
   'sanoft pro': 5500,

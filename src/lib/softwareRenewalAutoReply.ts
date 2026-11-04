@@ -7,6 +7,9 @@ import {
 } from './softwareShops';
 import type { SoftwareShop } from '../types/software-shop';
 
+/** Kill switch: when false, inbox/webhook must not auto-send renewal payment messages. Manual compose still works. */
+export const SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED = false;
+
 const GPAY_NUMBER = '8803333444';
 
 export const RENEWAL_BANK_DETAILS = [

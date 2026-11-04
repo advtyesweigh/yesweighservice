@@ -32,6 +32,7 @@ import {
 } from './whatsapp-voice-translate.js';
 import { markTranscriptionPending } from './whatsapp-transcribe.js';
 import {
+  SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED,
   isSoftwareRenewalRequest,
   softwareRenewalCardText,
   softwareRenewalMissingShopText,
@@ -590,7 +591,12 @@ async function ingestMessages(value, accessToken) {
       ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
     });
-    if (!existing.exists && isSoftwareRenewalRequest(text) && shopId) {
+    if (
+      SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED
+      && !existing.exists
+      && isSoftwareRenewalRequest(text)
+      && shopId
+    ) {
       try {
         await sendSoftwareRenewalAutoReply({ waId, shopId: Number(shop?.shopId || shopId) || shopId, shop });
         await ref.set({
