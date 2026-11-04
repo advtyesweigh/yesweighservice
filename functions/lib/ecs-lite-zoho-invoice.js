@@ -162,6 +162,7 @@ export async function createEcsLiteSalesInvoice(secrets, configuredOrgId, fields
   return {
     invoiceId,
     invoiceNumber: asString(inv?.invoice_number) || null,
+    invoiceDate: asString(inv?.date) || asString(body.date) || null,
     total: inv?.total != null ? Number(inv.total) : null,
     accessToken,
     orgId,
@@ -284,6 +285,8 @@ export async function afterEcsLitePendingShopInvoice(secrets, configuredOrgId, {
   const result = {
     zohoInvoiceId: null,
     zohoInvoiceNumber: null,
+    invoiceDate: null,
+    invoiceAmount: null,
     zohoInvoiceError: null,
     whatsappSent: false,
     whatsappError: null,
@@ -295,6 +298,10 @@ export async function afterEcsLitePendingShopInvoice(secrets, configuredOrgId, {
     invoice = await createEcsLiteSalesInvoice(secrets, configuredOrgId, fields);
     result.zohoInvoiceId = invoice.invoiceId;
     result.zohoInvoiceNumber = invoice.invoiceNumber;
+    result.invoiceDate = invoice.invoiceDate || null;
+    result.invoiceAmount = invoice.total != null && Number.isFinite(invoice.total)
+      ? Number(invoice.total)
+      : null;
   } catch (err) {
     result.zohoInvoiceError = asString(err?.message) || 'Zoho invoice create failed.';
     console.warn('ECS Lite Zoho invoice create failed:', result.zohoInvoiceError);
@@ -311,6 +318,8 @@ export async function afterEcsLitePendingShopInvoice(secrets, configuredOrgId, {
     await getFirestore().collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc(docId).set({
       zohoInvoiceId: result.zohoInvoiceId,
       zohoInvoiceNumber: result.zohoInvoiceNumber,
+      zohoInvoiceDate: result.invoiceDate || null,
+      zohoInvoiceAmount: result.invoiceAmount,
       zohoInvoiceError: null,
       zohoInvoiceCreatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }).catch((persistErr) => {

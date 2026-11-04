@@ -12,6 +12,8 @@ import {
   verifyEcsLiteMac,
   type EcsLiteCountry,
   type EcsLiteLicenseKey,
+  type EcsLitePendingShopResult,
+  type EcsLiteZohoInvoiceStatus,
 } from '../../lib/ecsLiteCreateShop';
 import { resolveSoftwareShopForRenewal } from '../../lib/softwareShops';
 
@@ -25,6 +27,23 @@ type Props = {
   softwareShopName?: string;
 };
 
+/** UI phases after Create Shop is clicked. */
+type SubmitPhase =
+  | 'idle'
+  | 'ecs_working'
+  | 'ecs_done'
+  | 'zoho_working'
+  | 'complete'
+  | 'failed';
+
+type ZohoUiResult = {
+  status: EcsLiteZohoInvoiceStatus;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  invoiceAmount: number | null;
+  zohoError: string | null;
+};
+
 function phoneDigitsOnly(value: string) {
   return value.replace(/\D/g, '').slice(0, 15);
 }
@@ -32,6 +51,59 @@ function phoneDigitsOnly(value: string) {
 function keyDisplayLabel(key: EcsLiteLicenseKey) {
   const preview = key.preview || key.id;
   return key.poNumber ? `${preview} · ${key.poNumber}` : preview;
+}
+
+function formatInvoiceAmount(amount: number | null | undefined): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  const rounded = Math.round(amount * 100) / 100;
+  const text = Number.isInteger(rounded)
+    ? rounded.toLocaleString('en-IN')
+    : rounded.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `₹${text}`;
+}
+
+function formatInvoiceDate(value: string | null | undefined): string | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  return raw;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function ClockSpinner({ label }: { label: string }) {
+  return (
+    <div className="wa-ecs-clock" role="status" aria-live="polite" aria-label={label}>
+      <span className="wa-ecs-clock__face" aria-hidden="true">
+        <span className="wa-ecs-clock__hand wa-ecs-clock__hand--hour" />
+        <span className="wa-ecs-clock__hand wa-ecs-clock__hand--minute" />
+        <span className="wa-ecs-clock__dot" />
+      </span>
+      <span className="wa-ecs-clock__label">{label}</span>
+    </div>
+  );
+}
+
+function zohoFromResult(result: EcsLitePendingShopResult): ZohoUiResult {
+  const invoiceNumber = result.invoiceNumber ?? result.zohoInvoiceNumber ?? null;
+  const zohoError = result.zohoError ?? result.zohoInvoiceError ?? null;
+  let status: EcsLiteZohoInvoiceStatus = result.zohoInvoiceStatus || 'skipped';
+  if (!result.zohoInvoiceStatus) {
+    if (zohoError) status = 'failed';
+    else if (invoiceNumber || result.zohoInvoiceId) status = 'success';
+  }
+  return {
+    status,
+    invoiceNumber,
+    invoiceDate: result.invoiceDate ?? null,
+    invoiceAmount: result.invoiceAmount ?? null,
+    zohoError,
+  };
 }
 
 export function EcsLiteCreateShopModal({
@@ -57,22 +129,27 @@ export function EcsLiteCreateShopModal({
   const [country, setCountry] = useState('IN');
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'not_paid'>('paid');
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>('idle');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [optionsError, setOptionsError] = useState('');
+  const [zohoResult, setZohoResult] = useState<ZohoUiResult | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrError, setQrError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanRafRef = useRef(0);
   const loadGenRef = useRef(0);
+  const submitGenRef = useRef(0);
+
+  const formLocked = submitting || submitPhase === 'complete';
+  const showProgress = submitPhase !== 'idle' && submitPhase !== 'failed';
 
   useEffect(() => {
     if (!open) return;
     const gen = loadGenRef.current + 1;
     loadGenRef.current = gen;
+    submitGenRef.current += 1;
     setError('');
-    setSuccess('');
     setOptionsError('');
     setAssignedKey(null);
     setMac('');
@@ -86,6 +163,9 @@ export function EcsLiteCreateShopModal({
     setPhone(phoneDigitsOnly(defaultPhone));
     setCountry('IN');
     setPaymentStatus('paid');
+    setSubmitting(false);
+    setSubmitPhase('idle');
+    setZohoResult(null);
     setLoadingOptions(true);
 
     void (async () => {
@@ -273,9 +353,9 @@ export function EcsLiteCreateShopModal({
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || submitPhase === 'complete') return;
     setError('');
-    setSuccess('');
+    setZohoResult(null);
     if (!macVerified) {
       setError('Check the MAC ID — scale must be online before creating the shop.');
       return;
@@ -289,7 +369,13 @@ export function EcsLiteCreateShopModal({
       setError('No unused license key available — purchase or ask admin.');
       return;
     }
+
+    const gen = submitGenRef.current + 1;
+    submitGenRef.current = gen;
     setSubmitting(true);
+    setSubmitPhase('ecs_working');
+    stopQr();
+
     try {
       const result = await submitEcsLitePendingShop({
         keyId: assignedKey.id,
@@ -302,20 +388,43 @@ export function EcsLiteCreateShopModal({
         country,
         paymentStatus,
       });
-      if (!result.pending) {
+      if (submitGenRef.current !== gen) return;
+
+      const ecsOk = result.ecsCreated === true || result.pending === true;
+      if (!ecsOk) {
+        setSubmitPhase('failed');
         setError(result.message || 'ECS did not queue a pending approval.');
         return;
       }
-      setSuccess(result.message || 'Sent for dealer PIN approval.');
+
+      setSubmitPhase('ecs_done');
+      await sleep(700);
+      if (submitGenRef.current !== gen) return;
+
+      setSubmitPhase('zoho_working');
+      await sleep(550);
+      if (submitGenRef.current !== gen) return;
+
+      setZohoResult(zohoFromResult(result));
+      setSubmitPhase('complete');
     } catch (err) {
+      if (submitGenRef.current !== gen) return;
+      setSubmitPhase('failed');
       setError(ecsLiteCallableErrorMessage(err, 'Could not submit pending ECS shop.'));
     } finally {
-      setSubmitting(false);
+      if (submitGenRef.current === gen) setSubmitting(false);
     }
   };
 
+  const amountText = formatInvoiceAmount(zohoResult?.invoiceAmount);
+  const dateText = formatInvoiceDate(zohoResult?.invoiceDate);
+
   return createPortal(
-    <div className="wa-ecs-modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="wa-ecs-modal-backdrop"
+      role="presentation"
+      onClick={submitting ? undefined : onClose}
+    >
       <div
         className="wa-ecs-modal panel"
         role="dialog"
@@ -324,7 +433,13 @@ export function EcsLiteCreateShopModal({
         onClick={(ev) => ev.stopPropagation()}
       >
         <header className="wa-ecs-modal__head">
-          <button type="button" className="wa-ecs-modal__close" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="wa-ecs-modal__close"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={submitting}
+          >
             <X size={18} />
           </button>
         </header>
@@ -335,162 +450,226 @@ export function EcsLiteCreateShopModal({
         {optionsError ? <p className="wa-ecs-modal__error">{optionsError}</p> : null}
 
         <form className="wa-ecs-modal__form" onSubmit={(e) => void onSubmit(e)}>
-          <div className="wa-ecs-modal__field">
-            <span>License key (inventory)</span>
-            <p className="wa-ecs-modal__readonly" aria-live="polite">
-              {loadingOptions
-                ? '…'
-                : assignedKey
-                  ? keyDisplayLabel(assignedKey)
-                  : 'No unused keys — purchase or ask admin'}
-            </p>
-            <p className="wa-ecs-modal__help">Uses one unused key automatically (not a picker).</p>
-          </div>
+          <fieldset className="wa-ecs-modal__fieldset" disabled={formLocked}>
+            <div className="wa-ecs-modal__field">
+              <span>License key (inventory)</span>
+              <p className="wa-ecs-modal__readonly" aria-live="polite">
+                {loadingOptions
+                  ? '…'
+                  : assignedKey
+                    ? keyDisplayLabel(assignedKey)
+                    : 'No unused keys — purchase or ask admin'}
+              </p>
+              <p className="wa-ecs-modal__help">Uses one unused key automatically (not a picker).</p>
+            </div>
 
-          <label className="wa-ecs-modal__field">
-            <span>MAC ID</span>
-            <div className="wa-ecs-modal__mac-row">
+            <label className="wa-ecs-modal__field">
+              <span>MAC ID</span>
+              <div className="wa-ecs-modal__mac-row">
+                <input
+                  value={mac}
+                  onChange={(e) => onMacChange(e.target.value)}
+                  placeholder="00:23:F0:1B:50:FD"
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                />
+                <button
+                  type="button"
+                  className="wa-ecs-modal__secondary"
+                  onClick={() => void checkMac()}
+                  disabled={macChecking || formLocked}
+                >
+                  {macChecking ? '…' : 'Check'}
+                </button>
+                <button
+                  type="button"
+                  className="wa-ecs-modal__secondary"
+                  onClick={() => setQrOpen(true)}
+                  disabled={formLocked}
+                >
+                  <QrCode size={15} /> Scan QR
+                </button>
+              </div>
+              <p className="wa-ecs-modal__help">Scan the MAC QR on the ECS Lite profile, or type the MAC.</p>
+              {macNote ? (
+                <p className={`wa-ecs-modal__mac-note${macVerified ? ' is-ok' : ' is-err'}`}>{macNote}</p>
+              ) : null}
+            </label>
+
+            <label className="wa-ecs-modal__field">
+              <span>Shop Name</span>
+              <input value={shopName} onChange={(e) => setShopName(e.target.value)} required maxLength={80} />
+            </label>
+
+            <label className="wa-ecs-modal__field">
+              <span>Device Name</span>
+              <input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} required maxLength={80} />
+            </label>
+
+            <label className="wa-ecs-modal__field">
+              <span>Username</span>
               <input
-                value={mac}
-                onChange={(e) => onMacChange(e.target.value)}
-                placeholder="00:23:F0:1B:50:FD"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                maxLength={32}
                 autoComplete="off"
                 spellCheck={false}
-                required
-                disabled={submitting}
               />
-              <button
-                type="button"
-                className="wa-ecs-modal__secondary"
-                onClick={() => void checkMac()}
-                disabled={macChecking || submitting}
-              >
-                {macChecking ? '…' : 'Check'}
-              </button>
-              <button
-                type="button"
-                className="wa-ecs-modal__secondary"
-                onClick={() => setQrOpen(true)}
-                disabled={submitting}
-              >
-                <QrCode size={15} /> Scan QR
-              </button>
-            </div>
-            <p className="wa-ecs-modal__help">Scan the MAC QR on the ECS Lite profile, or type the MAC.</p>
-            {macNote ? (
-              <p className={`wa-ecs-modal__mac-note${macVerified ? ' is-ok' : ' is-err'}`}>{macNote}</p>
-            ) : null}
-          </label>
+            </label>
 
-          <label className="wa-ecs-modal__field">
-            <span>Shop Name</span>
-            <input value={shopName} onChange={(e) => setShopName(e.target.value)} required maxLength={80} disabled={submitting} />
-          </label>
-
-          <label className="wa-ecs-modal__field">
-            <span>Device Name</span>
-            <input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} required maxLength={80} disabled={submitting} />
-          </label>
-
-          <label className="wa-ecs-modal__field">
-            <span>Username</span>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              maxLength={32}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={submitting}
-            />
-          </label>
-
-          <label className="wa-ecs-modal__field">
-            <span>Password</span>
-            <div className="wa-ecs-modal__pw">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-                disabled={submitting}
-              />
-              <button
-                type="button"
-                className="wa-ecs-modal__pw-toggle"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </label>
-
-          <label className="wa-ecs-modal__field">
-            <span>Phone number</span>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(phoneDigitsOnly(e.target.value))}
-              inputMode="numeric"
-              placeholder="919876543210"
-              required
-              disabled={submitting}
-            />
-            <p className="wa-ecs-modal__help">Digits only — country code + number (8 to 15 digits).</p>
-          </label>
-
-          <label className="wa-ecs-modal__field">
-            <span>Country</span>
-            <select value={country} onChange={(e) => setCountry(e.target.value)} required disabled={submitting}>
-              {countries.map((c) => (
-                <option key={c.code} value={c.code}>{c.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className="wa-ecs-modal__field">
-            <span id="ecs-lite-payment-status-label">Payment status</span>
-            <div
-              className="wa-ecs-modal__payment-tabs"
-              role="tablist"
-              aria-labelledby="ecs-lite-payment-status-label"
-            >
-              {([
-                ['paid', 'Paid'],
-                ['not_paid', 'not paid'],
-              ] as const).map(([value, label]) => (
+            <label className="wa-ecs-modal__field">
+              <span>Password</span>
+              <div className="wa-ecs-modal__pw">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                />
                 <button
-                  key={value}
                   type="button"
-                  role="tab"
-                  aria-selected={paymentStatus === value}
-                  className={`wa-board-tab${paymentStatus === value ? ' is-active' : ''}`}
-                  onClick={() => setPaymentStatus(value)}
-                  disabled={submitting}
+                  className="wa-ecs-modal__pw-toggle"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {label}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
-              ))}
+              </div>
+            </label>
+
+            <label className="wa-ecs-modal__field">
+              <span>Phone number</span>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(phoneDigitsOnly(e.target.value))}
+                inputMode="numeric"
+                placeholder="919876543210"
+                required
+              />
+              <p className="wa-ecs-modal__help">Digits only — country code + number (8 to 15 digits).</p>
+            </label>
+
+            <label className="wa-ecs-modal__field">
+              <span>Country</span>
+              <select value={country} onChange={(e) => setCountry(e.target.value)} required>
+                {countries.map((c) => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="wa-ecs-modal__field">
+              <span id="ecs-lite-payment-status-label">Payment status</span>
+              <div
+                className="wa-ecs-modal__payment-tabs"
+                role="tablist"
+                aria-labelledby="ecs-lite-payment-status-label"
+              >
+                {([
+                  ['paid', 'Paid'],
+                  ['not_paid', 'not paid'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={paymentStatus === value}
+                    className={`wa-board-tab${paymentStatus === value ? ' is-active' : ''}`}
+                    onClick={() => setPaymentStatus(value)}
+                    disabled={formLocked}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          </fieldset>
+
+          {showProgress ? (
+            <div className="wa-ecs-progress" aria-live="polite">
+              {submitPhase === 'ecs_working' ? (
+                <ClockSpinner label="Creating ECS lite shop…" />
+              ) : null}
+
+              {submitPhase === 'ecs_done'
+                || submitPhase === 'zoho_working'
+                || submitPhase === 'complete' ? (
+                <p className="wa-ecs-progress__ok">ECS lite created</p>
+              ) : null}
+
+              {submitPhase === 'zoho_working' ? (
+                <ClockSpinner label="Checking Zoho invoice…" />
+              ) : null}
+
+              {submitPhase === 'complete' && zohoResult ? (
+                <div
+                  className={`wa-ecs-progress__zoho${
+                    zohoResult.status === 'success'
+                      ? ' is-ok'
+                      : zohoResult.status === 'failed'
+                        ? ' is-err'
+                        : ''
+                  }`}
+                >
+                  {zohoResult.status === 'success' ? (
+                    <>
+                      <p className="wa-ecs-progress__zoho-title">Zoho invoice created</p>
+                      <ul className="wa-ecs-progress__zoho-meta">
+                        <li>
+                          <span>Invoice</span>
+                          <strong>{zohoResult.invoiceNumber || '—'}</strong>
+                        </li>
+                        <li>
+                          <span>Date</span>
+                          <strong>{dateText || '—'}</strong>
+                        </li>
+                        <li>
+                          <span>Amount</span>
+                          <strong>{amountText || '—'}</strong>
+                        </li>
+                      </ul>
+                    </>
+                  ) : zohoResult.status === 'failed' ? (
+                    <>
+                      <p className="wa-ecs-progress__zoho-title">Zoho invoice failed</p>
+                      {zohoResult.zohoError ? (
+                        <p className="wa-ecs-progress__zoho-err">{zohoResult.zohoError}</p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="wa-ecs-progress__zoho-title">Zoho invoice skipped</p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {error ? <p className="wa-ecs-modal__error">{error}</p> : null}
-          {success ? <p className="wa-ecs-modal__success">{success}</p> : null}
 
           <footer className="wa-ecs-modal__foot">
-            <button type="button" className="wa-ecs-modal__secondary" onClick={onClose} disabled={submitting}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="wa-ecs-modal__primary"
-              disabled={submitting || loadingOptions || !assignedKey?.id || Boolean(success)}
-            >
-              {submitting ? 'Submitting…' : '+ Create Shop'}
-            </button>
+            {submitPhase === 'complete' ? (
+              <button type="button" className="wa-ecs-modal__primary" onClick={onClose}>
+                OK / Close
+              </button>
+            ) : (
+              <>
+                <button type="button" className="wa-ecs-modal__secondary" onClick={onClose} disabled={submitting}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="wa-ecs-modal__primary"
+                  disabled={submitting || loadingOptions || !assignedKey?.id}
+                >
+                  {submitting ? 'Working…' : '+ Create Shop'}
+                </button>
+              </>
+            )}
           </footer>
         </form>
       </div>

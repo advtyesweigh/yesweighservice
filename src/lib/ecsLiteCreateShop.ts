@@ -161,6 +161,8 @@ export type EcsLitePendingShopInput = {
   paymentStatus?: EcsLitePaymentStatus;
 };
 
+export type EcsLiteZohoInvoiceStatus = 'success' | 'failed' | 'skipped';
+
 export type EcsLitePendingShopResult = {
   ok: boolean;
   pending: boolean;
@@ -173,6 +175,15 @@ export type EcsLitePendingShopResult = {
   username?: string;
   summary?: string;
   paymentStatus?: EcsLitePaymentStatus;
+  /** True when ECS queued a pending dealer-PIN shop. */
+  ecsCreated?: boolean;
+  /** Zoho Books invoice outcome for the create-shop flow. */
+  zohoInvoiceStatus?: EcsLiteZohoInvoiceStatus;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  /** Zoho invoice total (incl. tax when returned), e.g. 2242. */
+  invoiceAmount?: number | null;
+  zohoError?: string | null;
   /** Zoho Books invoice for Retail Cloud service (ECS Lite Key). */
   zohoInvoiceId?: string | null;
   zohoInvoiceNumber?: string | null;

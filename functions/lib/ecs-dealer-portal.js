@@ -322,6 +322,13 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
       username: asString(approval.username || ecsPayload.username),
       summary: asString(approval.summary),
       paymentStatus,
+      /** Structured create-shop UI fields */
+      ecsCreated: true,
+      zohoInvoiceStatus: 'skipped',
+      invoiceNumber: null,
+      invoiceDate: null,
+      invoiceAmount: null,
+      zohoError: null,
       zohoInvoiceId: null,
       zohoInvoiceNumber: null,
       zohoInvoiceError: null,
@@ -382,18 +389,35 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
         result.zohoInvoiceId = invoiceOutcome.zohoInvoiceId;
         result.zohoInvoiceNumber = invoiceOutcome.zohoInvoiceNumber;
         result.zohoInvoiceError = invoiceOutcome.zohoInvoiceError;
+        result.invoiceNumber = invoiceOutcome.zohoInvoiceNumber || null;
+        result.invoiceDate = invoiceOutcome.invoiceDate || null;
+        result.invoiceAmount = invoiceOutcome.invoiceAmount != null
+          ? invoiceOutcome.invoiceAmount
+          : null;
+        result.zohoError = invoiceOutcome.zohoInvoiceError || null;
         result.whatsappInvoiceSent = Boolean(invoiceOutcome.whatsappSent);
         result.whatsappInvoiceError = invoiceOutcome.whatsappError;
         if (invoiceOutcome.zohoInvoiceError) {
+          result.zohoInvoiceStatus = 'failed';
           result.message = `${result.message} Zoho invoice failed: ${invoiceOutcome.zohoInvoiceError}`;
-        } else if (invoiceOutcome.whatsappError) {
-          result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created; WhatsApp PDF not sent: ${invoiceOutcome.whatsappError}`;
         } else if (invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId) {
-          result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created and PDF sent on WhatsApp.`;
+          result.zohoInvoiceStatus = 'success';
+          if (invoiceOutcome.whatsappError) {
+            result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created; WhatsApp PDF not sent: ${invoiceOutcome.whatsappError}`;
+          } else {
+            result.message = `${result.message} Invoice ${invoiceOutcome.zohoInvoiceNumber || invoiceOutcome.zohoInvoiceId} created and PDF sent on WhatsApp.`;
+          }
+        } else {
+          result.zohoInvoiceStatus = 'failed';
+          result.zohoError = result.zohoError || 'Zoho invoice was not created.';
+          result.zohoInvoiceError = result.zohoError;
+          result.message = `${result.message} Zoho invoice failed: ${result.zohoError}`;
         }
       } catch (invoiceErr) {
         const msg = asString(invoiceErr?.message) || 'Zoho invoice step failed.';
+        result.zohoInvoiceStatus = 'failed';
         result.zohoInvoiceError = msg;
+        result.zohoError = msg;
         result.message = `${result.message} Zoho invoice step failed: ${msg}`;
         console.warn('ECS Lite post-submit invoice step failed:', msg);
       }
