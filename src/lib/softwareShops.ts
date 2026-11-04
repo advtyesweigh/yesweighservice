@@ -1644,6 +1644,13 @@ export function formatShopRateCardMessage(shop: SoftwareShop): string {
   const endLine = days ? `${end} (${days})` : end;
   const planStatus = String(shop.extras?.planStatus ?? '').trim() || '—';
   const quote = shopRenewalQuote(shop);
+  const base = softwareRenewalCharge(shop);
+  const litePerScale = Boolean(
+    quote
+    && base?.currency === 'INR'
+    && base.amount === 1900
+    && !shopHasSmartScale(shop),
+  );
   return [
     `*${shop.name || `Shop ${shop.shopId}`}*`,
     `Organisation: ${softwareOrgLabel(shop.sourceAccount)}`,
@@ -1651,7 +1658,8 @@ export function formatShopRateCardMessage(shop: SoftwareShop): string {
     `Subscription: ${shop.subscription || '—'}`,
     `Plan status: ${planStatus}`,
     ...(quote ? [
-      `${quote.subscriptionLabel}: ${quote.subscriptionAmount}`,
+      `${quote.subscriptionLabel}: ${quote.subscriptionAmount}${litePerScale ? ' per scale' : ''}`,
+      ...(litePerScale ? ['Unlimited Sales Logs'] : []),
       ...(quote.smartScaleAmount ? [`Smart Scale: ${quote.smartScaleAmount}`] : []),
       `${quote.totalLabel}: ${quote.totalAmount}`,
     ] : []),

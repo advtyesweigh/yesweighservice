@@ -673,7 +673,7 @@ export const WhatsAppInboxPage: React.FC = () => {
       if (chat.lastDirection !== 'inbound') continue;
       const shopId = renewalShopIdFromText(chat.lastText);
       if (!shopId) continue;
-      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}:v3`;
+      const key = `${chat.waId}:${chat.lastInboundAtMs}:${shopId}:v4`;
       if (renewalAutoRef.current.has(key)) continue;
       try {
         if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
@@ -738,7 +738,7 @@ export const WhatsAppInboxPage: React.FC = () => {
       )
     ));
     if (alreadyPaid) return undefined;
-    const key = `retry:${active.waId}:${inbound.id}:${shopId}:v3`;
+    const key = `retry:${active.waId}:${inbound.id}:${shopId}:v4`;
     try {
       if (sessionStorage.getItem(`waRenewalAuto:${key}`)) {
         renewalAutoRef.current.add(key);

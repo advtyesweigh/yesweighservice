@@ -42,7 +42,7 @@ function formatInr(amount: number): string {
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
-/** Payment follow-up: uses shop quote when available, else ECS Lite ₹1,900 + 18% GST. */
+/** Payment follow-up: uses shop quote when available, else ECS Lite ₹1,900 + 18% GST per scale. */
 export function softwareRenewalPaymentText(shop: SoftwareShop | null, shopId: number): string {
   const name = shop?.name?.trim() || `Shop ${shopId}`;
   const charge = shop ? softwareCallRenewalCharge(shop) : null;
@@ -52,8 +52,19 @@ export function softwareRenewalPaymentText(shop: SoftwareShop | null, shopId: nu
   const total = charge?.currency === 'INR' && charge.amount
     ? renewalAmountInclGst(charge.amount, 'INR')
     : renewalAmountInclGst(ECS_LITE_RENEWAL_BASE_INR, 'INR');
+  const isLitePerScale = base === ECS_LITE_RENEWAL_BASE_INR;
+  const amountLines = isLitePerScale
+    ? [
+        `Please pay ${formatInr(total)} per scale to renew ${name}.`,
+        '₹1,900 + 18% GST = ₹2,242 per scale.',
+        'Includes Unlimited Sales Logs.',
+      ]
+    : [
+        `Please pay ${formatInr(total)} to renew ${name} (${formatInr(base)} + 18% GST).`,
+        'Includes Unlimited Sales Logs.',
+      ];
   return [
-    `Please pay ${formatInr(total)} to renew ${name} (${formatInr(base)} + 18% GST).`,
+    ...amountLines,
     '',
     RENEWAL_BANK_DETAILS,
     '',

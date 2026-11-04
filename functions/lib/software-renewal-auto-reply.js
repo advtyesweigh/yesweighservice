@@ -137,8 +137,14 @@ export function softwareRenewalCardText(shop, shopId) {
     `Subscription: ${asString(shop?.subscription) || '—'}`,
   ];
   if (payable.total) {
-    lines.push(`${asString(shop?.subscription) || 'Renewal'}: ${formatInr(payable.baseIncl)}`);
-    if (payable.extra) lines.push(`Smart Scale: ${formatInr(payable.extraIncl)}`);
+    const planLabel = asString(shop?.subscription) || 'Renewal';
+    if (payable.base === ECS_LITE_RENEWAL_BASE_INR && !payable.extra) {
+      lines.push(`${planLabel}: ${formatInr(payable.baseIncl)} per scale`);
+      lines.push('Unlimited Sales Logs');
+    } else {
+      lines.push(`${planLabel}: ${formatInr(payable.baseIncl)}`);
+      if (payable.extra) lines.push(`Smart Scale: ${formatInr(payable.extraIncl)}`);
+    }
     lines.push(`Total (incl. 18% GST): ${formatInr(payable.total)}`);
   }
   lines.push(`End date: ${days ? `${end} (${days})` : end}`);
@@ -151,9 +157,19 @@ export function softwareRenewalPaymentText(shop, shopId) {
   const payable = softwareRenewalPayableInr(shop);
   const base = payable.subtotal || ECS_LITE_RENEWAL_BASE_INR;
   const total = payable.total || inclGst(ECS_LITE_RENEWAL_BASE_INR);
-  const amountLine = `Please pay ${formatInr(total)} to renew ${name} (${formatInr(base)} + 18% GST).`;
+  const isLitePerScale = base === ECS_LITE_RENEWAL_BASE_INR && !payable.extra;
+  const amountLines = isLitePerScale
+    ? [
+        `Please pay ${formatInr(total)} per scale to renew ${name}.`,
+        '₹1,900 + 18% GST = ₹2,242 per scale.',
+        'Includes Unlimited Sales Logs.',
+      ]
+    : [
+        `Please pay ${formatInr(total)} to renew ${name} (${formatInr(base)} + 18% GST).`,
+        'Includes Unlimited Sales Logs.',
+      ];
   return [
-    amountLine,
+    ...amountLines,
     '',
     RENEWAL_BANK_DETAILS,
     '',
