@@ -119,15 +119,32 @@ export function renewalShopIdFromText(text: string): number {
   return parseSoftwareShopIdFromText(text);
 }
 
-/** Fetch the hosted ECS Lite flyer as base64 for WhatsApp Cloud send. */
+/** Fetch the ECS Lite flyer as base64 for WhatsApp Cloud send (same-origin first). */
 export async function loadEcsLiteRenewalFlyerBase64(): Promise<{
   fileBase64: string;
   mimeType: string;
   fileName: string;
 }> {
-  const response = await fetch(ECS_LITE_RENEWAL_FLYER_URL);
-  if (!response.ok) {
-    throw new Error(`Could not load ECS Lite flyer (${response.status}).`);
+  const urls = [
+    `/whatsapp/${ECS_LITE_RENEWAL_FLYER_FILE_NAME}`,
+    ECS_LITE_RENEWAL_FLYER_URL,
+  ];
+  let response: Response | null = null;
+  let lastStatus = 0;
+  for (const url of urls) {
+    try {
+      const next = await fetch(url);
+      lastStatus = next.status;
+      if (next.ok) {
+        response = next;
+        break;
+      }
+    } catch {
+      // try next URL (hosting can fail CORS from localhost)
+    }
+  }
+  if (!response) {
+    throw new Error(`Could not load ECS Lite flyer (${lastStatus || 'network'}).`);
   }
   const buffer = await response.arrayBuffer();
   const bytes = new Uint8Array(buffer);
