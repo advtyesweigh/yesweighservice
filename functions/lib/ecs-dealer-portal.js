@@ -375,6 +375,7 @@ export async function submitEcsPendingShop(input = {}, opts = {}) {
             },
             actor: {
               uid: asString(opts.createdByUid) || null,
+              name: asString(opts.createdByName) || 'Staff',
             },
           },
         );

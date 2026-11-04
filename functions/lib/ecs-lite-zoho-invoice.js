@@ -18,7 +18,9 @@ import {
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
 import { sendWhatsAppCloudFile } from './whatsapp-cloud.js';
-import { ECS_LITE_PENDING_SHOPS_COLLECTION } from './ecs-dealer-portal.js';
+
+/** Same collection as ecs-dealer-portal (keep local to avoid a circular import). */
+const ECS_LITE_PENDING_SHOPS_COLLECTION = 'ecsLitePendingShops';
 
 /** Zoho Books contact: Retail Cloud service (always — never the shop WhatsApp contact). */
 export const ECS_LITE_ZOHO_CUSTOMER_ID = '99381000019875126';
@@ -34,6 +36,14 @@ function asString(value) {
 
 function phoneDigits(value) {
   return asString(value).replace(/\D/g, '');
+}
+
+/** Match whatsapp-cloud normalizeWaId (10-digit India → 91…). */
+function toWaId(value) {
+  let digits = phoneDigits(value);
+  if (digits.length === 10) digits = `91${digits}`;
+  if (digits.length === 11 && digits.startsWith('0')) digits = `91${digits.slice(1)}`;
+  return digits;
 }
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
@@ -222,8 +232,8 @@ export async function sendEcsLiteInvoicePdfWhatsApp({
   invoiceNumber,
   actor = {},
 }) {
-  const waId = phoneDigits(phone);
-  if (waId.length < 8 || waId.length > 15) {
+  const waId = toWaId(phone);
+  if (waId.length < 10 || waId.length > 15) {
     const err = new Error('Phone must be digits only — country code + number (8 to 15 digits).');
     err.code = 'invalid-phone';
     throw err;
@@ -311,8 +321,8 @@ export async function afterEcsLitePendingShopInvoice(secrets, configuredOrgId, {
     });
   }
 
-  const phone = phoneDigits(fields?.phone);
-  if (phone.length < 8 || phone.length > 15) {
+  const phone = toWaId(fields?.phone);
+  if (phone.length < 10 || phone.length > 15) {
     result.whatsappError = 'Phone is invalid; invoice PDF was not sent on WhatsApp.';
   } else {
     try {

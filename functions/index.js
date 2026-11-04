@@ -8895,8 +8895,16 @@ export const submitEcsLitePendingShopFn = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     try {
+      const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
+      const createdByName = String(
+        userSnap.data()?.name
+          ?? userSnap.data()?.displayName
+          ?? userSnap.data()?.loginId
+          ?? '',
+      ).trim() || 'Staff';
       return await submitEcsPendingShop(request.data ?? {}, {
         createdByUid: request.auth?.uid,
+        createdByName,
         zohoSecrets: zohoSecrets(),
         zohoOrgId: zohoOrganizationId.value(),
       });
