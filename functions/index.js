@@ -8892,7 +8892,9 @@ export const submitEcsLitePendingShopFn = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, WHATSAPP_INBOX_ROLES);
     try {
-      return await submitEcsPendingShop(request.data ?? {});
+      return await submitEcsPendingShop(request.data ?? {}, {
+        createdByUid: request.auth?.uid,
+      });
     } catch (err) {
       throwEcsDealerError(err, 'Could not submit pending ECS shop.');
     }

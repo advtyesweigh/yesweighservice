@@ -4,10 +4,12 @@
  * Dealer sessions activate shops immediately — never call create as dealer.
  */
 
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
 export const ECS_DEALER_BASE = 'https://ecs.benchpc.online';
 export const ECS_SETTINGS_DOC = 'whatsappSettings/ecsDealer';
+/** YesWeigh-only pending create-shop metadata (payment status is not an ECS API field). */
+export const ECS_LITE_PENDING_SHOPS_COLLECTION = 'ecsLitePendingShops';
 
 function asString(value) {
   if (value == null) return '';
@@ -241,6 +243,13 @@ export async function verifyEcsMac(macInput) {
   };
 }
 
+/** Staff payment flag for YesWeigh only — ECS /api/dealer/shops/create has no payment field. */
+export function normalizeEcsLitePaymentStatus(value) {
+  const raw = asString(value).toLowerCase().replace(/[\s-]+/g, '_');
+  if (raw === 'not_paid' || raw === 'unpaid' || raw === 'notpaid') return 'not_paid';
+  return 'paid';
+}
+
 export function validateEcsCreateShopInput(input = {}) {
   const keyId = asString(input.keyId);
   const mac = normalizeEcsMac(input.mac) || asString(input.mac);
@@ -250,6 +259,7 @@ export function validateEcsCreateShopInput(input = {}) {
   const password = asString(input.password);
   const phone = phoneDigits(input.phone);
   const country = asString(input.country || 'IN').toUpperCase() || 'IN';
+  const paymentStatus = normalizeEcsLitePaymentStatus(input.paymentStatus);
 
   if (!keyId) throw new Error('Select a license key from inventory.');
   if (macCompact(mac).length !== 12) throw new Error('Enter a valid MAC ID.');
@@ -271,38 +281,70 @@ export function validateEcsCreateShopInput(input = {}) {
     password,
     phone,
     country,
+    paymentStatus,
   };
 }
 
 /**
  * Submit create-shop as an ECS employee so the portal queues a pending approval.
  * Refuses to proceed if the response would activate the shop immediately.
+ * paymentStatus is stored on YesWeigh (ecsLitePendingShops) — not sent to ECS.
  */
-export async function submitEcsPendingShop(input = {}) {
-  const payload = validateEcsCreateShopInput(input);
+export async function submitEcsPendingShop(input = {}, opts = {}) {
+  const validated = validateEcsCreateShopInput(input);
+  const { paymentStatus, ...ecsPayload } = validated;
   const credentials = await loadEcsDealerCredentials();
   const session = await loginEcsEmployee(credentials);
 
   const body = await ecsFetch('/api/dealer/shops/create', {
     method: 'POST',
     jar: session.jar,
-    body: payload,
+    body: ecsPayload,
   });
 
   if (body?.pending) {
     const approval = body.approval || {};
-    return {
+    const approvalId = asString(approval.id);
+    const result = {
       ok: true,
       pending: true,
       status: 'pending',
       message: 'Sent to the dealer for PIN approval. It does not apply until then.',
-      approvalId: asString(approval.id),
-      keyId: asString(approval.keyId || payload.keyId),
+      approvalId,
+      keyId: asString(approval.keyId || ecsPayload.keyId),
       keyPreview: asString(approval.keyPreview),
-      shopName: asString(approval.shopName || payload.shopName),
-      username: asString(approval.username || payload.username),
+      shopName: asString(approval.shopName || ecsPayload.shopName),
+      username: asString(approval.username || ecsPayload.username),
       summary: asString(approval.summary),
+      paymentStatus,
     };
+
+    try {
+      const db = getFirestore();
+      const docId = approvalId || db.collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc().id;
+      await db.collection(ECS_LITE_PENDING_SHOPS_COLLECTION).doc(docId).set({
+        approvalId: approvalId || null,
+        keyId: result.keyId || null,
+        keyPreview: result.keyPreview || null,
+        mac: ecsPayload.mac,
+        shopName: result.shopName || null,
+        deviceName: ecsPayload.deviceName,
+        username: result.username || null,
+        phone: ecsPayload.phone,
+        country: ecsPayload.country,
+        paymentStatus,
+        summary: result.summary || null,
+        createdByUid: asString(opts.createdByUid) || null,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    } catch (persistErr) {
+      console.warn(
+        'ecsLitePendingShops persist failed (ECS pending still queued):',
+        persistErr?.message ?? persistErr,
+      );
+    }
+
+    return result;
   }
 
   // Safety: dealer-style immediate activation must never be treated as success here.

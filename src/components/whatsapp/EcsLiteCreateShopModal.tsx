@@ -55,6 +55,7 @@ export function EcsLiteCreateShopModal({
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('IN');
+  const [paymentStatus, setPaymentStatus] = useState<'paid' | 'not_paid'>('paid');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -84,6 +85,7 @@ export function EcsLiteCreateShopModal({
     setShowPassword(false);
     setPhone(phoneDigitsOnly(defaultPhone));
     setCountry('IN');
+    setPaymentStatus('paid');
     setLoadingOptions(true);
 
     void (async () => {
@@ -298,6 +300,7 @@ export function EcsLiteCreateShopModal({
         password: password || ECS_LITE_DEFAULT_PASSWORD,
         phone: digits,
         country,
+        paymentStatus,
       });
       if (!result.pending) {
         setError(result.message || 'ECS did not queue a pending approval.');
@@ -451,6 +454,19 @@ export function EcsLiteCreateShopModal({
               {countries.map((c) => (
                 <option key={c.code} value={c.code}>{c.label}</option>
               ))}
+            </select>
+          </label>
+
+          <label className="wa-ecs-modal__field">
+            <span>Payment status</span>
+            <select
+              value={paymentStatus}
+              onChange={(e) => setPaymentStatus(e.target.value === 'not_paid' ? 'not_paid' : 'paid')}
+              required
+              disabled={submitting}
+            >
+              <option value="paid">Paid</option>
+              <option value="not_paid">not paid</option>
             </select>
           </label>
 

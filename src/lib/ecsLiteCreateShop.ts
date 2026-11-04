@@ -146,6 +146,8 @@ export type EcsLiteMacVerifyResult = {
   mac: string;
 };
 
+export type EcsLitePaymentStatus = 'paid' | 'not_paid';
+
 export type EcsLitePendingShopInput = {
   keyId: string;
   mac: string;
@@ -155,6 +157,8 @@ export type EcsLitePendingShopInput = {
   password: string;
   phone: string;
   country: string;
+  /** YesWeigh-only staff flag — not an ECS create-shop API field. */
+  paymentStatus?: EcsLitePaymentStatus;
 };
 
 export type EcsLitePendingShopResult = {
@@ -168,6 +172,7 @@ export type EcsLitePendingShopResult = {
   shopName?: string;
   username?: string;
   summary?: string;
+  paymentStatus?: EcsLitePaymentStatus;
 };
 
 export function normalizeEcsMacInput(value: string): string {
