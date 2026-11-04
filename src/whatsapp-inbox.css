@@ -1826,6 +1826,19 @@ a.wa-inbox-icon {
   color: #fdba74;
 }
 
+.wa-ecs-modal__payment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+}
+
+.wa-ecs-modal__payment-tabs .wa-board-tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .wa-ecs-modal__field input,
 .wa-ecs-modal__field select {
   padding: 0.5rem 0.65rem;

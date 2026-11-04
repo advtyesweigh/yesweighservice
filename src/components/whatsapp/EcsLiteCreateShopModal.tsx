@@ -457,18 +457,31 @@ export function EcsLiteCreateShopModal({
             </select>
           </label>
 
-          <label className="wa-ecs-modal__field">
-            <span>Payment status</span>
-            <select
-              value={paymentStatus}
-              onChange={(e) => setPaymentStatus(e.target.value === 'not_paid' ? 'not_paid' : 'paid')}
-              required
-              disabled={submitting}
+          <div className="wa-ecs-modal__field">
+            <span id="ecs-lite-payment-status-label">Payment status</span>
+            <div
+              className="wa-ecs-modal__payment-tabs"
+              role="tablist"
+              aria-labelledby="ecs-lite-payment-status-label"
             >
-              <option value="paid">Paid</option>
-              <option value="not_paid">not paid</option>
-            </select>
-          </label>
+              {([
+                ['paid', 'Paid'],
+                ['not_paid', 'not paid'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={paymentStatus === value}
+                  className={`wa-board-tab${paymentStatus === value ? ' is-active' : ''}`}
+                  onClick={() => setPaymentStatus(value)}
+                  disabled={submitting}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {error ? <p className="wa-ecs-modal__error">{error}</p> : null}
           {success ? <p className="wa-ecs-modal__success">{success}</p> : null}
