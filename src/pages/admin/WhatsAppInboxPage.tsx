@@ -21,6 +21,7 @@ import {
   Mic,
   Paperclip,
   Phone,
+  Scale,
   Search,
   Send,
   SlidersHorizontal,
@@ -88,7 +89,9 @@ import {
   buildSoftwareRenewalAutoReply,
   loadEcsLiteRenewalFlyerBase64,
   renewalShopIdFromText,
+  softwareRenewalPaymentText,
 } from '../../lib/softwareRenewalAutoReply';
+import type { SoftwareShop } from '../../types/software-shop';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import '../../whatsapp-inbox.css';
 
@@ -564,6 +567,7 @@ export const WhatsAppInboxPage: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [serviceBusy, setServiceBusy] = useState(false);
   const [dealerShareBusy, setDealerShareBusy] = useState(false);
+  const [ecsLiteBusy, setEcsLiteBusy] = useState(false);
   const [sendError, setSendError] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -1230,6 +1234,48 @@ export const WhatsAppInboxPage: React.FC = () => {
     }
   };
 
+  const sendEcsLiteRenewal = async () => {
+    if (!active || ecsLiteBusy || sending) return;
+    setEcsLiteBusy(true);
+    setSendError('');
+    try {
+      const shopId = softwareShopIdFromChat(active)
+        || messages.map(item => parseSoftwareShopIdFromText(item.text)).find(Boolean)
+        || 0;
+      const shop = shopId
+        ? await resolveSoftwareShopForRenewal({ shopId, phone: active.waId })
+        : null;
+      const paymentShop = shop ?? ({ name: 'ECS Lite', subscription: 'ecs lite' } as SoftwareShop);
+      const payment = softwareRenewalPaymentText(paymentShop, shop?.shopId || shopId || 0);
+      closePanels();
+      if (sessionOpen) {
+        try {
+          const flyer = await loadEcsLiteRenewalFlyerBase64();
+          await sendWhatsAppFile({
+            waId: active.waId,
+            fileBase64: flyer.fileBase64,
+            mimeType: flyer.mimeType,
+            fileName: flyer.fileName,
+            caption: payment,
+          });
+        } catch (flyerErr) {
+          console.warn('ecs lite flyer send failed; text fallback', flyerErr);
+          await sendWhatsAppText(active.waId, payment, {
+            outboundVoiceLanguage: normalizeOutboundVoiceLanguageValue(active.outboundVoiceLanguage),
+            outboundVoiceLanguageName: outboundVoiceLanguageLabel(active.outboundVoiceLanguage),
+            skipTranslation: true,
+          });
+        }
+      } else {
+        setDraft(current => (current.trim() ? `${current.trim()}\n${payment}` : payment));
+      }
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Could not prepare ECS Lite renewal.');
+    } finally {
+      setEcsLiteBusy(false);
+    }
+  };
+
   const insertComposerBlock = (block: string) => {
     const text = block.trim();
     if (!text) return;
@@ -1640,6 +1686,15 @@ export const WhatsAppInboxPage: React.FC = () => {
                 >
                   <span className="wa-attach-sheet__icon wa-attach-sheet__icon--dealer"><UserPlus size={22} /></span>
                   {dealerShareBusy ? 'Creating…' : 'New dealer'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void sendEcsLiteRenewal()}
+                  disabled={ecsLiteBusy || sending}
+                >
+                  <span className="wa-attach-sheet__icon wa-attach-sheet__icon--ecs"><Scale size={22} /></span>
+                  {ecsLiteBusy ? 'Sending…' : 'Ecs lite'}
                 </button>
               </div>
             ) : null}

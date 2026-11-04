@@ -1486,6 +1486,7 @@ a.wa-inbox-icon {
 .wa-attach-sheet__icon--service { background: #7c3aed; }
 .wa-attach-sheet__icon--template { background: #0284c7; }
 .wa-attach-sheet__icon--dealer { background: #16a34a; }
+.wa-attach-sheet__icon--ecs { background: #ea580c; }
 
 .wa-assign-sheet {
   display: flex;
