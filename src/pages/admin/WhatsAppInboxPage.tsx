@@ -1910,6 +1910,12 @@ export const WhatsAppInboxPage: React.FC = () => {
         open={ecsLiteCreateOpen}
         onClose={() => setEcsLiteCreateOpen(false)}
         defaultPhone={active?.waId || ''}
+        softwareShopId={activeShopId}
+        softwareShopName={
+          (activeShopId && shopNameById[activeShopId])
+          || active?.softwareShopName
+          || ''
+        }
       />
     </div>
   );

@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Eye, EyeOff, Loader2, QrCode, X } from 'lucide-react';
 import {
+  ECS_LITE_DEFAULT_DEVICE_NAME,
+  ECS_LITE_DEFAULT_PASSWORD,
   ecsLiteCallableErrorMessage,
+  ecsLitePrefillFromSoftwareShop,
   listEcsLiteCreateShopOptions,
   normalizeEcsMacInput,
   submitEcsLitePendingShop,
@@ -10,35 +13,45 @@ import {
   type EcsLiteCountry,
   type EcsLiteLicenseKey,
 } from '../../lib/ecsLiteCreateShop';
+import { resolveSoftwareShopForRenewal } from '../../lib/softwareShops';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   defaultPhone?: string;
+  /** Software shop id linked to this WhatsApp chat (same as Software attach). */
+  softwareShopId?: number;
+  /** Chat / cached shop label when Software row is still loading. */
+  softwareShopName?: string;
 };
 
 function phoneDigitsOnly(value: string) {
   return value.replace(/\D/g, '').slice(0, 15);
 }
 
-function keyOptionLabel(key: EcsLiteLicenseKey) {
+function keyDisplayLabel(key: EcsLiteLicenseKey) {
   const preview = key.preview || key.id;
   return key.poNumber ? `${preview} · ${key.poNumber}` : preview;
 }
 
-export function EcsLiteCreateShopModal({ open, onClose, defaultPhone = '' }: Props) {
+export function EcsLiteCreateShopModal({
+  open,
+  onClose,
+  defaultPhone = '',
+  softwareShopId = 0,
+  softwareShopName = '',
+}: Props) {
   const [loadingOptions, setLoadingOptions] = useState(false);
-  const [keys, setKeys] = useState<EcsLiteLicenseKey[]>([]);
+  const [assignedKey, setAssignedKey] = useState<EcsLiteLicenseKey | null>(null);
   const [countries, setCountries] = useState<EcsLiteCountry[]>([{ code: 'IN', label: 'India' }]);
-  const [keyId, setKeyId] = useState('');
   const [mac, setMac] = useState('');
   const [macVerified, setMacVerified] = useState(false);
   const [macNote, setMacNote] = useState('');
   const [macChecking, setMacChecking] = useState(false);
   const [shopName, setShopName] = useState('');
-  const [deviceName, setDeviceName] = useState('');
+  const [deviceName, setDeviceName] = useState(ECS_LITE_DEFAULT_DEVICE_NAME);
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState(ECS_LITE_DEFAULT_PASSWORD);
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('IN');
@@ -51,44 +64,81 @@ export function EcsLiteCreateShopModal({ open, onClose, defaultPhone = '' }: Pro
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanRafRef = useRef(0);
+  const loadGenRef = useRef(0);
 
   useEffect(() => {
     if (!open) return;
+    const gen = loadGenRef.current + 1;
+    loadGenRef.current = gen;
     setError('');
     setSuccess('');
     setOptionsError('');
+    setAssignedKey(null);
     setMac('');
     setMacVerified(false);
     setMacNote('');
-    setShopName('');
-    setDeviceName('');
+    setShopName(String(softwareShopName || '').replace(/\s*·\s*\d+\s*$/, '').trim());
+    setDeviceName(ECS_LITE_DEFAULT_DEVICE_NAME);
     setUsername('');
-    setPassword('');
+    setPassword(ECS_LITE_DEFAULT_PASSWORD);
     setShowPassword(false);
     setPhone(phoneDigitsOnly(defaultPhone));
     setCountry('IN');
     setLoadingOptions(true);
-    void listEcsLiteCreateShopOptions()
-      .then((data) => {
-        setKeys(data.keys || []);
-        setCountries(data.countries?.length ? data.countries : [{ code: 'IN', label: 'India' }]);
-        setKeyId(data.keys?.[0]?.id || '');
-        const hasIndia = (data.countries || []).some((c) => c.code === 'IN');
-        setCountry(hasIndia ? 'IN' : (data.countries?.[0]?.code || 'IN'));
-      })
-      .catch((err) => {
-        setOptionsError(ecsLiteCallableErrorMessage(err, 'Could not load ECS license keys.'));
-        setKeys([]);
-        setKeyId('');
-      })
-      .finally(() => setLoadingOptions(false));
-  }, [open, defaultPhone]);
+
+    void (async () => {
+      try {
+        const [options, shop] = await Promise.all([
+          listEcsLiteCreateShopOptions(),
+          resolveSoftwareShopForRenewal({
+            shopId: Number(softwareShopId) || 0,
+            phone: defaultPhone,
+          }),
+        ]);
+        if (loadGenRef.current !== gen) return;
+
+        const nextKey = options.key ?? options.keys?.[0] ?? null;
+        setAssignedKey(nextKey);
+        const nextCountries = options.countries?.length
+          ? options.countries
+          : [{ code: 'IN', label: 'India' }];
+        setCountries(nextCountries);
+
+        const prefill = ecsLitePrefillFromSoftwareShop(shop, {
+          waPhone: defaultPhone,
+          fallbackShopName: softwareShopName,
+          countries: nextCountries,
+        });
+
+        // Only fill empty / default values so staff edits are not overwritten.
+        setShopName((prev) => prev || prefill.shopName);
+        setDeviceName((prev) => (
+          !prev || prev === ECS_LITE_DEFAULT_DEVICE_NAME
+            ? ECS_LITE_DEFAULT_DEVICE_NAME
+            : prev
+        ));
+        setUsername((prev) => prev || prefill.username);
+        setPassword((prev) => prev || ECS_LITE_DEFAULT_PASSWORD);
+        setPhone((prev) => prev || prefill.phone);
+        setCountry((prev) => {
+          if (prev && prev !== 'IN') return prev;
+          return prefill.country || prev || 'IN';
+        });
+      } catch (err) {
+        if (loadGenRef.current !== gen) return;
+        setOptionsError(ecsLiteCallableErrorMessage(err, 'Could not load ECS create-shop options.'));
+        setAssignedKey(null);
+      } finally {
+        if (loadGenRef.current === gen) setLoadingOptions(false);
+      }
+    })();
+  }, [open, defaultPhone, softwareShopId, softwareShopName]);
 
   const stopQr = () => {
     if (scanRafRef.current) {
       cancelAnimationFrame(scanRafRef.current);
-      scanRafRef.current = 0;
     }
+    scanRafRef.current = 0;
     const stream = streamRef.current;
     streamRef.current = null;
     if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -233,15 +283,19 @@ export function EcsLiteCreateShopModal({ open, onClose, defaultPhone = '' }: Pro
       setError('Phone must be digits only — country code + number (8 to 15 digits).');
       return;
     }
+    if (!assignedKey?.id) {
+      setError('No unused license key available — purchase or ask admin.');
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await submitEcsLitePendingShop({
-        keyId,
+        keyId: assignedKey.id,
         mac: normalizeEcsMacInput(mac),
         shopName: shopName.trim(),
-        deviceName: deviceName.trim(),
+        deviceName: deviceName.trim() || ECS_LITE_DEFAULT_DEVICE_NAME,
         username: username.trim(),
-        password,
+        password: password || ECS_LITE_DEFAULT_PASSWORD,
         phone: digits,
         country,
       });
@@ -279,28 +333,22 @@ export function EcsLiteCreateShopModal({ open, onClose, defaultPhone = '' }: Pro
         </header>
 
         {loadingOptions ? (
-          <p className="wa-ecs-modal__status"><Loader2 size={16} className="wa-ecs-spin" /> Loading keys…</p>
+          <p className="wa-ecs-modal__status"><Loader2 size={16} className="wa-ecs-spin" /> Loading…</p>
         ) : null}
         {optionsError ? <p className="wa-ecs-modal__error">{optionsError}</p> : null}
 
         <form className="wa-ecs-modal__form" onSubmit={(e) => void onSubmit(e)}>
-          <label className="wa-ecs-modal__field">
+          <div className="wa-ecs-modal__field">
             <span>License key (inventory)</span>
-            <select
-              value={keyId}
-              onChange={(e) => setKeyId(e.target.value)}
-              required
-              disabled={!keys.length || submitting}
-            >
-              {!keys.length ? (
-                <option value="">No unused keys — purchase or ask admin</option>
-              ) : (
-                keys.map((key) => (
-                  <option key={key.id} value={key.id}>{keyOptionLabel(key)}</option>
-                ))
-              )}
-            </select>
-          </label>
+            <p className="wa-ecs-modal__readonly" aria-live="polite">
+              {loadingOptions
+                ? '…'
+                : assignedKey
+                  ? keyDisplayLabel(assignedKey)
+                  : 'No unused keys — purchase or ask admin'}
+            </p>
+            <p className="wa-ecs-modal__help">Uses one unused key automatically (not a picker).</p>
+          </div>
 
           <label className="wa-ecs-modal__field">
             <span>MAC ID</span>
@@ -416,7 +464,7 @@ export function EcsLiteCreateShopModal({ open, onClose, defaultPhone = '' }: Pro
             <button
               type="submit"
               className="wa-ecs-modal__primary"
-              disabled={submitting || loadingOptions || !keys.length || Boolean(success)}
+              disabled={submitting || loadingOptions || !assignedKey?.id || Boolean(success)}
             >
               {submitting ? 'Submitting…' : '+ Create Shop'}
             </button>

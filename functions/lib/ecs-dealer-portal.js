@@ -190,6 +190,7 @@ export async function listEcsUnusedKeysAndCountries() {
     ecsFetch('/api/dealer/overview', { jar: session.jar }),
   ]);
   const rows = Array.isArray(keysPage?.rows) ? keysPage.rows : [];
+  // Oldest available first — create-shop takes one automatically; do not enumerate inventory to the client.
   const unused = rows
     .filter((row) => asString(row.status) === 'available')
     .slice()
@@ -202,6 +203,7 @@ export async function listEcsUnusedKeysAndCountries() {
       validDays: Number(row.validDays) || 0,
     }))
     .filter((row) => row.id);
+  const key = unused[0] || null;
   const countries = (Array.isArray(overview?.countries) ? overview.countries : [])
     .map((c) => ({
       code: asString(c.code).toUpperCase(),
@@ -209,7 +211,9 @@ export async function listEcsUnusedKeysAndCountries() {
     }))
     .filter((c) => c.code);
   return {
-    keys: unused,
+    key,
+    // Keep a one-element array for older clients; never return the full unused list.
+    keys: key ? [key] : [],
     countries: countries.length
       ? countries
       : [{ code: 'IN', label: 'India' }],
