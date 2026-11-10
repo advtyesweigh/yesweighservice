@@ -47966,6 +47966,10 @@ button.invoice-detail-top__card {
   background: #7f66ff;
 }
 
+.support-chat__attach-icon--gallery {
+  background: #ec4899;
+}
+
 .support-chat__attach-label {
   text-align: center;
   line-height: 1.2;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Image as ImageIcon, X } from 'lucide-react';
+import { FileText, Image as ImageIcon, Images, X } from 'lucide-react';
 import { getRecentMedia, subscribeRecentMedia } from '../../lib/recentMediaCache';
 import { retainFileCopy, validateSupportFile } from '../../lib/supportAttachments';
 
@@ -92,44 +92,55 @@ export function SupportChatAttachSheet({
             </span>
             <span className="support-chat__attach-label">Document</span>
           </button>
+          <button
+            type="button"
+            className="support-chat__attach-item"
+            onClick={() => {
+              onClose();
+              onPickGallery();
+            }}
+          >
+            <span className="support-chat__attach-icon support-chat__attach-icon--gallery">
+              <Images size={24} strokeWidth={1.75} />
+            </span>
+            <span className="support-chat__attach-label">Gallery</span>
+          </button>
         </div>
 
-        {recentMedia.length > 0 && (
-          <div className="support-chat__attach-recent">
-            <div className="support-chat__attach-recent-scroll">
+        <div className="support-chat__attach-recent">
+          <div className="support-chat__attach-recent-scroll">
+            <button
+              type="button"
+              className="support-chat__attach-recent-thumb support-chat__attach-recent-thumb--gallery"
+              aria-label="Choose photo or video from gallery"
+              onClick={() => {
+                onClose();
+                onPickGallery();
+              }}
+            >
+              <ImageIcon size={22} />
+            </button>
+            {recentMedia.map(item => (
               <button
+                key={item.id}
                 type="button"
-                className="support-chat__attach-recent-thumb support-chat__attach-recent-thumb--gallery"
-                aria-label="Open gallery"
-                onClick={() => {
-                  onClose();
-                  onPickGallery();
-                }}
+                className="support-chat__attach-recent-thumb"
+                onClick={() => void sendRecent(item.file)}
               >
-                <ImageIcon size={22} />
+                {item.kind === 'video' ? (
+                  <video src={item.previewUrl} muted playsInline preload="metadata" />
+                ) : (
+                  <img src={item.previewUrl} alt="" />
+                )}
+                {item.kind === 'video' && (
+                  <span className="support-chat__attach-recent-video-badge" aria-hidden>
+                    <span />
+                  </span>
+                )}
               </button>
-              {recentMedia.map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="support-chat__attach-recent-thumb"
-                  onClick={() => void sendRecent(item.file)}
-                >
-                  {item.kind === 'video' ? (
-                    <video src={item.previewUrl} muted playsInline preload="metadata" />
-                  ) : (
-                    <img src={item.previewUrl} alt="" />
-                  )}
-                  {item.kind === 'video' && (
-                    <span className="support-chat__attach-recent-video-badge" aria-hidden>
-                      <span />
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
-        )}
+        </div>
 
         <button
           type="button"

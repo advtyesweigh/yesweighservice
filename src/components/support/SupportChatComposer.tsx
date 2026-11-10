@@ -499,7 +499,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         <input
           ref={galleryRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif,video/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v"
           multiple
           hidden
           onChange={e => {

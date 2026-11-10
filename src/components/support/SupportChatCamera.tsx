@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Circle,
   FlipHorizontal2,
-  Image as ImageIcon,
+  Images,
   X,
 } from 'lucide-react';
 import {
@@ -291,18 +291,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
         {recentMedia.length > 0 && (
           <div className="support-chat__camera-recent">
             <div className="support-chat__camera-recent-scroll">
-              <button
-                type="button"
-                className="support-chat__camera-recent-thumb support-chat__camera-recent-thumb--gallery"
-                aria-label="Open gallery"
-                onClick={() => {
-                  cleanup();
-                  onClose();
-                  onPickGallery();
-                }}
-              >
-                <ImageIcon size={22} />
-              </button>
               {recentMedia.map(item => (
                 <button
                   key={item.id}
@@ -322,7 +310,19 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
         )}
 
         <div className="support-chat__camera-controls">
-          <span className="support-chat__camera-controls-spacer" aria-hidden />
+          <button
+            type="button"
+            className="support-chat__camera-flip support-evidence-camera__gallery-btn"
+            aria-label="Choose photo or video from gallery"
+            disabled={recording}
+            onClick={() => {
+              cleanup();
+              onClose();
+              onPickGallery();
+            }}
+          >
+            <Images size={22} />
+          </button>
 
           <button
             type="button"
