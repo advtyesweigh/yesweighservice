@@ -14,6 +14,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
   fetchZohoOrgApiUsage,
+  isZohoDailyQuotaBlocked,
 } from './zoho-api-usage.js';
 import {
   classifyInvoiceCategoryBreakdown,
@@ -328,6 +329,76 @@ export async function pullGoodsReceiptsByQuery(secrets, orgId, options = {}) {
     dropped,
     failed,
   };
+}
+
+/**
+ * Daytime catch-up for draft bills the Bills webhook missed.
+ * One list page, newest first. Already-mirrored bills are left for the nightly sync.
+ */
+export async function syncRecentDraftGoodsReceipts(secrets, orgId, options = {}) {
+  if (await isZohoDailyQuotaBlocked()) {
+    console.log('Recent draft goods receipt sync skipped — daily Zoho quota latched.');
+    return { skipped: 'quota', listed: 0, missing: 0, newlyPulled: 0, dropped: 0, failed: 0 };
+  }
+
+  const maxNew = Math.min(30, Math.max(1, Number(options.maxNew) || 20));
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const list = await zohoCallWithRetry(
+    () => fetchBillsListPage(accessToken, organizationId, 1, {
+      sortColumn: 'created_time',
+      sortOrder: 'D',
+    }),
+    'recent draft bills',
+  );
+  const bills = list?.bills || [];
+  const ids = bills.map(row => String(row?.bill_id ?? '').trim()).filter(Boolean);
+  const have = new Set();
+  const db = getFirestore();
+  for (let i = 0; i < ids.length; i += 100) {
+    const snaps = await db.getAll(...ids.slice(i, i + 100).map(id => poCollection().doc(id)));
+    for (const snap of snaps) {
+      if (snap.exists) have.add(snap.id);
+    }
+  }
+
+  const missing = [];
+  for (const row of bills) {
+    const id = String(row?.bill_id ?? '').trim();
+    if (!id || have.has(id)) continue;
+    missing.push(id);
+    if (missing.length >= maxNew) break;
+  }
+
+  let newlyPulled = 0;
+  let dropped = 0;
+  let failed = 0;
+  for (const id of missing) {
+    try {
+      const raw = await zohoCallWithRetry(
+        () => fetchBillRaw(accessToken, organizationId, id),
+        `bill ${id}`,
+      );
+      if (!raw) {
+        failed += 1;
+        continue;
+      }
+      const result = await upsertGoodsReceiptFromRaw(raw);
+      if (result?.dropped) dropped += 1;
+      else newlyPulled += 1;
+      await sleep(DETAIL_PULL_DELAY_MS);
+    } catch (err) {
+      failed += 1;
+      console.warn(`Recent goods receipt ${id} failed:`, err?.message ?? err);
+      if (err?.code === 'RATE_LIMITED') break;
+    }
+  }
+
+  console.log(
+    `Recent draft goods receipts: listed=${bills.length} missing=${missing.length} `
+    + `newlyPulled=${newlyPulled} dropped=${dropped} failed=${failed}.`,
+  );
+  return { listed: bills.length, missing: missing.length, newlyPulled, dropped, failed };
 }
 
 function normalizeBillStatus(status) {

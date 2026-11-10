@@ -175,6 +175,7 @@ import {
   handleZohoGoodsReceiptWebhook,
   markGoodsReceiptReceived,
   pullGoodsReceiptsByQuery,
+  syncRecentDraftGoodsReceipts,
 } from './lib/goods-receipt-sync.js';
 import {
   syncOrgSalesOrdersToFirestore,
@@ -3159,7 +3160,33 @@ export const syncZohoPurchaseOrdersScheduled = onSchedule(
   },
 );
 
-/** Nightly purchase bills → goodsReceipts (4:30 AM IST, after POs). */
+/** New Zoho draft bills the Bills webhook missed. Every 10 minutes. */
+export const syncZohoGoodsReceiptsRecent = onSchedule(
+  {
+    schedule: '*/10 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async () => {
+    try {
+      const result = await syncRecentDraftGoodsReceipts(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      console.log(
+        `Recent goods receipt sync: newlyPulled=${result.newlyPulled}, `
+        + `dropped=${result.dropped}, failed=${result.failed}, listed=${result.listed}.`,
+      );
+    } catch (err) {
+      console.error('Recent goods receipt sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Nightly purchase bills → goodsReceipts (3:30 AM IST, after POs). */
 export const syncZohoGoodsReceiptsScheduled = onSchedule(
   {
     schedule: '30 3 * * *',
