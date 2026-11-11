@@ -1482,12 +1482,50 @@ export async function voidSalesOrder(secrets, configuredOrgId, salesOrderId, rea
   return { salesOrderId: soId, status: 'void' };
 }
 
-/** Permanently delete a Zoho Inventory sales order (Draft / eligible confirmed only). */
+/**
+ * Permanently delete a Zoho Inventory sales order.
+ * Draft deletes directly. Open / confirmed unpaid orders are returned to Draft first.
+ */
 export async function deleteSalesOrder(secrets, configuredOrgId, salesOrderId) {
   const soId = String(salesOrderId || '').trim();
   if (!soId) throw new Error('Sales order id is required.');
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+
+  let so = null;
+  try {
+    const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+    so = existing?.salesorder || null;
+  } catch (err) {
+    const message = String(err?.message || err || '');
+    if (/not found|does not exist|invalid|404/i.test(message)) {
+      return { salesOrderId: soId, deleted: true };
+    }
+    throw err;
+  }
+
+  if (so) {
+    const status = zohoStatusKey(so.status);
+    if (salesOrderAlreadyInvoiced(so) || status === 'void' || status === 'closed') {
+      throw new Error('This sales order is invoiced or closed and cannot be deleted.');
+    }
+    if (status && status !== 'draft' && status !== 'pending') {
+      try {
+        await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/draft`, {
+          method: 'POST',
+          body: {},
+        });
+      } catch (err) {
+        const message = String(err?.message || err || '');
+        if (!/already a draft|already in draft|\bdraft\b/i.test(message)) {
+          throw new Error(
+            `This sales order cannot be deleted. Zoho would not return it to Draft. ${message}`.trim(),
+          );
+        }
+      }
+    }
+  }
+
   await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
     method: 'DELETE',
   });

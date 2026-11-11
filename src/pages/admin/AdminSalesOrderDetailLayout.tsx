@@ -260,17 +260,29 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && stage !== 'void'
     && assignableStaff.length > 0,
   );
+  // Zoho often leaves an unpaid spare as Open. Those can be returned to Draft and deleted.
+  const deletableZohoStatus = statusKey === 'draft'
+    || statusKey === 'pending'
+    || statusKey === 'open'
+    || statusKey === 'confirmed'
+    || statusKey === 'approved';
+  const alreadyInvoiced = Boolean(String(salesOrder?.zohoInvoiceId || '').trim())
+    || statusKey === 'invoiced'
+    || statusKey === 'partially_invoiced'
+    || statusKey === 'closed';
   const canDelete = Boolean(
     (canManageZoho || isDealerView)
-    && (statusKey === 'draft' || statusKey === 'pending')
+    && deletableZohoStatus
+    && !alreadyInvoiced
     && stage !== 'completed'
     && stage !== 'void'
     && (stage !== 'payment_submitted' || canSuperAdminWrite(user)),
   );
   const canVoid = Boolean(
     canManageZoho
-    && !canDelete
     && statusKey
+    && statusKey !== 'draft'
+    && statusKey !== 'pending'
     && statusKey !== 'void'
     && statusKey !== 'closed'
     && statusKey !== 'cancelled'
@@ -372,7 +384,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
 
   const handleDelete = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
-    const label = salesOrder?.salesOrderNumber?.trim() || 'this draft sales order';
+    const label = salesOrder?.salesOrderNumber?.trim() || 'this sales order';
     if (!window.confirm(
       `Delete ${label}? It will be permanently removed from Zoho and YesOne. This cannot be undone.`,
     )) return;

@@ -1961,7 +1961,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               }}
             >
               <Trash2 size={16} aria-hidden />
-              {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete draft'}
+              {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete'}
             </button>
           )}
           </>

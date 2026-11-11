@@ -1828,9 +1828,18 @@ export async function voidSalesOrderWithWorkflow(uid, role, salesOrderId, reason
 }
 
 /**
- * Delete a Draft Zoho SO (Zoho DELETE) and remove the Firestore mirror.
+ * Delete an uninvoiced Zoho SO and remove the Firestore mirror.
+ * Open / confirmed orders are returned to Draft in Zoho, then deleted.
  * Staff/super_admin with orders.manage, or the owning dealer.
  */
+const DELETABLE_ZOHO_STATUSES = new Set([
+  'draft',
+  'pending',
+  'open',
+  'confirmed',
+  'approved',
+]);
+
 export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);
   const { ref, id, data } = await loadSoOrThrow(salesOrderId);
@@ -1844,10 +1853,16 @@ export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, or
   }
 
   const zohoStatus = normalizeZohoStatus(data.status);
-  if (zohoStatus !== 'draft' && zohoStatus !== 'pending') {
+  if (!DELETABLE_ZOHO_STATUSES.has(zohoStatus)) {
     throw new HttpsError(
       'failed-precondition',
-      'Only Draft sales orders can be deleted. Use Void for confirmed orders.',
+      'This sales order can no longer be deleted. Use Void for invoiced or closed orders.',
+    );
+  }
+  if (String(data.zohoInvoiceId || '').trim()) {
+    throw new HttpsError(
+      'failed-precondition',
+      'This sales order is already invoiced and cannot be deleted.',
     );
   }
   const stage = yesOneStageOf(data);
