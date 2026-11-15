@@ -61,6 +61,10 @@ import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import { salesOrderDataIsCustomerPickup } from './orderFreight';
 import { documentLooksLikeMachineQc, machineQcFieldsFromLine } from './machineQc';
+import {
+  applyDealerSalesMergesToAggregateRows,
+  loadDealerSalesMerges,
+} from './dealerSalesMerges';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -1389,13 +1393,16 @@ export function compareInvoiceSortKey(
 export function aggregateAdminInvoicesByDealer(
   rows: AdminFirestoreInvoice[],
   sort: AdminInvoiceSort = 'date',
+  customerIdRemap?: Map<string, string>,
 ): AdminFirestoreInvoice[] {
   const byCustomer = new Map<string, AdminFirestoreInvoice[]>();
   for (const row of rows) {
-    const key = row.customerId || '__unknown__';
+    const rawId = row.customerId || '__unknown__';
+    const key = customerIdRemap?.get(rawId) || rawId;
+    const remapped = key !== rawId ? { ...row, customerId: key } : row;
     const list = byCustomer.get(key);
-    if (list) list.push(row);
-    else byCustomer.set(key, [row]);
+    if (list) list.push(remapped);
+    else byCustomer.set(key, [remapped]);
   }
 
   const aggregates: AdminFirestoreInvoice[] = [];
@@ -1707,14 +1714,24 @@ export function mapAdminDealerStatsDoc(
 /**
  * Lifetime Aggregate: one slim read per dealer from invoiceDealerStats (no invoice scan).
  * Org-wide only — not salesperson-partitioned.
+ * Applies dealer_sales_merges aliases (e.g. ELMASS SYSTEMS → Pvt Ltd).
  */
 export async function fetchAdminDealerLifetimeAggregates(): Promise<AdminFirestoreInvoice[]> {
-  const snap = await getDocs(
-    query(collection(db, 'invoiceDealerStats'), orderBy('amount', 'desc')),
-  );
-  return snap.docs
+  const [snap, merges] = await Promise.all([
+    getDocs(query(collection(db, 'invoiceDealerStats'), orderBy('amount', 'desc'))),
+    loadDealerSalesMerges(),
+  ]);
+  const rows = snap.docs
     .map(mapAdminDealerStatsDoc)
     .filter(row => (row.aggregateInvoiceCount ?? 0) > 0);
+  const merged = applyDealerSalesMergesToAggregateRows(rows, merges, {
+    countField: 'aggregateInvoiceCount',
+  });
+  return merged.sort((a, b) => {
+    const amountDiff = invoiceAmountExclGst(b) - invoiceAmountExclGst(a);
+    if (amountDiff !== 0) return amountDiff;
+    return String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''));
+  });
 }
 
 export type AdminInvoiceStatsKpi = {

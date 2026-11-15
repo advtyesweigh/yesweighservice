@@ -345,7 +345,7 @@ function normalizeRc(record) {
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
     docKey: sanitizeId(
-      (idHint && (!isUuidLike(idHint) || resolvedCode) ? idHint : '')
+      (idHint && !isUuidLike(idHint) ? idHint : '')
       || resolvedCode
       || resolvedName
       || randomUUID(),
@@ -773,7 +773,8 @@ export async function upsertRcDetailForOps(input = {}, { create = false } = {}) 
   const patch = {
     ...rest,
     updatedAt: FieldValue.serverTimestamp(),
-    source: rest.source || (create ? 'manual' : 'yesgatc'),
+    // Ops/admin saves always mark manual — normalizeRc hardcodes source yesgatc.
+    source: 'manual',
   };
   if (create) {
     patch.createdAt = FieldValue.serverTimestamp();

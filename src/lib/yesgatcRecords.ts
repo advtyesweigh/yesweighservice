@@ -1481,7 +1481,8 @@ async function saveYesGatcRcDetailLocal(
     vctCount: input.vctCount ?? null,
     jobsCount: input.jobsCount ?? null,
     certifiedCount: input.certifiedCount ?? null,
-    source: create ? 'manual' : 'yesgatc',
+    // Manual save path — always override; do not inherit yesgatc from prior docs.
+    source: 'manual',
     updatedAt: serverTimestamp(),
   };
   if (create) {
@@ -1524,7 +1525,10 @@ export async function rematerializeYesGatcRcDetails(max = 500): Promise<{ scanne
     };
   } catch {
     // Callable not deployed yet — rematerialize client-side from raw blobs.
-    const snap = await getDocs(query(collection(db, YESGATC_RC_DETAILS), limit(Math.min(500, max))));
+    const snap = await getDocs(query(
+      collection(db, YESGATC_RC_DETAILS),
+      limit(Math.min(500, Math.max(1, Number(max) || 500))),
+    ));
     let updated = 0;
     for (const row of snap.docs) {
       const data = row.data() as Record<string, unknown>;

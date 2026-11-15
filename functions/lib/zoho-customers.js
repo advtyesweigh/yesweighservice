@@ -257,11 +257,115 @@ export async function readDealerSetting(key, fallback) {
   return doc.data()?.value ?? fallback;
 }
 
+function sumCategoryMap(a = {}, b = {}) {
+  const next = { ...a };
+  for (const [key, raw] of Object.entries(b || {})) {
+    const amount = Number(raw ?? 0);
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    next[key] = Number(next[key] ?? 0) + amount;
+  }
+  return next;
+}
+
+/** Fold invoiceDealerStats / salesOrderDealerStats from → into to, then delete from. */
+async function mergeDealerStatsDocs(fromCustomerId, toCustomerId, toName) {
+  const db = getFirestore();
+  const collections = ['invoiceDealerStats', 'salesOrderDealerStats'];
+  const results = [];
+  for (const collectionId of collections) {
+    const fromRef = db.collection(collectionId).doc(fromCustomerId);
+    const toRef = db.collection(collectionId).doc(toCustomerId);
+    const [fromSnap, toSnap] = await Promise.all([fromRef.get(), toRef.get()]);
+    if (!fromSnap.exists) {
+      results.push({ collectionId, action: 'skip_missing_from' });
+      continue;
+    }
+    const from = fromSnap.data() || {};
+    const to = toSnap.exists ? (toSnap.data() || {}) : {};
+    const fromDate = String(from.latestDate ?? '');
+    const toDate = String(to.latestDate ?? '');
+    const latestDate = !toDate
+      ? (from.latestDate ?? null)
+      : !fromDate
+        ? (to.latestDate ?? null)
+        : fromDate > toDate
+          ? from.latestDate
+          : to.latestDate;
+    const latestSyncedAt = (() => {
+      const a = String(from.latestSyncedAt ?? '');
+      const b = String(to.latestSyncedAt ?? '');
+      if (!b) return from.latestSyncedAt ?? null;
+      if (!a) return to.latestSyncedAt ?? null;
+      return a > b ? from.latestSyncedAt : to.latestSyncedAt;
+    })();
+    await toRef.set({
+      customerId: toCustomerId,
+      customerName: toName || to.customerName || from.customerName || null,
+      count: Number(to.count ?? 0) + Number(from.count ?? 0),
+      amount: Number(to.amount ?? 0) + Number(from.amount ?? 0),
+      total: Number(to.total ?? 0) + Number(from.total ?? 0),
+      balance: Number(to.balance ?? 0) + Number(from.balance ?? 0),
+      itemQuantity: (to.itemQuantity != null || from.itemQuantity != null)
+        ? Number(to.itemQuantity ?? 0) + Number(from.itemQuantity ?? 0)
+        : null,
+      byCategory: sumCategoryMap(to.byCategory, from.byCategory),
+      amountByCategory: sumCategoryMap(to.amountByCategory, from.amountByCategory),
+      documentAmountByCategory: sumCategoryMap(
+        to.documentAmountByCategory,
+        from.documentAmountByCategory,
+      ),
+      latestDate,
+      latestSyncedAt,
+      updatedAt: FieldValue.serverTimestamp(),
+      mergedFromCustomerIds: FieldValue.arrayUnion(fromCustomerId),
+      mergedAt: new Date().toISOString(),
+    }, { merge: true });
+    await fromRef.delete();
+    results.push({
+      collectionId,
+      action: 'merged',
+      fromAmount: Number(from.amount ?? 0),
+      toAmount: Number(to.amount ?? 0) + Number(from.amount ?? 0),
+      fromTotal: Number(from.total ?? 0),
+      toTotal: Number(to.total ?? 0) + Number(from.total ?? 0),
+    });
+  }
+  return results;
+}
+
 export async function writeDealerSetting(key, value) {
-  await getFirestore().collection(SETTINGS_COLLECTION).doc(key).set({
+  const db = getFirestore();
+  await db.collection(SETTINGS_COLLECTION).doc(key).set({
     value,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+
+  // Side-effect: when saving sales merges, fold dealer rollup docs server-side.
+  if (key === 'dealer_sales_merges' && value && typeof value === 'object') {
+    const merges = Array.isArray(value.merges) ? value.merges : [];
+    const mergeResults = [];
+    for (const row of merges) {
+      const fromCustomerId = String(row?.fromCustomerId ?? '').trim();
+      const toCustomerId = String(row?.toCustomerId ?? '').trim();
+      if (!fromCustomerId || !toCustomerId || fromCustomerId === toCustomerId) continue;
+      const toName = String(row?.toName ?? '').trim() || null;
+      mergeResults.push({
+        fromCustomerId,
+        toCustomerId,
+        stats: await mergeDealerStatsDocs(fromCustomerId, toCustomerId, toName),
+      });
+      // Soft-hide the source dealer so roster + sync keep it out of the list.
+      await db.collection(CUSTOMERS_COLLECTION).doc(fromCustomerId).set({
+        isFiltered: true,
+        filterReason: 'Manual',
+        dealerStage: 'Non Active',
+        mergedIntoCustomerId: toCustomerId,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    return { ...value, _mergeResults: mergeResults };
+  }
+
   return value;
 }
 

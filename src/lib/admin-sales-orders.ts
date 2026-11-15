@@ -37,6 +37,10 @@ import {
 import { buildContactLinks } from './phoneLinks';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import { appendMachineQcDescription, machineQcFieldsFromLine } from './machineQc';
+import {
+  applyDealerSalesMergesToAggregateRows,
+  loadDealerSalesMerges,
+} from './dealerSalesMerges';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -1444,14 +1448,25 @@ function mapAdminSalesOrderDealerStatsDoc(
 /**
  * Lifetime Aggregate: one slim read per dealer from salesOrderDealerStats.
  * Org-wide only — not salesperson-partitioned.
+ * Applies dealer_sales_merges aliases (e.g. ELMASS SYSTEMS → Pvt Ltd).
  */
 export async function fetchAdminSalesOrderDealerLifetimeAggregates(): Promise<AdminFirestoreSalesOrder[]> {
-  const snap = await getDocs(
-    query(collection(db, 'salesOrderDealerStats'), orderBy('amount', 'desc')),
-  );
-  return snap.docs
+  const [snap, merges] = await Promise.all([
+    getDocs(query(collection(db, 'salesOrderDealerStats'), orderBy('amount', 'desc'))),
+    loadDealerSalesMerges(),
+  ]);
+  const rows = snap.docs
     .map(mapAdminSalesOrderDealerStatsDoc)
-    .filter(row => (row.aggregateOrderCount ?? 0) > 0)
+    .filter(row => (row.aggregateOrderCount ?? 0) > 0);
+  const merged = applyDealerSalesMergesToAggregateRows(rows, merges, {
+    countField: 'aggregateOrderCount',
+  });
+  return merged
+    .sort((a, b) => {
+      const amountDiff = Number(b.total ?? 0) - Number(a.total ?? 0);
+      if (amountDiff !== 0) return amountDiff;
+      return String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''));
+    })
     .map(({ aggregateOrderCount: _count, ...row }) => row);
 }
 
