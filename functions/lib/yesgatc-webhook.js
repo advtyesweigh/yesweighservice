@@ -258,30 +258,81 @@ function normalizeCertificate(record) {
 }
 
 function normalizeRc(record) {
-  const code = realRcIdentity(pickStr(record, ['code', 'rcCode', 'rc_code', 'rcNumber', 'rc_number']));
-  const name = realRcIdentity(pickStr(record, ['name', 'rcName', 'officeName', 'office_name', 'title']));
-  const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'rcId']);
+  const code = realRcIdentity(pickStr(record, [
+    'code', 'rcCode', 'rc_code', 'rcNumber', 'rc_number',
+  ]));
+  const name = realRcIdentity(pickStr(record, [
+    'companyName', 'name', 'rcName', 'officeName', 'office_name', 'title', 'username',
+  ]));
+  const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'rcId', 'uid']);
   const yesoneVisible = isYesoneIwpRc({ code, name, raw: record });
   const ovCount = pickNonNegInt(record, [
-    'ov', 'ovDone', 'ov_done', 'ovCount', 'ov_count', 'used',
+    'ov', 'ovDone', 'ov_done', 'ovCount', 'ov_count', 'ovUsed', 'ovQuotaUsed', 'used',
   ]);
   const linkedCount = pickNonNegInt(record, [
     'linked', 'linkedCount', 'linked_qty', 'linkedQty',
   ]);
-  const quotaAllotted = pickNonNegInt(record, ['allotted', 'quotaAllotted', 'quota_allotted']);
-  const quotaUsed = pickNonNegInt(record, ['used', 'quotaUsed']);
-  const quotaBalance = pickNonNegInt(record, ['balance', 'bal', 'pending', 'pendingOv']);
+  const quotaAllotted = pickNonNegInt(record, ['allotted', 'quotaAllotted', 'quota_allotted', 'ovQuota']);
+  const quotaUsed = pickNonNegInt(record, ['used', 'quotaUsed', 'ovUsed', 'ovQuotaUsed']);
+  const quotaBalance = pickNonNegInt(record, ['balance', 'bal', 'pending', 'pendingOv', 'ovBalance']);
+  const vctCount = pickNonNegInt(record, ['vctCount', 'vcts', 'vct_count']);
+  const jobsCount = pickNonNegInt(record, ['jobsCount', 'jobs', 'totalJobs', 'jobCount']);
+  const certifiedCount = pickNonNegInt(record, [
+    'certifiedCount', 'certified', 'completedJobs', 'certCount',
+  ]);
+  const location = (record.location && typeof record.location === 'object' && !Array.isArray(record.location))
+    ? record.location
+    : null;
+  const lat = location?.lat != null ? Number(location.lat) : Number(record.lat ?? record.latitude);
+  const lng = location?.lng != null ? Number(location.lng) : Number(record.lng ?? record.longitude);
+  const activeRaw = record.active;
+  const active = typeof activeRaw === 'boolean'
+    ? activeRaw
+    : (typeof activeRaw === 'string'
+      ? !['false', '0', 'inactive', 'deactivated', 'disabled'].includes(activeRaw.trim().toLowerCase())
+      : null);
+  const resolvedCode = yesoneVisible ? YESONE_RC_CODE : code;
+  const resolvedName = yesoneVisible && !name ? YESONE_RC_NAME : name;
   return {
-    code: yesoneVisible ? YESONE_RC_CODE : code,
-    name,
+    code: resolvedCode,
+    name: resolvedName,
     yesoneVisible,
+    companyName: pickStr(record, ['companyName', 'name', 'rcName', 'officeName']) || resolvedName || null,
+    contactPerson: pickStr(record, ['contactPerson', 'contact_person', 'contactName', 'person']) || null,
+    username: pickStr(record, ['username', 'userName', 'login']) || null,
+    place: pickStr(record, ['place', 'locality', 'town', 'taluk']) || null,
     address: pickStr(record, ['address', 'officeAddress']) || null,
     city: pickStr(record, ['city', 'district']) || null,
+    district: pickStr(record, ['district', 'city']) || null,
     state: pickStr(record, ['state', 'region']) || null,
     pincode: pickStr(record, ['pincode', 'pin', 'zip']) || null,
-    phone: pickStr(record, ['phone', 'mobile', 'contact']) || null,
+    phone: pickStr(record, ['phone', 'mobile']) || null,
     email: pickStr(record, ['email']) || null,
-    status: pickStr(record, ['status']) || null,
+    gstNumber: pickStr(record, ['gstNumber', 'gstin', 'gst']) || null,
+    panCard: pickStr(record, ['panCard', 'pan', 'panNumber']) || null,
+    zohoId: pickStr(record, ['zohoId', 'zoho_id', 'zohoCustomerId']) || null,
+    certificationMethod: pickStr(record, ['certificationMethod', 'certMethod']) || null,
+    laboratorySealIdentification: pickStr(record, [
+      'laboratorySealIdentification', 'labSeal', 'sealId',
+    ]) || null,
+    standardWeightsCertNumber: pickStr(record, [
+      'standardWeightsCertNumber', 'weightsCertNumber',
+    ]) || null,
+    standardWeightsCertDate: pickStr(record, [
+      'standardWeightsCertDate', 'weightsCertDate',
+    ]) || null,
+    standardWeightsCertExpiry: pickStr(record, [
+      'standardWeightsCertExpiry', 'weightsCertExpiry',
+    ]) || null,
+    logoUrl: pickStr(record, ['logoUrl', 'logo_url']) || null,
+    status: pickStr(record, ['status']) || (active === false ? 'inactive' : null),
+    ...(active != null ? { active } : {}),
+    ...(Number.isFinite(lat) && Number.isFinite(lng) ? { location: { lat, lng } } : {}),
+    ...(vctCount != null ? { vctCount } : {}),
+    ...(jobsCount != null ? { jobsCount } : {}),
+    ...(certifiedCount != null
+      ? { certifiedCount }
+      : (ovCount != null ? { certifiedCount: ovCount } : {})),
     ...(ovCount != null ? { ovCount } : {}),
     ...(linkedCount != null && linkedCount > 0 ? { linkedCount } : {}),
     ...(quotaAllotted != null ? { quotaAllotted } : {}),
@@ -293,7 +344,12 @@ function normalizeRc(record) {
     raw: rawForStore(record),
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
-    docKey: sanitizeId((idHint && !isUuidLike(idHint) ? idHint : '') || code || name || randomUUID()),
+    docKey: sanitizeId(
+      (idHint && (!isUuidLike(idHint) || resolvedCode) ? idHint : '')
+      || resolvedCode
+      || resolvedName
+      || randomUUID(),
+    ),
   };
 }
 
@@ -620,31 +676,144 @@ function mapCertificateDoc(row) {
   };
 }
 
+function nullableStr(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function nullableInt(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function mapRcDoc(row) {
   const data = row.data() || {};
-  const code = String(data.code ?? '');
-  const name = String(data.name ?? '')
-    || (isIwpCode(code) || isIwpName(data.name) ? YESONE_RC_NAME : '');
+  const raw = (data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw))
+    ? data.raw
+    : null;
+  const code = String(data.code ?? raw?.rcCode ?? raw?.code ?? '');
+  const name = String(data.name ?? data.companyName ?? '')
+    || String(raw?.companyName ?? raw?.name ?? '')
+    || (isIwpCode(code) || isIwpName(data.name) || isIwpName(data.companyName) ? YESONE_RC_NAME : '');
   return {
     id: row.id,
     code,
     name,
     yesoneVisible: data.yesoneVisible === true,
-    address: data.address != null ? String(data.address) : null,
-    city: data.city != null ? String(data.city) : null,
-    state: data.state != null ? String(data.state) : null,
-    pincode: data.pincode != null ? String(data.pincode) : null,
-    phone: data.phone != null ? String(data.phone) : null,
-    email: data.email != null ? String(data.email) : null,
-    status: data.status != null ? String(data.status) : null,
-    ovCount: Number.isFinite(Number(data.ovCount)) ? Math.round(Number(data.ovCount)) : null,
-    linkedCount: Number.isFinite(Number(data.linkedCount)) ? Math.round(Number(data.linkedCount)) : null,
-    quotaAllotted: Number.isFinite(Number(data.quotaAllotted)) ? Math.round(Number(data.quotaAllotted)) : null,
-    quotaUsed: Number.isFinite(Number(data.quotaUsed)) ? Math.round(Number(data.quotaUsed)) : null,
-    quotaBalance: Number.isFinite(Number(data.quotaBalance)) ? Math.round(Number(data.quotaBalance)) : null,
+    companyName: nullableStr(data.companyName) || nullableStr(raw?.companyName) || name || null,
+    contactPerson: nullableStr(data.contactPerson) || nullableStr(raw?.contactPerson),
+    username: nullableStr(data.username) || nullableStr(raw?.username),
+    place: nullableStr(data.place) || nullableStr(raw?.place),
+    address: nullableStr(data.address) || nullableStr(raw?.address),
+    city: nullableStr(data.city) || nullableStr(raw?.city) || nullableStr(raw?.district),
+    district: nullableStr(data.district) || nullableStr(raw?.district) || nullableStr(data.city),
+    state: nullableStr(data.state) || nullableStr(raw?.state),
+    pincode: nullableStr(data.pincode) || nullableStr(raw?.pincode),
+    phone: nullableStr(data.phone) || nullableStr(raw?.phone),
+    email: nullableStr(data.email) || nullableStr(raw?.email),
+    gstNumber: nullableStr(data.gstNumber) || nullableStr(raw?.gstNumber),
+    panCard: nullableStr(data.panCard) || nullableStr(raw?.panCard),
+    zohoId: nullableStr(data.zohoId) || nullableStr(raw?.zohoId),
+    certificationMethod: nullableStr(data.certificationMethod)
+      || nullableStr(raw?.certificationMethod),
+    laboratorySealIdentification: nullableStr(data.laboratorySealIdentification)
+      || nullableStr(raw?.laboratorySealIdentification),
+    standardWeightsCertNumber: nullableStr(data.standardWeightsCertNumber)
+      || nullableStr(raw?.standardWeightsCertNumber),
+    standardWeightsCertDate: nullableStr(data.standardWeightsCertDate)
+      || nullableStr(raw?.standardWeightsCertDate),
+    standardWeightsCertExpiry: nullableStr(data.standardWeightsCertExpiry)
+      || nullableStr(raw?.standardWeightsCertExpiry),
+    logoUrl: nullableStr(data.logoUrl) || nullableStr(raw?.logoUrl),
+    status: nullableStr(data.status) || nullableStr(raw?.status),
+    active: typeof data.active === 'boolean'
+      ? data.active
+      : (typeof raw?.active === 'boolean' ? raw.active : null),
+    location: (data.location && typeof data.location === 'object')
+      ? data.location
+      : ((raw?.location && typeof raw.location === 'object') ? raw.location : null),
+    vctCount: nullableInt(data.vctCount) ?? nullableInt(raw?.vctCount),
+    jobsCount: nullableInt(data.jobsCount) ?? nullableInt(raw?.jobsCount),
+    certifiedCount: nullableInt(data.certifiedCount)
+      ?? nullableInt(raw?.certifiedCount)
+      ?? nullableInt(data.ovCount),
+    ovCount: nullableInt(data.ovCount),
+    linkedCount: nullableInt(data.linkedCount),
+    quotaAllotted: nullableInt(data.quotaAllotted),
+    quotaUsed: nullableInt(data.quotaUsed),
+    quotaBalance: nullableInt(data.quotaBalance),
+    dealerId: nullableStr(data.dealerId),
+    dealerName: nullableStr(data.dealerName),
     receivedAt: isoFromAdmin(data.receivedAt),
     raw: data.raw ?? null,
   };
+}
+
+/** Super Admin create / update of a mirrored RC detail document. */
+export async function upsertRcDetailForOps(input = {}, { create = false } = {}) {
+  const db = getFirestore();
+  const payload = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+  const existingId = String(payload.id || '').trim();
+  if (!create && !existingId) {
+    throw new Error('RC id is required.');
+  }
+  const normalized = normalizeRc({
+    ...payload,
+    id: existingId || payload.code || payload.rcCode || undefined,
+  });
+  const { docKey, receivedAt, ...rest } = normalized;
+  const id = create
+    ? sanitizeId(existingId || docKey || rest.code || rest.name || randomUUID())
+    : sanitizeId(existingId);
+  if (!rest.code && !rest.name && !rest.companyName) {
+    throw new Error('RC code or company name is required.');
+  }
+  const patch = {
+    ...rest,
+    updatedAt: FieldValue.serverTimestamp(),
+    source: rest.source || (create ? 'manual' : 'yesgatc'),
+  };
+  if (create) {
+    patch.createdAt = FieldValue.serverTimestamp();
+    patch.receivedAt = FieldValue.serverTimestamp();
+  }
+  await db.collection(YESGATC_RC_DETAILS).doc(id).set(patch, { merge: true });
+  const snap = await db.collection(YESGATC_RC_DETAILS).doc(id).get();
+  return mapRcDoc(snap);
+}
+
+/** Rematerialize top-level fields from stored YesGATC `raw` payloads. */
+export async function rematerializeRcDetailsFromRaw(max = 500) {
+  const db = getFirestore();
+  const snap = await db.collection(YESGATC_RC_DETAILS).limit(Math.min(500, Math.max(1, Number(max) || 500))).get();
+  let updated = 0;
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() || {};
+    const raw = (data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw))
+      ? data.raw
+      : null;
+    if (!raw) continue;
+    const { docKey, receivedAt, raw: _raw, source, ...fields } = normalizeRc({
+      ...raw,
+      id: docSnap.id,
+      code: data.code || raw.rcCode || raw.code,
+      ov: data.ovCount ?? raw.ov ?? raw.ovUsed,
+      linked: data.linkedCount ?? raw.linked,
+      allotted: data.quotaAllotted ?? raw.ovQuota ?? raw.allotted,
+      used: data.quotaUsed ?? raw.ovUsed ?? raw.used,
+      balance: data.quotaBalance ?? raw.ovBalance ?? raw.balance,
+      dealerId: data.dealerId,
+      dealerName: data.dealerName,
+    });
+    await docSnap.ref.set({
+      ...fields,
+      rematerializedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    updated += 1;
+  }
+  return { ok: true, scanned: snap.size, updated };
 }
 
 async function paginateQuery(queryBase, pageSize = 500) {

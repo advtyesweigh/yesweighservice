@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
 import { Loader2, Search, X } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { fetchDealers } from '../../../lib/dealers';
@@ -253,6 +254,10 @@ export const RcDetailsTab: React.FC = () => {
       <header className="settings-locations__header">
         <div>
           <h3>RC details</h3>
+          <p className="text-muted text-sm">
+            Dealer links for OV sold/quota. Full centre profiles are on{' '}
+            <Link to="/super-admin/regional-centres">Regional Centres</Link>.
+          </p>
         </div>
       </header>
       {error ? <p className="settings-locations__error">{error}</p> : null}

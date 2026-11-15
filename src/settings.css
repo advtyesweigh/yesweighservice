@@ -9745,3 +9745,27 @@ button.incentive-report__adjust-col:focus-visible {
   }
 }
 
+
+/* Regional Centres listing */
+.regional-centres-page { display: flex; flex-direction: column; gap: 0.85rem; }
+.regional-centres-search { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.regional-centres-search .catalog-search { min-width: 14rem; flex: 1 1 14rem; }
+.regional-centres-actions { display: flex; align-items: center; gap: 0.35rem; }
+.regional-centres-panel { overflow: hidden; }
+.regional-centres-count { margin: 0; padding: 0.85rem 1rem 0.35rem; }
+.regional-centres-loading { display: flex; align-items: center; justify-content: center; gap: 0.6rem; padding: 3rem 1rem; color: var(--text-muted, #64748b); }
+.regional-centres-name { display: inline-flex; align-items: flex-start; gap: 0.55rem; border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: inherit; max-width: 100%; }
+.regional-centres-name:hover strong { color: var(--primary, #2563eb); text-decoration: underline; }
+.regional-centres-name__index { color: var(--text-muted, #94a3b8); font-size: 0.82rem; padding-top: 0.15rem; flex: 0 0 auto; }
+.regional-centres-name__copy { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.regional-centres-name__copy strong { font-weight: 650; line-height: 1.25; }
+.regional-centres-cell { display: inline-block; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.regional-centre-modal .dealers-modal__field--wide { grid-column: 1 / -1; }
+.regional-centre-modal .dealers-modal__field--wide textarea { width: 100%; min-height: 4.5rem; resize: vertical; border: 1px solid var(--border, #e2e8f0); border-radius: 0.5rem; padding: 0.55rem 0.7rem; font: inherit; }
+.regional-centre-modal__active { display: flex; align-items: center; gap: 0.55rem; }
+.regional-centre-modal__active input { width: auto; }
+.regional-centre-modal__dealer { margin: 0 0 0.5rem; }
+@media (max-width: 768px) {
+  .regional-centres-search { width: 100%; }
+  .regional-centres-cell { max-width: 9rem; }
+}

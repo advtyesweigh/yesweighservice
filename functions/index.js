@@ -376,6 +376,8 @@ import {
   listRcDetailsForOps,
   loadWebhookSecret,
   readProvidedSecret,
+  rematerializeRcDetailsFromRaw,
+  upsertRcDetailForOps,
 } from './lib/yesgatc-webhook.js';
 import {
   deleteUnusedSerialAllotment,
@@ -8858,6 +8860,42 @@ export const listYesGatcRcDetailsFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load RC details.');
+    }
+  },
+);
+
+export const saveYesGatcRcDetailFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const create = request.data?.create === true;
+      const row = await upsertRcDetailForOps(request.data?.rc || request.data || {}, { create });
+      return { ok: true, row };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not save RC details.');
+    }
+  },
+);
+
+export const rematerializeYesGatcRcDetailsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      return await rematerializeRcDetailsFromRaw(request.data?.max);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not rematerialize RC details.');
     }
   },
 );

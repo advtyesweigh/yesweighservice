@@ -66,6 +66,7 @@ import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
 import { IntegrationsSettingsTab } from './pages/admin/settings/IntegrationsSettingsTab';
 import { WebhookSettingsTab } from './pages/admin/settings/WebhookSettingsTab';
 import { RcDetailsTab } from './pages/admin/settings/RcDetailsTab';
+import { RegionalCentresPage } from './pages/admin/RegionalCentresPage';
 import { YesGatcCertificatesPage } from './pages/admin/YesGatcCertificatesPage';
 import { DealerLevelDefinitionsPanel } from './components/dealers/DealerLevelDefinitionsPanel';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
@@ -318,6 +319,7 @@ const App: React.FC = () => (
               <Route path="super-admins" element={<Navigate to="/super-admin/settings/hr/super-admins" replace />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="certificate" element={<YesGatcCertificatesPage />} />
+              <Route path="regional-centres" element={<RegionalCentresPage />} />
               <Route path="hr/dealers/*" element={<LegacyPathRedirect from="/super-admin/hr/dealers" to="/super-admin/dealers" />} />
               <Route path="hr/*" element={<LegacyPathRedirect from="/super-admin/hr" to="/super-admin/settings/hr" />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />

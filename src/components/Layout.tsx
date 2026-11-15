@@ -333,6 +333,7 @@ const LayoutShell: React.FC = () => {
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/certificate', icon: <Stamp size={20} />, label: 'GATC' },
+          { path: '/super-admin/regional-centres', icon: <Building2 size={20} />, label: 'Regional Centres' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
           { path: '/super-admin/spare-indents', icon: <PackagePlus size={20} />, label: 'Spare Indent' },

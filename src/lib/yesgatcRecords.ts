@@ -72,16 +72,35 @@ export type YesGatcRcDetail = {
   id: string;
   code: string;
   name: string;
+  companyName: string | null;
+  contactPerson: string | null;
+  username: string | null;
+  place: string | null;
   address: string | null;
   city: string | null;
+  district: string | null;
   state: string | null;
   pincode: string | null;
   phone: string | null;
   email: string | null;
+  gstNumber: string | null;
+  panCard: string | null;
+  zohoId: string | null;
+  certificationMethod: string | null;
+  laboratorySealIdentification: string | null;
+  standardWeightsCertNumber: string | null;
+  standardWeightsCertDate: string | null;
+  standardWeightsCertExpiry: string | null;
+  logoUrl: string | null;
   status: string | null;
+  active: boolean | null;
+  location: { lat: number; lng: number } | null;
   receivedAt: string | null;
   dealerId: string | null;
   dealerName: string | null;
+  vctCount: number | null;
+  jobsCount: number | null;
+  certifiedCount: number | null;
   /** OV done — last value YesGATC posted on the inbound webhook. */
   ovCount: number | null;
   linkedCount: number | null;
@@ -89,6 +108,13 @@ export type YesGatcRcDetail = {
   quotaUsed: number | null;
   quotaBalance: number | null;
   raw: unknown;
+};
+
+export type YesGatcRcDetailInput = Partial<Omit<YesGatcRcDetail, 'raw' | 'receivedAt'>> & {
+  id?: string;
+  code?: string;
+  name?: string;
+  companyName?: string;
 };
 
 export type YesGatcWebhookSettings = {
@@ -423,34 +449,82 @@ function resolveRcFullName(
     || nameFromAddress(address || str(raw?.address) || str(data.address), code);
 }
 
+function mapLocation(value: unknown): { lat: number; lng: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const lat = Number(row.lat ?? row.latitude);
+  const lng = Number(row.lng ?? row.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function mapNullableInt(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
   const raw = data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
     ? data.raw as Record<string, unknown>
     : null;
   const code = str(data.code) || str(raw?.code) || str(raw?.rcCode) || str(raw?.rc_code);
   const address = nullable(data.address) ?? nullable(raw?.address);
+  const ovCount = mapNullableInt(data.ovCount);
+  const companyName = nullable(data.companyName)
+    ?? nullable(raw?.companyName)
+    ?? null;
   return {
     id,
     code,
-    name: resolveRcFullName(code, data, raw, address),
+    name: resolveRcFullName(code, { ...data, name: data.name || companyName || data.companyName }, raw, address),
+    companyName: companyName
+      || resolveRcFullName(code, data, raw, address)
+      || null,
+    contactPerson: nullable(data.contactPerson) ?? nullable(raw?.contactPerson),
+    username: nullable(data.username) ?? nullable(raw?.username),
+    place: nullable(data.place) ?? nullable(raw?.place) ?? nullable(raw?.locality),
     address,
     city: nullable(data.city)
       ?? nullable(raw?.city)
       ?? nullable(raw?.district)
       ?? nullable(data.district),
+    district: nullable(data.district) ?? nullable(raw?.district) ?? nullable(data.city),
     state: nullable(data.state) ?? nullable(raw?.state),
     pincode: nullable(data.pincode) ?? nullable(raw?.pincode),
     phone: nullable(data.phone) ?? nullable(raw?.phone) ?? nullable(raw?.mobile),
     email: nullable(data.email) ?? nullable(raw?.email),
+    gstNumber: nullable(data.gstNumber) ?? nullable(raw?.gstNumber),
+    panCard: nullable(data.panCard) ?? nullable(raw?.panCard),
+    zohoId: nullable(data.zohoId) ?? nullable(raw?.zohoId),
+    certificationMethod: nullable(data.certificationMethod) ?? nullable(raw?.certificationMethod),
+    laboratorySealIdentification: nullable(data.laboratorySealIdentification)
+      ?? nullable(raw?.laboratorySealIdentification),
+    standardWeightsCertNumber: nullable(data.standardWeightsCertNumber)
+      ?? nullable(raw?.standardWeightsCertNumber),
+    standardWeightsCertDate: nullable(data.standardWeightsCertDate)
+      ?? nullable(raw?.standardWeightsCertDate),
+    standardWeightsCertExpiry: nullable(data.standardWeightsCertExpiry)
+      ?? nullable(raw?.standardWeightsCertExpiry),
+    logoUrl: nullable(data.logoUrl) ?? nullable(raw?.logoUrl),
     status: nullable(data.status) ?? nullable(raw?.status),
+    active: typeof data.active === 'boolean'
+      ? data.active
+      : (typeof raw?.active === 'boolean' ? raw.active : null),
+    location: mapLocation(data.location) ?? mapLocation(raw?.location),
     receivedAt: isoFromUnknown(data.receivedAt),
     dealerId: nullable(data.dealerId),
     dealerName: nullable(data.dealerName),
-    ovCount: Number.isFinite(Number(data.ovCount)) ? Math.round(Number(data.ovCount)) : null,
-    linkedCount: Number.isFinite(Number(data.linkedCount)) ? Math.round(Number(data.linkedCount)) : null,
-    quotaAllotted: Number.isFinite(Number(data.quotaAllotted)) ? Math.round(Number(data.quotaAllotted)) : null,
-    quotaUsed: Number.isFinite(Number(data.quotaUsed)) ? Math.round(Number(data.quotaUsed)) : null,
-    quotaBalance: Number.isFinite(Number(data.quotaBalance)) ? Math.round(Number(data.quotaBalance)) : null,
+    vctCount: mapNullableInt(data.vctCount) ?? mapNullableInt(raw?.vctCount),
+    jobsCount: mapNullableInt(data.jobsCount) ?? mapNullableInt(raw?.jobsCount),
+    certifiedCount: mapNullableInt(data.certifiedCount)
+      ?? mapNullableInt(raw?.certifiedCount)
+      ?? ovCount,
+    ovCount,
+    linkedCount: mapNullableInt(data.linkedCount),
+    quotaAllotted: mapNullableInt(data.quotaAllotted),
+    quotaUsed: mapNullableInt(data.quotaUsed),
+    quotaBalance: mapNullableInt(data.quotaBalance),
     raw: data.raw ?? null,
   };
 }
@@ -630,16 +704,18 @@ export function yesGatcRcPlaceDistrictLine(row: YesGatcRcDetail): string {
       .filter(Boolean),
   );
   const district = firstLocationValue([
+    row.district,
+    row.city,
     raw?.district,
     nested?.district,
     raw?.District,
     nested?.District,
-    row.city,
     raw?.city,
     nested?.city,
   ], skip);
   if (district) skip.add(district.toLowerCase());
   const place = firstLocationValue([
+    row.place,
     raw?.place,
     nested?.place,
     raw?.locality,
@@ -651,6 +727,18 @@ export function yesGatcRcPlaceDistrictLine(row: YesGatcRcDetail): string {
     placeFromAddress(row.address ?? str(raw?.address), skip),
   ], skip);
   return [place, district].filter(Boolean).join(' · ');
+}
+
+export function yesGatcRcContactLabel(row: YesGatcRcDetail): string {
+  return str(row.contactPerson) || str(row.username) || str(row.phone) || '';
+}
+
+export function yesGatcRcJobsCount(row: YesGatcRcDetail): number | null {
+  return row.jobsCount ?? row.ovCount ?? row.certifiedCount ?? null;
+}
+
+export function yesGatcRcCertifiedCount(row: YesGatcRcDetail): number | null {
+  return row.certifiedCount ?? row.ovCount ?? null;
 }
 
 export function yesGatcRcLabel(row: YesGatcRcDetail): string {
@@ -708,16 +796,35 @@ export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
       id: YESONE_RC_CODE,
       code: YESONE_RC_CODE,
       name: YESONE_RC_NAME,
+      companyName: YESONE_RC_NAME,
+      contactPerson: null,
+      username: null,
+      place: null,
       address: null,
       city: null,
+      district: null,
       state: null,
       pincode: null,
       phone: null,
       email: null,
+      gstNumber: null,
+      panCard: null,
+      zohoId: null,
+      certificationMethod: null,
+      laboratorySealIdentification: null,
+      standardWeightsCertNumber: null,
+      standardWeightsCertDate: null,
+      standardWeightsCertExpiry: null,
+      logoUrl: null,
       status: null,
+      active: true,
+      location: null,
       receivedAt: null,
       dealerId: null,
       dealerName: null,
+      vctCount: null,
+      jobsCount: null,
+      certifiedCount: null,
       ovCount: null,
       linkedCount: null,
       quotaAllotted: null,
@@ -1331,6 +1438,133 @@ export async function saveYesGatcRcDealerLink(
 
 export async function clearYesGatcRcDealerLink(rcId: string): Promise<void> {
   await deleteDoc(doc(db, YESGATC_RC_DEALER_LINKS, rcId));
+}
+
+function sanitizeRcDocId(raw: string): string {
+  return String(raw || '').trim().replace(/[/\\]+/g, '_').slice(0, 700);
+}
+
+async function saveYesGatcRcDetailLocal(
+  input: YesGatcRcDetailInput,
+  options: { create?: boolean } = {},
+): Promise<YesGatcRcDetail> {
+  const create = options.create === true;
+  const companyName = str(input.companyName) || str(input.name);
+  const code = str(input.code).toUpperCase();
+  if (!companyName && !code) throw new Error('RC code or company name is required.');
+  const id = sanitizeRcDocId(
+    create
+      ? (str(input.id) || code || companyName || `rc-${Date.now()}`)
+      : str(input.id),
+  );
+  if (!id) throw new Error('RC id is required.');
+  const patch: Record<string, unknown> = {
+    code,
+    name: companyName || code,
+    companyName: companyName || code || null,
+    contactPerson: nullable(input.contactPerson),
+    place: nullable(input.place),
+    address: nullable(input.address),
+    city: nullable(input.city),
+    district: nullable(input.district) ?? nullable(input.city),
+    state: nullable(input.state),
+    pincode: nullable(input.pincode),
+    phone: nullable(input.phone),
+    email: nullable(input.email),
+    gstNumber: nullable(input.gstNumber),
+    panCard: nullable(input.panCard),
+    zohoId: nullable(input.zohoId),
+    certificationMethod: nullable(input.certificationMethod),
+    laboratorySealIdentification: nullable(input.laboratorySealIdentification),
+    status: nullable(input.status),
+    active: input.active !== false,
+    vctCount: input.vctCount ?? null,
+    jobsCount: input.jobsCount ?? null,
+    certifiedCount: input.certifiedCount ?? null,
+    source: create ? 'manual' : 'yesgatc',
+    updatedAt: serverTimestamp(),
+  };
+  if (create) {
+    patch.receivedAt = serverTimestamp();
+    patch.createdAt = serverTimestamp();
+  }
+  await setDoc(doc(db, YESGATC_RC_DETAILS, id), patch, { merge: true });
+  const snap = await getDoc(doc(db, YESGATC_RC_DETAILS, id));
+  return mapRc(id, (snap.data() || {}) as Record<string, unknown>);
+}
+
+export async function saveYesGatcRcDetail(
+  input: YesGatcRcDetailInput,
+  options: { create?: boolean } = {},
+): Promise<YesGatcRcDetail> {
+  try {
+    const fn = httpsCallable<
+      { rc: YesGatcRcDetailInput; create?: boolean },
+      { ok: boolean; row: YesGatcRcDetail }
+    >(functions, 'saveYesGatcRcDetailFn');
+    const res = await fn({ rc: input, create: options.create === true });
+    const row = res.data.row;
+    if (!row?.id) throw new Error('RC save did not return a record.');
+    return mapRc(row.id, row as unknown as Record<string, unknown>);
+  } catch {
+    return saveYesGatcRcDetailLocal(input, options);
+  }
+}
+
+export async function rematerializeYesGatcRcDetails(max = 500): Promise<{ scanned: number; updated: number }> {
+  try {
+    const fn = httpsCallable<{ max?: number }, { scanned: number; updated: number }>(
+      functions,
+      'rematerializeYesGatcRcDetailsFn',
+    );
+    const res = await fn({ max });
+    return {
+      scanned: Number(res.data.scanned) || 0,
+      updated: Number(res.data.updated) || 0,
+    };
+  } catch {
+    // Callable not deployed yet — rematerialize client-side from raw blobs.
+    const snap = await getDocs(query(collection(db, YESGATC_RC_DETAILS), limit(Math.min(500, max))));
+    let updated = 0;
+    for (const row of snap.docs) {
+      const data = row.data() as Record<string, unknown>;
+      const raw = data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
+        ? data.raw as Record<string, unknown>
+        : null;
+      if (!raw) continue;
+      const mapped = mapRc(row.id, { ...data, ...raw, raw });
+      await setDoc(doc(db, YESGATC_RC_DETAILS, row.id), {
+        companyName: mapped.companyName,
+        contactPerson: mapped.contactPerson,
+        place: mapped.place,
+        address: mapped.address,
+        city: mapped.city,
+        district: mapped.district,
+        state: mapped.state,
+        pincode: mapped.pincode,
+        phone: mapped.phone,
+        email: mapped.email,
+        gstNumber: mapped.gstNumber,
+        panCard: mapped.panCard,
+        zohoId: mapped.zohoId,
+        certificationMethod: mapped.certificationMethod,
+        laboratorySealIdentification: mapped.laboratorySealIdentification,
+        standardWeightsCertNumber: mapped.standardWeightsCertNumber,
+        standardWeightsCertDate: mapped.standardWeightsCertDate,
+        standardWeightsCertExpiry: mapped.standardWeightsCertExpiry,
+        logoUrl: mapped.logoUrl,
+        status: mapped.status,
+        active: mapped.active,
+        location: mapped.location,
+        vctCount: mapped.vctCount,
+        jobsCount: mapped.jobsCount,
+        certifiedCount: mapped.certifiedCount,
+        rematerializedAt: serverTimestamp(),
+      }, { merge: true });
+      updated += 1;
+    }
+    return { scanned: snap.size, updated };
+  }
 }
 
 export function formatYesGatcWhen(iso: string | null | undefined, compact = false): string {
