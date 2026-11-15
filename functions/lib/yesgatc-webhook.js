@@ -773,7 +773,6 @@ export async function upsertRcDetailForOps(input = {}, { create = false } = {}) 
   const patch = {
     ...rest,
     updatedAt: FieldValue.serverTimestamp(),
-    // Ops/admin saves always mark manual — normalizeRc hardcodes source yesgatc.
     source: 'manual',
   };
   if (create) {

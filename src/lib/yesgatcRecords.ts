@@ -1481,7 +1481,6 @@ async function saveYesGatcRcDetailLocal(
     vctCount: input.vctCount ?? null,
     jobsCount: input.jobsCount ?? null,
     certifiedCount: input.certifiedCount ?? null,
-    // Manual save path — always override; do not inherit yesgatc from prior docs.
     source: 'manual',
     updatedAt: serverTimestamp(),
   };
