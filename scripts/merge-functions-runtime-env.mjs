@@ -23,6 +23,8 @@ const RUNTIME_ENV_KEYS = [
   'ECS_DEALER_PASSWORD',
   'ECS_EMPLOYEE_AADHAAR',
   'ECS_EMPLOYEE_PASSWORD',
+  'CRM_CARE_WEBHOOK_URL',
+  'CRM_CARE_WEBHOOK_SECRET',
 ];
 
 function key() {
@@ -60,6 +62,8 @@ function payloadFromEnv() {
     ECS_DEALER_PASSWORD: String(process.env.ECS_DEALER_PASSWORD || ''),
     ECS_EMPLOYEE_AADHAAR: String(process.env.ECS_EMPLOYEE_AADHAAR || '').replace(/\D/g, ''),
     ECS_EMPLOYEE_PASSWORD: String(process.env.ECS_EMPLOYEE_PASSWORD || ''),
+    CRM_CARE_WEBHOOK_URL: String(process.env.CRM_CARE_WEBHOOK_URL || 'https://crm.yesweigh.in/api/webhooks/cloud-whatsapp').trim(),
+    CRM_CARE_WEBHOOK_SECRET: String(process.env.CRM_CARE_WEBHOOK_SECRET || '').trim(),
   };
 }
 
@@ -91,6 +95,19 @@ for (const name of RUNTIME_ENV_KEYS) {
 }
 writeFileSync(envPath, `${existing.replace(/\s+$/, '')}\n${block}`, 'utf8');
 console.log('Merged Sanoft, Sarvam, and ECS into functions/.env.yesweigh-service');
+
+// Care params must exist in dotenv for non-interactive Firebase deploy (defineString).
+{
+  let envText = readFileSync(envPath, 'utf8');
+  const careUrl = String(payload.CRM_CARE_WEBHOOK_URL || process.env.CRM_CARE_WEBHOOK_URL || 'https://crm.yesweigh.in/api/webhooks/cloud-whatsapp').trim();
+  const careSecret = String(payload.CRM_CARE_WEBHOOK_SECRET || process.env.CRM_CARE_WEBHOOK_SECRET || '').trim();
+  for (const name of ['CRM_CARE_WEBHOOK_URL', 'CRM_CARE_WEBHOOK_SECRET']) {
+    envText = envText.replace(new RegExp(`^${name}=.*$\\n?`, 'm'), '');
+  }
+  envText = `${envText.replace(/\s+$/, '')}\n${dotenvLine('CRM_CARE_WEBHOOK_URL', careUrl)}${dotenvLine('CRM_CARE_WEBHOOK_SECRET', careSecret)}`;
+  writeFileSync(envPath, envText, 'utf8');
+  console.log('Ensured CRM_CARE_* params in functions/.env.yesweigh-service', { url: Boolean(careUrl), secret: Boolean(careSecret) });
+}
 
 if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) process.exit(0);
 
