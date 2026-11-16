@@ -54,6 +54,66 @@ const PROJECT_ID = 'yesweigh-service';
 export const WHATSAPP_CLOUD_WEBHOOK_URL =
   `https://asia-south1-${PROJECT_ID}.cloudfunctions.net/ingestWhatsAppCloudWebhook`;
 
+/** CRM Care inbox forward (crm.yesweigh.in). Set via Firebase params / env — never commit secrets. */
+let careCrmForwardOverrides = { url: '', secret: '' };
+
+export function configureCrmCareForward({ url, secret } = {}) {
+  careCrmForwardOverrides = {
+    url: String(url ?? '').trim(),
+    secret: String(secret ?? '').trim(),
+  };
+}
+
+function careCrmForwardConfig() {
+  return {
+    url: String(
+      careCrmForwardOverrides.url
+      || process.env.CRM_CARE_WEBHOOK_URL
+      || 'https://crm.yesweigh.in/api/webhooks/cloud-whatsapp',
+    ).trim(),
+    secret: String(careCrmForwardOverrides.secret || process.env.CRM_CARE_WEBHOOK_SECRET || '').trim(),
+  };
+}
+
+function isoFromEventTime(ts) {
+  try {
+    if (ts && typeof ts.toDate === 'function') return ts.toDate().toISOString();
+    if (ts instanceof Date) return ts.toISOString();
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
+      const ms = ts > 1e12 ? ts : ts * 1000;
+      return new Date(ms).toISOString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Date().toISOString();
+}
+
+async function forwardCareBatchToCrm({ conversations = [], messages = [] }) {
+  const { url, secret } = careCrmForwardConfig();
+  if (!url || !secret) return { skipped: true };
+  if (!conversations.length && !messages.length) return { skipped: true };
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Care-Webhook-Secret': secret,
+      },
+      body: JSON.stringify({ conversations, messages }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.warn('CRM Care forward failed', response.status, detail.slice(0, 240));
+      return { ok: false, status: response.status };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.warn('CRM Care forward error', err?.message || err);
+    return { ok: false };
+  }
+}
+
 const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'document', 'sticker']);
 
 function fail(message, code = 'failed-precondition') {
@@ -527,6 +587,8 @@ async function ingestMessages(value, accessToken) {
   const channelPhoneNumber = String(metadata.display_phone_number ?? '').trim();
   const messages = Array.isArray(value?.messages) ? value.messages : [];
   const db = getFirestore();
+  const careConversations = [];
+  const careMessages = [];
 
   for (const message of messages.slice(0, 20)) {
     const waId = normalizeWaId(message?.from);
@@ -582,19 +644,44 @@ async function ingestMessages(value, accessToken) {
         shopPatch.senderName = senderName || `Shop ${shopId}`;
       }
     }
+    const createdAt = eventTime(message?.timestamp);
+    const preview = previewFor(type, text);
     await writeConversation(waId, {
       ...(senderName ? { senderName } : {}),
       ...shopPatch,
-      lastText: previewFor(type, text),
+      lastText: preview,
       lastType: type,
       lastDirection: 'inbound',
       lastStatus: 'received',
-      lastAt: eventTime(message?.timestamp),
-      lastInboundAt: eventTime(message?.timestamp),
+      lastAt: createdAt,
+      lastInboundAt: createdAt,
       channelPhoneNumber,
       closed: false,
       ...(mediaUrl ? { lastMediaUrl: mediaUrl } : {}),
       ...(existing.exists ? {} : { unreadCount: FieldValue.increment(1) }),
+    });
+    careConversations.push({
+      wa_id: waId,
+      sender_name: String(shopPatch.senderName || senderName || ''),
+      last_text: preview,
+      last_type: type,
+      last_at: isoFromEventTime(createdAt),
+      unread_count: existing.exists ? 0 : 1,
+      closed: false,
+      channel_phone: channelPhoneNumber,
+    });
+    careMessages.push({
+      external_id: whatsappMessageId,
+      wa_id: waId,
+      direction: 'inbound',
+      type,
+      text,
+      status: 'received',
+      media_url: mediaUrl || '',
+      media_name: media?.fileName || '',
+      mime_type: media?.mimeType || '',
+      sender_name: String(shopPatch.senderName || senderName || ''),
+      created_at: isoFromEventTime(createdAt),
     });
     if (
       SOFTWARE_RENEWAL_AUTO_REPLY_ENABLED
@@ -649,6 +736,8 @@ async function ingestMessages(value, accessToken) {
     const ref = db.collection(MESSAGES).doc(id);
     const existing = await ref.get();
     if (existing.exists && existing.data()?.direction === 'outbound') continue;
+    const createdAt = eventTime(message?.timestamp);
+    const preview = previewFor(type, text);
     await ref.set({
       waId,
       whatsappMessageId,
@@ -658,17 +747,40 @@ async function ingestMessages(value, accessToken) {
       status: 'sent',
       senderName: 'WhatsApp',
       channelPhoneNumber,
-      createdAt: eventTime(message?.timestamp),
+      createdAt,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     await writeConversation(waId, {
-      lastText: previewFor(type, text),
+      lastText: preview,
       lastType: type,
       lastDirection: 'outbound',
       lastStatus: 'sent',
-      lastAt: eventTime(message?.timestamp),
+      lastAt: createdAt,
       unreadCount: 0,
       channelPhoneNumber,
+    });
+    careConversations.push({
+      wa_id: waId,
+      sender_name: '',
+      last_text: preview,
+      last_type: type,
+      last_at: isoFromEventTime(createdAt),
+      unread_count: 0,
+      closed: false,
+      channel_phone: channelPhoneNumber,
+    });
+    careMessages.push({
+      external_id: whatsappMessageId,
+      wa_id: waId,
+      direction: 'outbound',
+      type,
+      text,
+      status: 'sent',
+      media_url: '',
+      media_name: '',
+      mime_type: '',
+      sender_name: 'WhatsApp',
+      created_at: isoFromEventTime(createdAt),
     });
   }
 
@@ -682,6 +794,8 @@ async function ingestMessages(value, accessToken) {
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
   }
+
+  await forwardCareBatchToCrm({ conversations: careConversations, messages: careMessages });
 }
 
 export async function handleWhatsAppCloudWebhook(req, res) {
@@ -868,6 +982,8 @@ async function recordOutbound({
 }) {
   const id = docIdForMessage(whatsappMessageId || randomUUID());
   const clientId = cleanClientMessageId(clientMessageId);
+  const preview = previewFor(type, text);
+  const sender = sentByName || (sentByUid ? 'Staff' : 'YesWeigh');
   await getFirestore().collection(MESSAGES).doc(id).set({
     waId,
     whatsappMessageId: whatsappMessageId || id,
@@ -875,7 +991,7 @@ async function recordOutbound({
     type,
     text: text || '',
     status: 'sent',
-    senderName: sentByName || (sentByUid ? 'Staff' : 'YesWeigh'),
+    senderName: sender,
     sentByUid: sentByUid || '',
     sentByName: sentByName || (sentByUid ? 'Staff' : 'YesWeigh'),
     fileName: fileName || '',
@@ -887,13 +1003,78 @@ async function recordOutbound({
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   await writeConversation(waId, {
-    lastText: previewFor(type, text),
+    lastText: preview,
     lastType: type,
     lastDirection: 'outbound',
     lastStatus: 'sent',
     lastAt: FieldValue.serverTimestamp(),
     unreadCount: 0,
   });
+  const nowIso = new Date().toISOString();
+  await forwardCareBatchToCrm({
+    conversations: [{
+      wa_id: waId,
+      sender_name: '',
+      last_text: preview,
+      last_type: type,
+      last_at: nowIso,
+      unread_count: 0,
+      closed: false,
+      channel_phone: '',
+    }],
+    messages: [{
+      external_id: whatsappMessageId || id,
+      wa_id: waId,
+      direction: 'outbound',
+      type,
+      text: text || '',
+      status: 'sent',
+      media_url: mediaUrl || '',
+      media_name: fileName || '',
+      mime_type: mimeType || '',
+      sender_name: sender,
+      created_at: nowIso,
+    }],
+  });
+}
+
+/**
+ * CRM Care reply proxy — Meta token stays in YesOne Firestore.
+ * Auth: X-Care-Webhook-Secret === CRM_CARE_WEBHOOK_SECRET.
+ */
+export async function handleCrmCareSendWhatsApp(req, res) {
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const { secret } = careCrmForwardConfig();
+  const provided = String(req.get?.('x-care-webhook-secret') || req.headers?.['x-care-webhook-secret'] || '').trim();
+  if (!secret || !tokensEqual(provided, secret)) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const body = parseBody(req);
+  try {
+    const result = await sendWhatsAppCloudText({
+      waId: body?.to || body?.waId || '',
+      text: body?.text || '',
+      clientMessageId: body?.clientMessageId || body?.client_message_id || '',
+      skipTranslation: true,
+    }, { uid: 'crm-care', name: 'CRM Care' });
+    res.status(200).json({
+      ok: true,
+      messageId: result?.id || '',
+      id: result?.id || '',
+    });
+  } catch (err) {
+    const message = err?.message || String(err);
+    const status = /24 hours|re-engagement|131047/i.test(message) ? 409 : 502;
+    res.status(status).json({ error: message });
+  }
 }
 
 const LOGIN_OTP_TEMPLATE = 'otp';
@@ -1009,7 +1190,7 @@ async function sendSoftwareRenewalAutoReply({ waId, shopId, shop }) {
 }
 
 export async function sendWhatsAppCloudText(data, actor) {
-  const waId = normalizeWaId(data?.waId);
+  const waId = normalizeWaId(data?.waId || data?.to);
   const text = String(data?.text ?? '').trim();
   const clientMessageId = cleanClientMessageId(data?.clientMessageId);
   if (!waId) fail('Enter a WhatsApp number.', 'invalid-argument');

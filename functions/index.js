@@ -413,6 +413,7 @@ import { CI_BUILD_TAG } from './lib/ci-build.js';
 import {
   deleteWhatsAppTemplate,
   getWhatsAppCloudSettings,
+  handleCrmCareSendWhatsApp,
   handleWhatsAppCloudWebhook,
   listWhatsAppTemplates,
   patchWhatsAppConversation,
@@ -421,6 +422,7 @@ import {
   sendWhatsAppCloudFile,
   sendWhatsAppCloudText,
   setWhatsAppVoiceTranslate,
+  configureCrmCareForward,
 } from './lib/whatsapp-cloud.js';
 import { handleTranscriptionWrite, retryWhatsAppTranscriptionHandler } from './lib/whatsapp-transcribe.js';
 import {
@@ -446,6 +448,11 @@ const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 const yesweighEmbedSecret = defineString('YESWEIGH_EMBED_SECRET', { default: '' });
 const meezanCatalogWebhookUrl = defineString('MEEZAN_CATALOG_WEBHOOK_URL', { default: '' });
 const meezanCatalogWebhookSecret = defineString('MEEZAN_CATALOG_WEBHOOK_SECRET', { default: '' });
+/** CRM Care inbox dual-forward + reply proxy (shared secret — never commit). */
+const crmCareWebhookUrl = defineString('CRM_CARE_WEBHOOK_URL', {
+  default: 'https://crm.yesweigh.in/api/webhooks/cloud-whatsapp',
+});
+const crmCareWebhookSecret = defineString('CRM_CARE_WEBHOOK_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin', 'media']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
@@ -8541,6 +8548,18 @@ export const transcribePhoneCallFn = onCall(
   },
 );
 
+function applyCareCrmEnv() {
+  try {
+    const url = crmCareWebhookUrl.value();
+    const secret = crmCareWebhookSecret.value();
+    process.env.CRM_CARE_WEBHOOK_URL = url;
+    process.env.CRM_CARE_WEBHOOK_SECRET = secret;
+    configureCrmCareForward({ url, secret });
+  } catch {
+    /* params unavailable outside deployed runtime */
+  }
+}
+
 /** Meta WhatsApp Cloud webhook for the Interweighing business number. */
 export const ingestWhatsAppCloudWebhook = onRequest(
   {
@@ -8548,9 +8567,26 @@ export const ingestWhatsAppCloudWebhook = onRequest(
     invoker: 'public',
     timeoutSeconds: 120,
     memory: '512MiB',
+    params: [crmCareWebhookUrl, crmCareWebhookSecret],
   },
   async (req, res) => {
+    applyCareCrmEnv();
     await handleWhatsAppCloudWebhook(req, res);
+  },
+);
+
+/** CRM Care inbox → Meta Cloud send proxy (shared secret; token stays in YesOne). */
+export const crmCareSendWhatsApp = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    params: [crmCareWebhookUrl, crmCareWebhookSecret],
+  },
+  async (req, res) => {
+    applyCareCrmEnv();
+    await handleCrmCareSendWhatsApp(req, res);
   },
 );
 
