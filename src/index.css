@@ -28428,6 +28428,23 @@ button.stock-ledger__invoice-count:focus-visible {
   text-align: center;
 }
 
+.barcode-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.barcode-gallery .btn {
+  width: 100%;
+}
+
+.barcode-gallery__error {
+  margin: 0;
+  text-align: center;
+  color: #fca5a5;
+  font-size: 0.8125rem;
+}
+
 .book-courier__actions {
   display: flex;
   flex-direction: column;
@@ -28436,6 +28453,7 @@ button.stock-ledger__invoice-count:focus-visible {
 
 .book-courier__actions .btn {
   justify-content: center;
+  width: 100%;
 }
 
 .book-courier__next {

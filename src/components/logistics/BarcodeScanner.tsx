@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { BarcodeFormat, DecodeHintType } from '@zxing/library';
-import { CameraOff, Loader2, X } from 'lucide-react';
+import { BrowserMultiFormatReader, HTMLCanvasElementLuminanceSource } from '@zxing/browser';
+import {
+  BarcodeFormat,
+  BinaryBitmap,
+  DecodeHintType,
+  GlobalHistogramBinarizer,
+  HybridBinarizer,
+} from '@zxing/library';
+import { CameraOff, ImagePlus, Loader2, X } from 'lucide-react';
 
 interface BarcodeScannerProps {
   onDetected: (value: string) => void;
@@ -98,6 +104,227 @@ function drawScanBand(
 function normalizeScanText(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim();
 }
+
+const STILL_MAX_EDGE = 1600;
+
+function stillImageHints(): Map<DecodeHintType, unknown> {
+  const hints = new Map<DecodeHintType, unknown>();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
+  return hints;
+}
+
+function canvasFromRegion(
+  source: CanvasImageSource,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  maxEdge: number,
+): HTMLCanvasElement {
+  const scale = Math.min(1, maxEdge / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * scale));
+  const h = Math.max(1, Math.round(sh * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
+  if (!ctx) throw new Error('Could not read that image.');
+  ctx.imageSmoothingEnabled = scale < 1;
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, w, h);
+  return canvas;
+}
+
+function rotateCanvas(source: HTMLCanvasElement, quarterTurns: 1 | 3): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.height;
+  canvas.height = source.width;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
+  if (!ctx) return source;
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(quarterTurns === 1 ? Math.PI / 2 : -Math.PI / 2);
+  ctx.drawImage(source, -source.width / 2, -source.height / 2);
+  return canvas;
+}
+
+function contrastCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return source;
+  ctx.drawImage(source, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < data.length; i += 16) {
+    const y = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+    if (y < min) min = y;
+    if (y > max) max = y;
+  }
+  const span = Math.max(16, max - min);
+  for (let i = 0; i < data.length; i += 4) {
+    const y = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const v = Math.max(0, Math.min(255, ((y - min) * 255) / span));
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+function yieldFrame(): Promise<void> {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, 0);
+  });
+}
+
+function tryDecodeCanvas(
+  reader: BrowserMultiFormatReader,
+  canvas: HTMLCanvasElement,
+  binarizers: Array<typeof HybridBinarizer | typeof GlobalHistogramBinarizer> = [HybridBinarizer],
+): string | null {
+  const source = new HTMLCanvasElementLuminanceSource(canvas);
+  for (const Binarizer of binarizers) {
+    try {
+      const text = normalizeScanText(
+        reader.decodeBitmap(new BinaryBitmap(new Binarizer(source))).getText(),
+      );
+      if (text) return text;
+    } catch {
+      // NotFound / checksum — try the next binarizer or crop
+    }
+  }
+  return null;
+}
+
+async function detectNativeBarcode(source: ImageBitmap): Promise<string | null> {
+  const Detector = getBarcodeDetector();
+  if (!Detector) return null;
+  try {
+    const detector = new Detector({ formats: [...NATIVE_FORMATS] });
+    const codes = await detector.detect(source);
+    const values = codes
+      .map(code => normalizeScanText(code.rawValue ?? ''))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    return values[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read a logistics barcode from a gallery photo. */
+export async function decodeBarcodeFromImageFile(file: File): Promise<string> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error('Could not read that image. Use a JPG or PNG photo of the barcode.');
+  }
+
+  try {
+    if (!bitmap.width || !bitmap.height) {
+      throw new Error('Could not read that image. Use a JPG or PNG photo of the barcode.');
+    }
+
+    const native = await detectNativeBarcode(bitmap);
+    if (native) return native;
+
+    const reader = new BrowserMultiFormatReader(stillImageHints());
+    const full = canvasFromRegion(bitmap, 0, 0, bitmap.width, bitmap.height, STILL_MAX_EDGE);
+    const bands = [0.08, 0.28, 0.48, 0.68].map(top => {
+      const sy = Math.floor(full.height * top);
+      const sh = Math.max(32, Math.floor(full.height * 0.28));
+      return canvasFromRegion(full, 0, sy, full.width, Math.min(sh, full.height - sy), STILL_MAX_EDGE);
+    });
+
+    const fullHit = tryDecodeCanvas(reader, full, [HybridBinarizer, GlobalHistogramBinarizer]);
+    if (fullHit) return fullHit;
+
+    const passes = [
+      ...bands,
+      contrastCanvas(full),
+      rotateCanvas(full, 1),
+      rotateCanvas(full, 3),
+    ];
+    for (const canvas of passes) {
+      const hit = tryDecodeCanvas(reader, canvas);
+      if (hit) return hit;
+      await yieldFrame();
+    }
+
+    if (Math.max(bitmap.width, bitmap.height) > STILL_MAX_EDGE) {
+      const sx = Math.floor(bitmap.width * 0.12);
+      const sy = Math.floor(bitmap.height * 0.28);
+      const sw = Math.max(1, Math.floor(bitmap.width * 0.76));
+      const sh = Math.max(1, Math.floor(bitmap.height * 0.44));
+      const zoom = canvasFromRegion(bitmap, sx, sy, sw, sh, STILL_MAX_EDGE);
+      const hit = tryDecodeCanvas(reader, zoom) ?? tryDecodeCanvas(reader, contrastCanvas(zoom));
+      if (hit) return hit;
+    }
+
+    throw new Error('No barcode found in that image. Try a closer, well-lit photo of the barcode.');
+  } finally {
+    bitmap.close();
+  }
+}
+
+export const BarcodeGalleryPick: React.FC<{
+  onDetected: (value: string) => void;
+  disabled?: boolean;
+}> = ({ onDetected, disabled }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const onFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    try {
+      const text = await decodeBarcodeFromImageFile(file);
+      playScanBeep();
+      onDetected(text);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read a barcode from that image.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="barcode-gallery">
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => inputRef.current?.click()}
+        disabled={disabled || busy}
+      >
+        {busy
+          ? <Loader2 size={16} className="barcode-scanner__spin" aria-hidden />
+          : <ImagePlus size={16} aria-hidden />}
+        {busy ? 'Reading barcode…' : 'Upload from gallery'}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={event => void onFile(event)}
+      />
+      {error ? (
+        <p className="barcode-gallery__error" role="alert">{error}</p>
+      ) : null}
+    </div>
+  );
+};
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -335,6 +562,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
           Line up the barcode in the frame — hold steady for a moment.
         </p>
       )}
+      <BarcodeGalleryPick onDetected={onDetected} />
     </div>
   );
 };

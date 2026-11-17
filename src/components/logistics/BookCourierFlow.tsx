@@ -194,7 +194,7 @@ import {
   ewayBillDocumentDateLabel,
   isEwayTransporterMissing,
 } from './EwayBillGeneratePreview';
-import { BarcodeScanner } from './BarcodeScanner';
+import { BarcodeGalleryPick, BarcodeScanner } from './BarcodeScanner';
 import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
 type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
@@ -2333,8 +2333,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               </h3>
               <p className="book-courier__hint text-muted text-sm">
                 {isDelhivery
-                  ? 'Enter an existing Delhivery LR, or skip — an LR will be created via API after review.'
-                  : 'Scan the barcode on the courier slip or enter the code manually.'}
+                  ? 'Enter an existing Delhivery LR, upload a photo of the barcode, or skip — an LR will be created via API after review.'
+                  : 'Scan the barcode, upload a photo from your gallery, or enter the code manually.'}
               </p>
 
               {cameraOpen ? (
@@ -2350,14 +2350,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </button>
               )}
 
-              <div className="book-courier__actions">
-                {!cameraOpen && (
+              {!cameraOpen && (
+                <div className="book-courier__actions">
                   <button type="button" className="btn btn-primary" onClick={() => setCameraOpen(true)}>
                     <Camera size={16} aria-hidden />
                     Scan with Camera
                   </button>
-                )}
-              </div>
+                  <BarcodeGalleryPick onDetected={handleCameraDetected} />
+                </div>
+              )}
 
               <div className="book-courier__manual">
                 <span className="book-courier__manual-label">
