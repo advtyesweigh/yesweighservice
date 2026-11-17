@@ -136,6 +136,15 @@ export function zohoDealerDisplayName(dealer: Pick<ZohoDealer, 'contactName' | '
   return dealer.contactName?.trim() || dealer.companyName?.trim() || dealer.id;
 }
 
+/** Zoho Books WORK PHONE column. Mobile is only used when work phone is empty. */
+export function zohoDealerWorkPhone(dealer: Pick<ZohoDealer, 'phone' | 'mobile'>): string | null {
+  const work = dealer.phone?.replace(/\s+/g, ' ').trim();
+  if (work && work !== '—') return work;
+  const mobile = dealer.mobile?.replace(/\s+/g, ' ').trim();
+  if (mobile && mobile !== '—') return mobile;
+  return null;
+}
+
 export function zohoDealerToSnapshot(dealer: ZohoDealer): LogisticsDealerSnapshot {
   const shippingAddress = formatZohoAddressMultiline(
     dealer.zohoShippingAddress ?? dealer.shippingAddress,

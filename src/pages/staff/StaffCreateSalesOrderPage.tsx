@@ -102,6 +102,7 @@ import {
   dealerMatchesLogisticsQuery,
   zohoDealerContactPerson,
   zohoDealerToSnapshot,
+  zohoDealerWorkPhone,
 } from '../../lib/logisticsDealers';
 import {
   classifyOrderLineSegment,
@@ -232,7 +233,7 @@ function toSelectedDealer(dealer: ZohoDealer): SelectedDealer {
     id: dealer.id,
     label,
     contactPerson: contactPerson !== '—' && contactPerson !== label ? contactPerson : null,
-    mobile: snapshot.mobile !== '—' ? snapshot.mobile : null,
+    mobile: zohoDealerWorkPhone(dealer),
     assignedStaffUid: dealer.assignedStaffUid?.trim() || null,
     assignedStaffName: dealer.assignedStaffName?.trim() || null,
   };
@@ -1493,7 +1494,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                     {filteredDealers.map(dealer => {
                       const snapshot = zohoDealerToSnapshot(dealer);
                       const location = dealerLocationLabel(dealer);
-                      const phone = snapshot.mobile !== '—' ? snapshot.mobile : null;
+                      const phone = zohoDealerWorkPhone(dealer);
                       const meta = [snapshot.code, phone].filter(Boolean).join(' • ');
                       return (
                         <li key={dealer.id}>
