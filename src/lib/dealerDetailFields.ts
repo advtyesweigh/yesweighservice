@@ -41,7 +41,7 @@ export const DEALER_FIELD_SECTIONS: { id: DealerFieldSource; title: string; hint
 
 export const DEALER_FIELD_DEFINITIONS: DealerFieldDefinition[] = [
   { key: 'id', label: 'Zoho contact ID', source: 'zoho', getValue: d => d.id },
-  { key: 'contactName', label: 'Contact name', source: 'zoho', getValue: d => d.contactName },
+  { key: 'contactName', label: 'Display name', source: 'zoho', getValue: d => d.contactName },
   { key: 'companyName', label: 'Company name', source: 'zoho', getValue: d => d.companyName },
   { key: 'email', label: 'Email', source: 'zoho', getValue: d => d.email },
   { key: 'mobile', label: 'Mobile', source: 'zoho', getValue: d => d.mobile },

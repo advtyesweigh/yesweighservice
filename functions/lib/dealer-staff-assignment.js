@@ -577,8 +577,8 @@ export async function analyzeDealerStaffLinking({ onProgress, runByUid = null } 
   });
 
   noUsableInvoiceDealers.sort((a, b) =>
-    String(a.companyName || a.contactName || a.id)
-      .localeCompare(String(b.companyName || b.contactName || b.id)),
+    String(a.contactName || a.companyName || a.id)
+      .localeCompare(String(b.contactName || b.companyName || b.id)),
   );
 
   const payload = {
@@ -740,8 +740,8 @@ export async function claimUnassignedDealersForSalesperson({
 }
 
 function sortNoUsableInvoiceDealers(a, b) {
-  return String(a.companyName || a.contactName || a.id || '')
-    .localeCompare(String(b.companyName || b.contactName || b.id || ''));
+  return String(a.contactName || a.companyName || a.id || '')
+    .localeCompare(String(b.contactName || b.companyName || b.id || ''));
 }
 
 function normalizeNoInvoiceRow(row = {}) {

@@ -131,8 +131,9 @@ export function resolveReceiverPhoneFromSnapshot(dealer: LogisticsDealerSnapshot
   return '—';
 }
 
-export function zohoDealerDisplayName(dealer: ZohoDealer): string {
-  return dealer.companyName?.trim() || dealer.contactName?.trim() || dealer.id;
+/** Zoho Books NAME column — contact display name, then company name. */
+export function zohoDealerDisplayName(dealer: Pick<ZohoDealer, 'contactName' | 'companyName' | 'id'>): string {
+  return dealer.contactName?.trim() || dealer.companyName?.trim() || dealer.id;
 }
 
 export function zohoDealerToSnapshot(dealer: ZohoDealer): LogisticsDealerSnapshot {

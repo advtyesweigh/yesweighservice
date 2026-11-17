@@ -30,13 +30,14 @@ import {
   priceLevelsLiveSaveMs,
   savePriceLevels,
 } from '../../lib/priceLevels';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../types/dealers';
 import type { PriceLevel } from '../../types/priceLevels';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 function dealerLabel(d: Pick<ZohoDealer, 'contactName' | 'companyName' | 'id'>): string {
-  return (d.companyName || d.contactName || d.id).trim();
+  return zohoDealerDisplayName(d);
 }
 
 function namesFromDealers(

@@ -85,10 +85,10 @@ export async function publicCreateDealerForShare(token, input, { secrets, orgId 
     status: 'completed',
     completedAt: FieldValue.serverTimestamp(),
     dealerId: dealer.id || '',
-    companyName: trimStr(dealer.companyName || dealer.contactName),
+    companyName: trimStr(dealer.contactName || dealer.companyName),
   }, { merge: true });
   return {
     dealerId: dealer.id,
-    companyName: trimStr(dealer.companyName || dealer.contactName) || 'Dealer',
+    companyName: trimStr(dealer.contactName || dealer.companyName) || 'Dealer',
   };
 }

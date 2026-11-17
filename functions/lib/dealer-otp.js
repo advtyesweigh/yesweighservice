@@ -23,7 +23,7 @@ export function phoneLast10(value) {
 
 function dealerDisplayName(dealer) {
   return String(
-    dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer',
+    dealer.contactName || dealer.companyName || dealer.firstName || 'Dealer',
   ).trim();
 }
 
@@ -157,7 +157,7 @@ export async function sendDealerLoginOtp(
     code,
     dealerId: dealer.id,
     portalUserId: dealer.portalUserId ? String(dealer.portalUserId) : null,
-    displayName: dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer',
+    displayName: dealer.contactName || dealer.companyName || dealer.firstName || 'Dealer',
     expiresAt: Date.now() + OTP_TTL_MS,
     lastSentAt: Date.now(),
     verified: false,
@@ -271,7 +271,7 @@ export async function completeDealerSignup(phone10, setupToken, password) {
   }
 
   const displayName = String(
-    session.displayName || dealer.companyName || dealer.contactName || 'Dealer',
+    session.displayName || dealer.contactName || dealer.companyName || 'Dealer',
   ).trim();
   const authEmail = `p${phone10}@${AUTH_EMAIL_DOMAIN}`;
   const auth = getAuth();

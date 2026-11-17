@@ -15,6 +15,7 @@ import {
   type YesGatcOvRvTotals,
   type YesGatcRcDetail,
 } from '../../../lib/yesgatcRecords';
+import { zohoDealerDisplayName } from '../../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../../types/dealers';
 
 function formatCount(value: number): string {
@@ -22,7 +23,7 @@ function formatCount(value: number): string {
 }
 
 function dealerLabel(dealer: ZohoDealer): string {
-  return dealer.companyName?.trim() || dealer.contactName?.trim() || dealer.id;
+  return zohoDealerDisplayName(dealer);
 }
 
 function RcDealerPicker({

@@ -455,17 +455,17 @@ export function DealerStaffLinkingPanel() {
                               type="checkbox"
                               checked={selectedIds.has(row.id)}
                               disabled={busy}
-                              aria-label={`Select ${row.companyName || row.contactName || row.id}`}
+                              aria-label={`Select ${row.contactName || row.companyName || row.id}`}
                               onChange={() => toggleRow(row.id)}
                             />
                           </td>
                           <td>{index + 1}</td>
                           <td>
                             <div className="dealer-linking-table__primary">
-                              {row.companyName || row.contactName || row.id}
+                              {row.contactName || row.companyName || row.id}
                             </div>
-                            {row.companyName && row.contactName ? (
-                              <div className="text-muted text-sm">{row.contactName}</div>
+                            {row.companyName && row.contactName && row.companyName.trim().toLowerCase() !== row.contactName.trim().toLowerCase() ? (
+                              <div className="text-muted text-sm">{row.companyName}</div>
                             ) : null}
                           </td>
                           <td>{row.dealerCode || '—'}</td>
@@ -480,7 +480,7 @@ export function DealerStaffLinkingPanel() {
                                 options={ownerOptions}
                                 disabled={busy || ownerOptions.length === 0}
                                 busy={rowBusy}
-                                ariaLabel={`Assign ${row.companyName || row.contactName || row.id}`}
+                                ariaLabel={`Assign ${row.contactName || row.companyName || row.id}`}
                                 placeholder="Assign to…"
                                 showClear={false}
                                 onSelect={uid => {

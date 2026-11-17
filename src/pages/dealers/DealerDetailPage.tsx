@@ -60,6 +60,7 @@ import {
   type ZohoFillableFieldKey,
 } from '../../lib/dealerZohoFillable';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { buildContactLinks } from '../../lib/phoneLinks';
 import {
   assignDealerToPriceLevel,
@@ -606,7 +607,7 @@ export const DealerDetailPage: React.FC = () => {
 
   const blockDealer = async () => {
     if (!dealer) return;
-    if (!window.confirm(`Block ${dealer.companyName || dealer.contactName}?`)) return;
+    if (!window.confirm(`Block ${zohoDealerDisplayName(dealer)}?`)) return;
     setSaving(true);
     setError('');
     try {
@@ -625,7 +626,7 @@ export const DealerDetailPage: React.FC = () => {
 
   const handleDeleteDealer = async () => {
     if (!dealer || !canDeleteDealer) return;
-    const label = dealer.companyName || dealer.contactName || 'this dealer';
+    const label = zohoDealerDisplayName(dealer);
     const ok = await confirm({
       title: 'Delete dealer',
       message: `Delete ${label} from YesOne? If it is already gone from Zoho it will still be removed here. If Zoho has transactions, the dealer will be voided instead.`,
@@ -684,7 +685,7 @@ export const DealerDetailPage: React.FC = () => {
 
   if (!dealerId) return null;
 
-  const name = dealer ? (dealer.companyName || dealer.contactName) : '';
+  const name = dealer ? zohoDealerDisplayName(dealer) : '';
   const statusMeta = dealer && draft
     ? getDealerStatusMeta({ dealerStage: draft.dealerStage, signedIn: dealer.signedIn })
     : null;

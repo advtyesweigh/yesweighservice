@@ -6,7 +6,7 @@ import {
   peekCachedDealers,
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
-import { dealerMatchesLogisticsQuery } from '../../lib/logisticsDealers';
+import { dealerMatchesLogisticsQuery, zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../types/dealers';
 
 export type DealerFilterSelection = {
@@ -16,9 +16,7 @@ export type DealerFilterSelection = {
 };
 
 function dealerLabel(dealer: ZohoDealer): string {
-  return dealer.companyName?.trim()
-    || dealer.contactName?.trim()
-    || dealer.id;
+  return zohoDealerDisplayName(dealer);
 }
 
 interface DealerMultiFilterPickerProps {

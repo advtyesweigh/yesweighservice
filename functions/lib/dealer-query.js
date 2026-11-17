@@ -391,7 +391,7 @@ export function dealersToCsv(dealers) {
   const rows = [headers.join(',')];
   for (const d of dealers) {
     const cats = normalizeCategories(d.categories);
-    const name = d.companyName || d.contactName;
+    const name = d.contactName || d.companyName;
     const phone = d.phone || d.mobile || '';
     const staff = d.assignedStaffName || '';
     rows.push([

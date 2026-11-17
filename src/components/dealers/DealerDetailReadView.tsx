@@ -11,6 +11,7 @@ import {
   visibleFillableFields,
 } from '../../lib/dealerZohoFillable';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../types/dealers';
 
 function formatZohoDate(value: string | null | undefined): string | null {
@@ -92,7 +93,7 @@ export const DealerDetailReadView: React.FC<{
 }> = ({ dealer, portalAccount }) => {
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
-  const name = dealer.companyName || dealer.contactName;
+  const name = zohoDealerDisplayName(dealer);
   const statusMeta = getDealerStatusMeta({ dealerStage: dealer.dealerStage, signedIn: dealer.signedIn });
   const zohoCreatedOn = formatZohoDate(dealer.zohoCreatedTime);
   const zohoEmailField = topZohoEmailField();

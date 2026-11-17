@@ -39,6 +39,7 @@ import { WhatsAppIcon } from '../../components/WhatsAppIcon';
 import { YESWEIGH_BANK_DETAILS } from '../../lib/whatsappBank';
 import { useAuth } from '../../context/AuthContext';
 import { findDealersByPhoneNeedle } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { canSuperAdminWrite, canUseWhatsApp } from '../../lib/staffAccess';
 import {
   createDealerCreateShare,
@@ -1192,7 +1193,7 @@ export const WhatsAppInboxPage: React.FC = () => {
           onBehalfDealer: matched
             ? {
                 zohoCustomerId: matched.id,
-                dealerName: matched.companyName?.trim() || matched.contactName?.trim() || 'Dealer',
+                dealerName: zohoDealerDisplayName(matched),
                 portalUserId: matched.portalUserId,
               }
             : undefined,

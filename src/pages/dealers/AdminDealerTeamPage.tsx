@@ -7,6 +7,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerTeamRoster, type DealerTeamAccess } from '../../components/dealers/DealerTeamRoster';
 import { peekCachedDealers } from '../../lib/dealer-cache';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { dealerErrorMessage, fetchDealerById } from '../../lib/dealers';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { homePathForRole, type FirestoreUserDoc } from '../../types';
@@ -29,7 +30,7 @@ export const AdminDealerTeamPage: React.FC = () => {
   const [dealerName, setDealerName] = useState(() => {
     if (!dealerId) return '';
     const cached = dealerFromCache(dealerId, preview);
-    return cached ? (cached.companyName || cached.contactName || '') : '';
+    return cached ? zohoDealerDisplayName(cached) : '';
   });
   const [portalUserId, setPortalUserId] = useState<string | null>(() => {
     if (!dealerId) return null;
@@ -46,7 +47,7 @@ export const AdminDealerTeamPage: React.FC = () => {
     try {
       const cached = dealerFromCache(dealerId, preview);
       const dealer = cached ?? await fetchDealerById(dealerId);
-      const name = dealer.companyName || dealer.contactName || 'Dealer';
+      const name = zohoDealerDisplayName(dealer);
       const portalId = dealer.portalUserId?.trim() || null;
       setDealerName(name);
       setPortalUserId(portalId);

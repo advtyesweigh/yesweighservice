@@ -53,6 +53,7 @@ import {
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import {
   formatInvoiceDateTime,
   formatKpiPeriodRange,
@@ -571,7 +572,7 @@ export const AdminInvoicesPage: React.FC = () => {
         const dealer = await fetchDealerById(id);
         return {
           id,
-          label: dealer.companyName || dealer.contactName || id,
+          label: zohoDealerDisplayName(dealer),
           portalUserId: dealer.portalUserId ?? null,
         } satisfies DealerFilterSelection;
       } catch {

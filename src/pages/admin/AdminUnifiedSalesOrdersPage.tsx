@@ -61,6 +61,7 @@ import {
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import {
   formatInvoiceDateTime,
@@ -453,9 +454,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         const dealer = rows[i];
         next.push({
           id: ids[i],
-          label: dealer?.companyName?.trim()
-            || dealer?.contactName?.trim()
-            || ids[i],
+          label: dealer ? zohoDealerDisplayName(dealer) : ids[i],
           portalUserId: dealer?.portalUserId ?? null,
         });
       }

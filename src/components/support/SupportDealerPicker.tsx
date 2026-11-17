@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, CheckCircle2, Loader2, Search, UserX } from 'lucide-react';
 import { fetchDealerById, fetchDealers } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../types/dealers';
 import type { SupportOnBehalfDealer } from '../../types/dealer-support';
 
@@ -14,7 +15,7 @@ function useDebounce(value: string, delay: number): string {
 }
 
 function dealerLabel(dealer: ZohoDealer): string {
-  return dealer.companyName?.trim() || dealer.contactName?.trim() || 'Dealer';
+  return zohoDealerDisplayName(dealer);
 }
 
 function dealerToOnBehalf(dealer: ZohoDealer): SupportOnBehalfDealer {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LogOut, MapPin, Pencil } from 'lucide-react';
-import { formatZohoAddressMultiline } from '../../lib/logisticsDealers';
+import { formatZohoAddressMultiline, zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { buildContactLinks } from '../../lib/phoneLinks';
 import type { ZohoAddressRaw, ZohoDealer } from '../../types/dealers';
 
@@ -183,7 +183,7 @@ export const DealerPortalProfile: React.FC<{
   onSaveAddresses,
   onSignOut,
 }) => {
-  const dealerName = display(dealer.companyName || dealer.contactName) || 'Dealer';
+  const dealerName = display(zohoDealerDisplayName(dealer)) || 'Dealer';
   const name = contactName(dealer, personFallback);
   const phone = display(
     dealer.phone

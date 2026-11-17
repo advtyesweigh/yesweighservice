@@ -2,6 +2,7 @@ import React from 'react';
 import { Crown, MapPin, Phone, UserRound } from 'lucide-react';
 import type { ZohoDealer } from '../../types/dealers';
 import { dealerContactPhone } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { isTopperDealer } from '../../lib/dealerToppers';
 import { buildContactLinks } from '../../lib/phoneLinks';
@@ -40,7 +41,7 @@ interface DealerTileProps {
 }
 
 export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
-  const businessName = dealer.companyName || dealer.contactName || 'Dealer';
+  const businessName = zohoDealerDisplayName(dealer);
   const contactName = dealer.firstName || dealer.zohoPrimaryContact?.name || '';
   const showContact = Boolean(
     contactName && contactName.trim().toLowerCase() !== businessName.trim().toLowerCase(),

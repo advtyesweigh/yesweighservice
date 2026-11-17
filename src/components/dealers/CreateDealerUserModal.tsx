@@ -7,6 +7,7 @@ import {
   normalizePhone,
 } from '../../lib/loginAuth';
 import { dealerContactPhone } from '../../lib/dealers';
+import { zohoDealerDisplayName } from '../../lib/logisticsDealers';
 import type { ZohoDealer } from '../../types/dealers';
 
 export function resolveLoginFromDealer(dealer: ZohoDealer): {
@@ -43,7 +44,7 @@ export const CreateDealerUserModal: React.FC<CreateDealerUserModalProps> = ({
   onSubmit,
 }) => {
   const login = useMemo(() => resolveLoginFromDealer(dealer), [dealer]);
-  const displayName = dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer';
+  const displayName = zohoDealerDisplayName(dealer);
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);

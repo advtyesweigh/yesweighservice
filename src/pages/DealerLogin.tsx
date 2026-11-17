@@ -345,7 +345,7 @@ export const DealerLogin: React.FC = () => {
             <p className="dealer-login-registered__label">This number is already registered</p>
             <p className="dealer-login-registered__name">
               <FitSingleLine className="dealer-login-registered__name-text" minPx={12}>
-                {dealerInfo.companyName || dealerInfo.displayName}
+                {dealerInfo.displayName || dealerInfo.companyName}
               </FitSingleLine>
             </p>
             <div className="form-group">
