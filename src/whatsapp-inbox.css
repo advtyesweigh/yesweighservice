@@ -500,6 +500,19 @@
   color: var(--accent-primary-light);
 }
 
+.wa-inbox-bubble__unsupported {
+  margin: 0;
+  opacity: 0.92;
+}
+
+.wa-inbox-bubble__unsupported-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75em;
+  opacity: 0.65;
+  font-weight: 400;
+}
+
 .wa-inbox-tick {
   color: rgba(255, 255, 255, 0.7);
 }

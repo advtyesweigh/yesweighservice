@@ -439,7 +439,16 @@ function MessageBody({
     );
   }
   if (message.type === 'unsupported' || message.type === 'unknown') {
-    return <p>{message.text.trim() || 'WhatsApp did not include this message.'}</p>;
+    const detail = message.text.trim();
+    // Meta Cloud sends type=unsupported with no body (often error 131051). Content is not recoverable.
+    return (
+      <p className="wa-inbox-bubble__unsupported">
+        {detail && detail.toLowerCase() !== 'unsupported' && detail.toLowerCase() !== 'unknown'
+          ? detail
+          : 'Unsupported message'}
+        <span className="wa-inbox-bubble__unsupported-hint"> WhatsApp did not send this content to Cloud API</span>
+      </p>
+    );
   }
   return <TranslatedLines message={message} />;
 }

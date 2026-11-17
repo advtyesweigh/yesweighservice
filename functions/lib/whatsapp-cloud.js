@@ -251,17 +251,69 @@ async function graphFormPost(path, token, fields) {
   return payload;
 }
 
+/** Meta puts code/title/details on type=unsupported (e.g. 131051) — body is never recoverable. */
+function metaErrorsFromMessage(message) {
+  const rows = Array.isArray(message?.errors) ? message.errors : [];
+  const out = [];
+  for (const row of rows.slice(0, 5)) {
+    if (!row || typeof row !== 'object') continue;
+    const code = row.code != null ? Number(row.code) : null;
+    const title = String(row.title || row.message || '').trim();
+    const details = String(row.error_data?.details || row.details || '').trim();
+    if (!code && !title && !details) continue;
+    out.push({
+      code: Number.isFinite(code) ? code : null,
+      title,
+      details,
+    });
+  }
+  return out;
+}
+
 function messageText(message) {
   const type = String(message?.type ?? '');
   if (type === 'text') return String(message?.text?.body ?? '').trim();
   if (type === 'button') return String(message?.button?.text ?? message?.button?.payload ?? '').trim();
   if (type === 'interactive') {
-    const reply = message?.interactive?.button_reply || message?.interactive?.list_reply || {};
-    return String(reply.title || reply.description || '').trim();
+    const interactive = message?.interactive && typeof message.interactive === 'object'
+      ? message.interactive
+      : {};
+    const reply = interactive.button_reply || interactive.list_reply || interactive.nfm_reply || {};
+    return String(
+      reply.title
+      || reply.description
+      || reply.name
+      || reply.response_json
+      || interactive.type
+      || '',
+    ).trim();
   }
   if (type === 'reaction') return String(message?.reaction?.emoji ?? '').trim();
+  if (type === 'system') return String(message?.system?.body ?? message?.system?.type ?? '').trim();
+  if (type === 'order') {
+    const order = message?.order && typeof message.order === 'object' ? message.order : {};
+    const items = Array.isArray(order.product_items) ? order.product_items : [];
+    if (items.length) return `Order (${items.length} item${items.length === 1 ? '' : 's'})`;
+    return String(order.catalog_id ? `Order ${order.catalog_id}` : 'Order').trim();
+  }
+  if (type === 'contacts') {
+    const contacts = Array.isArray(message?.contacts) ? message.contacts : [];
+    const names = contacts
+      .map(c => String(c?.profile?.name || c?.name?.formatted_name || '').trim())
+      .filter(Boolean);
+    return names[0] || (contacts.length ? 'Contact' : '');
+  }
+  if (type === 'location') {
+    const loc = message?.location && typeof message.location === 'object' ? message.location : {};
+    return String(loc.name || loc.address || '').trim();
+  }
+  if (type === 'unsupported' || type === 'unknown') {
+    const errors = metaErrorsFromMessage(message);
+    const detail = errors.map(e => e.details || e.title).filter(Boolean)[0] || '';
+    return detail;
+  }
   const part = message?.[type];
-  if (part && typeof part === 'object') return String(part.caption ?? '').trim();
+  if (part && typeof part === 'object') return String(part.caption ?? part.body ?? '').trim();
   return '';
 }
 
@@ -287,6 +339,10 @@ function previewFor(type, text) {
   if (type === 'sticker') return 'Sticker';
   if (type === 'location') return 'Location';
   if (type === 'contacts') return 'Contact';
+  if (type === 'order') return 'Order';
+  if (type === 'system') return 'System';
+  if (type === 'reaction') return 'Reaction';
+  if (type === 'unsupported' || type === 'unknown') return 'Unsupported message';
   return type ? type : '';
 }
 
@@ -597,6 +653,7 @@ async function ingestMessages(value, accessToken) {
     const type = String(message?.type ?? 'text') || 'text';
     const text = messageText(message);
     const media = mediaPart(message);
+    const metaErrors = metaErrorsFromMessage(message);
     const contact = (Array.isArray(value?.contacts) ? value.contacts : [])
       .find(item => normalizeWaId(item?.wa_id) === waId);
     const senderName = String(contact?.profile?.name ?? '').trim();
@@ -611,6 +668,14 @@ async function ingestMessages(value, accessToken) {
         console.warn('whatsapp media cache failed', whatsappMessageId, err?.message || err);
       }
     }
+    const metaErrorPatch = metaErrors.length
+      ? {
+          metaErrors,
+          metaErrorCode: metaErrors[0].code,
+          metaErrorTitle: metaErrors[0].title || '',
+          metaErrorDetails: metaErrors[0].details || '',
+        }
+      : {};
     await ref.set({
       waId,
       whatsappMessageId,
@@ -623,6 +688,7 @@ async function ingestMessages(value, accessToken) {
       mimeType: media?.mimeType || '',
       fileName: media?.fileName || '',
       mediaUrl,
+      ...metaErrorPatch,
       createdAt: eventTime(message?.timestamp),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
