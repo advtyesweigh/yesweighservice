@@ -608,7 +608,7 @@ async function createSegmentSalesOrders({
         throw new HttpsError('failed-precondition', String(err.yesOneHint));
       }
       const zohoMessage = String(err?.message || 'Could not create Zoho sales order.');
-      if (/not authorized to perform this operation/i.test(zohoMessage)) {
+      if (/not authorized to perform this operation|access denied/i.test(zohoMessage)) {
         throw new HttpsError(
           'failed-precondition',
           segment === 'software'

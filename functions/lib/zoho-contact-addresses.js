@@ -176,6 +176,7 @@ function isZohoAuthDeniedError(err) {
   const msg = String(err?.message ?? err ?? '').toLowerCase();
   return (
     msg.includes('not authorized to perform this operation')
+    || msg.includes('access denied')
     || msg.includes('unauthorized')
     || msg.includes('invalid oauth token')
     || msg.includes('insufficient privilege')
@@ -441,10 +442,11 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     const message = zohoError?.message
       || 'Could not load shipping addresses from Zoho.';
     if (isZohoAuthDeniedError(zohoError)) {
-      throw new HttpsError(
-        'failed-precondition',
-        `${message}${zohoAddressSyncFailureHint(zohoError)}`,
-      );
+      const raw = String(message || '').trim();
+      const body = /^access denied\.?$/i.test(raw)
+        ? ZOHO_CUSTOMER_ACCESS_DENIED_TEXT
+        : `${raw}${zohoAddressSyncFailureHint(zohoError)}`.trim();
+      throw new HttpsError('failed-precondition', body);
     }
     throw new HttpsError('internal', message);
   }

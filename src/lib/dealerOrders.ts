@@ -12,7 +12,7 @@ export function dealerOrderErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const message = 'message' in err ? String((err as { message: string }).message) : '';
     const cleaned = message.replace(/^Firebase:\s*/i, '').replace(/\s*\([^)]*\)\s*$/, '');
-    if (/not authorized to perform this operation/i.test(cleaned)) {
+    if (/not authorized to perform this operation|access denied/i.test(cleaned)) {
       if (/Zoho Inventory refused|Zoho rejected/i.test(cleaned)) return cleaned;
       return (
         'Zoho Inventory refused this sales order. '

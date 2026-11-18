@@ -41,7 +41,7 @@ function isGatcFeeOrderLine(line) {
 }
 
 function isZohoNotAuthorized(err) {
-  return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
+  return /not authorized to perform this operation|access denied/i.test(String(err?.message ?? ''));
 }
 
 /** Goods that Zoho can stock at a warehouse. Freight/SAC/GATC-fee lines must not send warehouse_id. */

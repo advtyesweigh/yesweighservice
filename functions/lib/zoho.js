@@ -109,14 +109,12 @@ export function normaliseItem(raw) {
   };
 }
 
-export async function getAccessToken(secrets) {
-  const { assertZohoInventoryAllowed } = await import('./zoho-api-usage.js');
-  await assertZohoInventoryAllowed();
+function zohoTokenErrorIsRetryable(err) {
+  const msg = String(err?.message ?? err ?? '');
+  return /access denied|not authorized|unauthorized|invalid oauth|econnreset|timed out|socket|fetch failed/i.test(msg);
+}
 
-  if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
-    return tokenCache.token;
-  }
-
+async function requestZohoAccessToken(secrets) {
   const body = new URLSearchParams({
     refresh_token: secrets.refreshToken,
     client_id: secrets.clientId,
@@ -130,7 +128,7 @@ export async function getAccessToken(secrets) {
     body,
   });
 
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.error) {
     throw new Error(payload.error || payload.message || 'Failed to refresh Zoho access token.');
   }
@@ -140,8 +138,28 @@ export async function getAccessToken(secrets) {
     token: payload.access_token,
     expiresAt: Date.now() + expiresIn * 1000,
   };
-
   return tokenCache.token;
+}
+
+export async function getAccessToken(secrets) {
+  const { assertZohoInventoryAllowed } = await import('./zoho-api-usage.js');
+  await assertZohoInventoryAllowed();
+
+  if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
+    return tokenCache.token;
+  }
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await requestZohoAccessToken(secrets);
+    } catch (err) {
+      lastError = err;
+      if (!zohoTokenErrorIsRetryable(err) || attempt >= 3) break;
+      await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+    }
+  }
+  throw lastError;
 }
 
 export function authHeaders(accessToken, orgId) {
