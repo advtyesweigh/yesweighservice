@@ -364,7 +364,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
 
 const INVOICE_ACCESS_PERMISSION_SET = new Set<string>(INVOICE_ACCESS_PERMISSIONS);
 
-/** Staff whose resolved perms are only Invoice access (dashboard + invoices + logistics + profile). */
+/** Staff whose resolved perms are only Invoice access (dashboard, products, invoices, logistics, profile). */
 export function isInvoiceAccessOnlyStaff(user: User | null | undefined): boolean {
   if (!user || user.role !== 'staff') return false;
   const perms = resolveStaffPermissions(user);
@@ -375,6 +375,8 @@ export function isInvoiceAccessOnlyStaff(user: User | null | undefined): boolean
 export function canAccessNavFeature(user: User | null | undefined, feature: StaffNavFeature): boolean {
   if (!user) return false;
   if (feature === 'purchase-orders') return canViewPurchaseOrders(user);
+  // Browse products does not open Spare Indent for invoice clerks.
+  if (feature === 'spare-indents' && isInvoiceAccessOnlyStaff(user)) return false;
   if (user.role === 'super_admin') return feature !== 'staff' || true;
   if (user.role === 'dealer' || user.role === 'dealer_staff') return true;
   if (user.role !== 'staff') return false;

@@ -84,7 +84,7 @@ export function buildSystemStaffRoles(): StaffRoleTemplate[] {
       'Invoice access',
       'admin',
       [...INVOICE_ACCESS_PERMISSIONS],
-      'Dashboard, invoices, logistics, and profile',
+      'Dashboard, products, invoices, logistics, and profile',
     ),
   ];
 }

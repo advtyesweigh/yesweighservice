@@ -6,7 +6,7 @@ export const SYSTEM_STAFF_ROLE_IDS = {
   logistics: 'role-logistics',
   admin: 'role-admin',
   hrManager: 'role-hr-manager',
-  /** Dashboard + invoices (+ profile) only. */
+  /** Dashboard, products, invoices, logistics, and profile. */
   invoiceAccess: 'role-invoice-access',
 } as const;
 

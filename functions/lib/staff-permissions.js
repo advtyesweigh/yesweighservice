@@ -58,6 +58,7 @@ const HR_MANAGER_PERMS = new Set([
 ]);
 
 const INVOICE_ACCESS_PERMS = new Set([
+  'catalog.view',
   'invoices.view',
   'logistics.view',
 ]);
