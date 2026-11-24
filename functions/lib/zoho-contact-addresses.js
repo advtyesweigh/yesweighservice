@@ -2,7 +2,7 @@
  * Zoho Inventory contact addresses (default billing/shipping + additional).
  * Syncable via Inventory Contacts Address API.
  */
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, withZohoAuthRetry } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -14,7 +14,11 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 
-async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
+async function zohoJson(accessToken, orgId, path, options = {}) {
+  return withZohoAuthRetry(accessToken, (token) => zohoJsonOnce(token, orgId, path, options));
+}
+
+async function zohoJsonOnce(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);
@@ -39,9 +43,12 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
   recordZohoApiResponse(res.status, path);
   if (!res.ok) {
     const classified = classifyZohoHttpError(res.status, payload);
-    throw new Error(
+    const error = new Error(
       payload?.message || classified?.message || `Zoho request failed (${res.status})`,
     );
+    error.status = res.status;
+    error.zohoCode = payload?.code ?? classified?.zohoCode ?? null;
+    throw error;
   }
   return payload;
 }
@@ -723,11 +730,30 @@ export async function resolveShippingAddressId(
   { addressId = null, kind = null, newAddress = null } = {},
 ) {
   if (newAddress) {
-    const created = await addContactAddress(secrets, configuredOrgId, customerId, newAddress);
-    if (!created?.addressId) {
-      throw new HttpsError('internal', 'Could not create shipping address in Zoho.');
+    try {
+      const created = await addContactAddress(secrets, configuredOrgId, customerId, newAddress);
+      if (!created?.addressId) {
+        throw new HttpsError('internal', 'Could not create shipping address in Zoho.');
+      }
+      return { shippingAddressId: created.addressId, address: created };
+    } catch (err) {
+      // Zoho often refuses to save an address on a customer the connected user
+      // cannot open (code 57). The sales order can still carry the address inline.
+      if (!isZohoAuthDeniedError(err)) throw err;
+      const addr = fitZohoAddressLines(normalizeAddressInput(newAddress));
+      assertCompleteAddress(addr);
+      const inline = mapAddressRow(addr, { kind: 'additional', label: 'New address' });
+      if (!inline) throw err;
+      console.warn(
+        'Zoho refused to save the new address on the customer; putting it only on this sales order.',
+        { customerId: String(customerId || '').trim(), message: err?.message || err },
+      );
+      return {
+        shippingAddressId: null,
+        address: inline,
+        useInline: true,
+      };
     }
-    return { shippingAddressId: created.addressId, address: created };
   }
 
   const id = String(addressId || '').trim();

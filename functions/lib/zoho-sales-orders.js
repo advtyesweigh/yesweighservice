@@ -1,7 +1,7 @@
 /**
  * Create Zoho Inventory sales orders and invoices from portal dealer orders.
  */
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, hasZohoJsonBody } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, hasZohoJsonBody, withZohoAuthRetry } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -412,7 +412,11 @@ async function putSalesOrderShippingAddress(accessToken, orgId, salesOrderId, op
   });
 }
 
-async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
+async function zohoJson(accessToken, orgId, path, options = {}) {
+  return withZohoAuthRetry(accessToken, (token) => zohoJsonOnce(token, orgId, path, options));
+}
+
+async function zohoJsonOnce(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);

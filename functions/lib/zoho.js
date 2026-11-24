@@ -50,6 +50,8 @@ function resolveLabelRate(item) {
 
 /** @type {{ token: string; expiresAt: number } | null} */
 let tokenCache = null;
+let cachedSecrets = null;
+let refreshInFlight = null;
 
 export function getStockStatus(stock, reorderLevel, hsn = null) {
   if (isSacHsn(hsn)) return 'in_stock';
@@ -141,25 +143,89 @@ async function requestZohoAccessToken(secrets) {
   return tokenCache.token;
 }
 
+function refreshZohoAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  const secrets = cachedSecrets;
+  refreshInFlight = (async () => {
+    if (!secrets?.refreshToken || !secrets?.clientId || !secrets?.clientSecret) {
+      throw new Error('Zoho secrets are not loaded.');
+    }
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await requestZohoAccessToken(secrets);
+      } catch (err) {
+        lastError = err;
+        if (!zohoTokenErrorIsRetryable(err) || attempt >= 3) break;
+        await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+      }
+    }
+    throw lastError;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
 export async function getAccessToken(secrets) {
+  cachedSecrets = secrets;
   const { assertZohoInventoryAllowed } = await import('./zoho-api-usage.js');
   await assertZohoInventoryAllowed();
 
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
     return tokenCache.token;
   }
+  return refreshZohoAccessToken();
+}
 
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      return await requestZohoAccessToken(secrets);
-    } catch (err) {
-      lastError = err;
-      if (!zohoTokenErrorIsRetryable(err) || attempt >= 3) break;
-      await new Promise(resolve => setTimeout(resolve, 400 * attempt));
-    }
+export function zohoCallWasRejected(err) {
+  const status = Number(err?.status ?? 0);
+  const code = Number(err?.zohoCode ?? 0);
+  if (status === 401 || code === 57) return true;
+  const msg = String(err?.message ?? err ?? '').toLowerCase();
+  return msg.includes('not authorized to perform this operation')
+    || msg.includes('invalid oauth')
+    || msg.includes('invalid token')
+    || msg.includes('unauthorized');
+}
+
+async function replaceRejectedZohoAccessToken(rejectedToken) {
+  const rejected = String(rejectedToken || '');
+  if (refreshInFlight) {
+    const fresh = await refreshInFlight;
+    if (fresh && fresh !== rejected) return fresh;
   }
-  throw lastError;
+  if (
+    tokenCache?.token
+    && tokenCache.token !== rejected
+    && tokenCache.expiresAt > Date.now() + 60_000
+  ) {
+    return tokenCache.token;
+  }
+  tokenCache = null;
+  return refreshZohoAccessToken();
+}
+
+/** One new access token after Zoho rejects the one we just sent. Same request, once. */
+export async function withZohoAuthRetry(accessToken, run) {
+  try {
+    return await run(accessToken);
+  } catch (err) {
+    if (!zohoCallWasRejected(err)) throw err;
+    let fresh = null;
+    try {
+      fresh = await replaceRejectedZohoAccessToken(accessToken);
+    } catch (refreshErr) {
+      console.warn('Zoho token refresh after rejection failed:', refreshErr?.message || refreshErr);
+      throw err;
+    }
+    if (!fresh || fresh === accessToken) throw err;
+    console.warn('Zoho rejected the access token; retried once with a new token.', {
+      status: err?.status ?? null,
+      zohoCode: err?.zohoCode ?? null,
+    });
+    return run(fresh);
+  }
 }
 
 export function authHeaders(accessToken, orgId) {
