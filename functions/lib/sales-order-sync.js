@@ -5,7 +5,7 @@
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, withZohoAuthRetry } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -870,27 +870,35 @@ export async function ensureSalesOrderPdf(secrets, orgId, soId) {
 
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
-  const url = new URL(`${ZOHO_API_BASE}/salesorders/${id}`);
-  url.searchParams.set('organization_id', organizationId);
-  url.searchParams.set('accept', 'pdf');
-  const res = await fetch(url.toString(), {
-    headers: {
-      ...authHeaders(accessToken, organizationId),
-      Accept: 'application/pdf',
-    },
-  });
-  await recordZohoApiResponse(res, { operation: `salesorders/${id}/pdf`, source: 'sales-order-sync' });
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (!res.ok || !isPdfBuffer(buffer) || bufferLooksLikeZohoDenied(buffer)) {
-    let message = `Could not download sales order PDF (${res.status}).`;
-    try {
-      const payload = JSON.parse(buffer.toString('utf8'));
-      if (payload?.message) message = String(payload.message);
-    } catch {
-      if (bufferLooksLikeZohoDenied(buffer)) message = 'Access Denied';
+  const buffer = await withZohoAuthRetry(accessToken, async (token) => {
+    const url = new URL(`${ZOHO_API_BASE}/salesorders/${id}`);
+    url.searchParams.set('organization_id', organizationId);
+    url.searchParams.set('accept', 'pdf');
+    const res = await fetch(url.toString(), {
+      headers: {
+        ...authHeaders(token, organizationId),
+        Accept: 'application/pdf',
+      },
+    });
+    await recordZohoApiResponse(res, { operation: `salesorders/${id}/pdf`, source: 'sales-order-sync' });
+    const body = Buffer.from(await res.arrayBuffer());
+    if (!res.ok || !isPdfBuffer(body) || bufferLooksLikeZohoDenied(body)) {
+      let message = `Could not download sales order PDF (${res.status}).`;
+      let zohoCode = null;
+      try {
+        const payload = JSON.parse(body.toString('utf8'));
+        if (payload?.message) message = String(payload.message);
+        zohoCode = payload?.code ?? null;
+      } catch {
+        if (bufferLooksLikeZohoDenied(body)) message = 'Access Denied';
+      }
+      const error = new Error(zohoPdfDeniedMessage(message));
+      error.status = res.status || 401;
+      error.zohoCode = zohoCode;
+      throw error;
     }
-    throw new Error(zohoPdfDeniedMessage(message));
-  }
+    return body;
+  });
   await file.save(buffer, { resumable: false, contentType: 'application/pdf' });
   await ref.set({ pdfStoragePath: path }, { merge: true });
   return {

@@ -48,11 +48,7 @@ export function invoiceErrorMessage(err: unknown): string {
       /access denied|not authorized to perform this operation/i.test(message)
       && !/go back to see items/i.test(message)
     ) {
-      return (
-        'Zoho could not print this PDF (Access Denied). '
-        + 'The sales order is saved — go back to see items and amounts. '
-        + 'Software orders use Cloud Charges and often cannot be printed from Zoho.'
-      );
+      return 'Zoho refused to print this PDF. Close it and open it again.';
     }
     if (message) return message;
   }

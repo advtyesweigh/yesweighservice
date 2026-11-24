@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, withZohoAuthRetry } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -137,6 +137,10 @@ async function fetchInvoiceRaw(accessToken, orgId, invoiceId) {
 }
 
 async function fetchZohoPdf(accessToken, orgId, resource, id) {
+  return withZohoAuthRetry(accessToken, (token) => fetchZohoPdfOnce(token, orgId, resource, id));
+}
+
+async function fetchZohoPdfOnce(accessToken, orgId, resource, id) {
   const url = new URL(`${ZOHO_API_BASE}/${resource}/${id}`);
   url.searchParams.set('organization_id', orgId);
   url.searchParams.set('accept', 'pdf');
@@ -157,16 +161,27 @@ async function fetchZohoPdf(accessToken, orgId, resource, id) {
     }
     const text = await res.text();
     let message = `Could not download ${resource} PDF (${res.status}).`;
+    let zohoCode = null;
     try {
       const payload = JSON.parse(text);
       if (payload?.message) message = payload.message;
+      zohoCode = payload?.code ?? null;
     } catch {
-      // ignore
+      if (/access denied|not authorized/i.test(text)) message = 'Access Denied';
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    error.zohoCode = zohoCode;
+    throw error;
   }
   const buffer = Buffer.from(await res.arrayBuffer());
   if (!buffer.length) throw new Error('PDF file is empty.');
+  const sample = buffer.subarray(0, 4096).toString('utf8');
+  if (/access denied|not authorized to perform this operation/i.test(sample) && !sample.startsWith('%PDF-')) {
+    const error = new Error('Access Denied');
+    error.status = 401;
+    throw error;
+  }
   return buffer;
 }
 

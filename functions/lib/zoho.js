@@ -184,6 +184,7 @@ export function zohoCallWasRejected(err) {
   if (status === 401 || code === 57) return true;
   const msg = String(err?.message ?? err ?? '').toLowerCase();
   return msg.includes('not authorized to perform this operation')
+    || msg.includes('access denied')
     || msg.includes('invalid oauth')
     || msg.includes('invalid token')
     || msg.includes('unauthorized');
