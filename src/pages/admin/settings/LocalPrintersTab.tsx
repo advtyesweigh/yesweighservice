@@ -19,7 +19,8 @@ import {
   type LabelPrinter,
   type LabelStudioDoc,
 } from '../../../lib/labelStudio';
-import { isNativePrintAvailable, sendTestLabel } from '../../../lib/localPrinterPrint';
+import { PRINT_BRIDGE_START_HINT, sendTestLabel } from '../../../lib/localPrinterPrint';
+import { usePrintTransport } from '../../../lib/usePrintTransport';
 import { getLabelLayoutTemplateXml, DEFAULT_LABEL_LAYOUT_ID } from '../../../lib/labelLayouts';
 import {
   loadTestLabelDraft,
@@ -41,8 +42,9 @@ export const LocalPrintersTab: React.FC = () => {
   /** Raw logistics IP field so commas can be typed without being stripped. */
   const [logisticsHostsText, setLogisticsHostsText] = useState('');
 
-  const native = isNativePrintAvailable();
+  const transport = usePrintTransport();
   const platform = Capacitor.getPlatform();
+  const printReady = transport === 'android' || transport === 'windows';
   const previewFields = useMemo(() => toBinLabelFields(draft), [draft]);
   const binLayoutXml = getLabelLayoutTemplateXml(DEFAULT_LABEL_LAYOUT_ID);
   const storeSlot = getHardcodedPrinterSlot(STORE_LABEL_PRINTER_ID);
@@ -178,11 +180,15 @@ export const LocalPrintersTab: React.FC = () => {
       {success && <p className="settings-local-printer__success text-sm">{success}</p>}
 
       <div className="settings-local-printer">
-        <div className={`settings-local-printer__badge ${native ? 'is-native' : 'is-web'}`}>
+        <div className={`settings-local-printer__badge ${printReady ? 'is-native' : 'is-web'}`}>
           <Printer size={16} aria-hidden />
-          {native
+          {transport === 'android'
             ? `Android APK ready · ${platform}`
-            : 'Browser / PWA — preview & save here; open the APK on Wi‑Fi to test print'}
+            : transport === 'windows'
+              ? 'Windows print bridge ready'
+              : transport === 'pending'
+                ? 'Checking print bridge…'
+                : PRINT_BRIDGE_START_HINT}
         </div>
 
         {loading ? (

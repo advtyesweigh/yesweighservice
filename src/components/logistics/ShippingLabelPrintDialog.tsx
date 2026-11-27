@@ -6,7 +6,8 @@ import {
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../../constants/localPrinterSettings';
 import { fetchDealerById } from '../../lib/dealers';
-import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
+import { PRINT_BRIDGE_START_HINT } from '../../lib/localPrinterPrint';
+import { usePrintTransport } from '../../lib/usePrintTransport';
 import {
   isPlaceholderLogisticsAddress,
   preferredDeliveryAddressKind,
@@ -49,7 +50,8 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
   const [success, setSuccess] = useState('');
   const [effectiveBooking, setEffectiveBooking] = useState(booking);
   const canvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
-  const native = isNativePrintAvailable();
+  const transport = usePrintTransport();
+  const thermal = transport === 'android' || transport === 'windows';
 
   useEffect(() => {
     setEffectiveBooking(booking);
@@ -213,15 +215,15 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
               ))}
             </div>
 
-            {!native && (
+            {transport === 'none' && (
               <p className="text-muted text-sm shipping-label-print-dialog__hint">
-                Preview is the exact 203 DPI bitmap. Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
-                On web, Print opens the system dialog — {labels.length > 1
+                Preview is the exact 203 DPI bitmap. {PRINT_BRIDGE_START_HINT}
+                {' '}Otherwise Print opens the system dialog — {labels.length > 1
                   ? `${labels.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm (one label per box).`
                   : `${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock.`}
               </p>
             )}
-            {native && (
+            {thermal && (
               <p className="text-muted text-sm shipping-label-print-dialog__hint">
                 {labels.length > 1
                   ? `Preview matches the 203 DPI bitmap. Print all sends ${labels.length} separate ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm jobs to the logistics printer.`

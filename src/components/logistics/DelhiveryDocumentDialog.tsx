@@ -6,7 +6,8 @@ import {
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../../constants/localPrinterSettings';
 import { shareDelhiveryDocumentFile } from '../../lib/delhiveryDocuments';
-import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
+import { PRINT_BRIDGE_START_HINT } from '../../lib/localPrinterPrint';
+import { usePrintTransport } from '../../lib/usePrintTransport';
 import {
   printPdfBytes,
   printShippingLabelImages,
@@ -66,7 +67,8 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
   const [printError, setPrintError] = useState('');
   const [printSuccess, setPrintSuccess] = useState('');
   const [shareError, setShareError] = useState('');
-  const native = isNativePrintAvailable();
+  const transport = usePrintTransport();
+  const thermal = transport === 'android' || transport === 'windows';
 
   useEffect(() => {
     if (viewedRef.current) return;
@@ -246,13 +248,16 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
 
         {isShippingLabel ? (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            {native
+            {thermal
               ? (images.length > 1
                 ? `Preview matches ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock. Print all sends ${images.length} separate jobs to the logistics printer.`
                 : `Preview matches ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock sent to the logistics printer.`)
-              : (images.length > 1
-                ? `Scroll to review each label. Print all opens ${images.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm.`
-                : `Preview is ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm — same size as print.`)}
+              : transport === 'none'
+                ? `${PRINT_BRIDGE_START_HINT} Otherwise Print opens the system dialog`
+                  + (images.length > 1
+                    ? ` (${images.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm).`
+                    : ` (${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm).`)
+                : `Preview is ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm — same size as print.`}
           </p>
         ) : null}
 

@@ -16,7 +16,8 @@ import {
   type LabelPrinter,
   type LabelStudioDoc,
 } from '../../lib/labelStudio';
-import { isNativePrintAvailable, sendBinLabel } from '../../lib/localPrinterPrint';
+import { PRINT_BRIDGE_START_HINT, sendBinLabel } from '../../lib/localPrinterPrint';
+import { usePrintTransport } from '../../lib/usePrintTransport';
 import { recordCatalogBinLabelPrint } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -152,7 +153,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const native = isNativePrintAvailable();
+  const transport = usePrintTransport();
 
   const layoutXml = useMemo(() => getLabelLayoutTemplateXml(layoutId), [layoutId]);
 
@@ -314,9 +315,14 @@ export const BinLabelPrintDialog: React.FC<Props> = ({
               hideHead
             />
 
-            {!native && (
+            {transport === 'windows' && (
               <p className="text-muted text-sm bin-label-print-dialog__hint">
-                Print requires the YesWeigh Android APK on the same Wi‑Fi as the label printer.
+                This PC sends the label to the store printer through the local print bridge.
+              </p>
+            )}
+            {transport === 'none' && (
+              <p className="text-muted text-sm bin-label-print-dialog__hint">
+                {PRINT_BRIDGE_START_HINT}
               </p>
             )}
           </>

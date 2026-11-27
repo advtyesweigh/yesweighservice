@@ -13,6 +13,7 @@
     "build:plugins": "npm run build:tcp-print && npm run build:whatsapp-share && npm run build:wanhai-track",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
+    "print-bridge": "node tools/lan-print-bridge/server.mjs",
     "prepare": "npm run build:plugins",
     "generate:icons": "npm install --no-save sharp && node scripts/generate-icons.mjs",
     "preview": "vite preview",

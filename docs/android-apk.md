@@ -57,6 +57,20 @@ cd android
 2. Open the APK → sign in as admin/staff.
 3. **Settings → Local printers** → confirm IP (default `192.168.1.39`) → **Save** → **Test print**.
 
+## Windows laptop
+
+The browser cannot open a raw TCP socket. A loopback bridge on the laptop does that, then the page at https://service.yesweigh.in sends the same label bytes to it.
+
+The laptop must be on the same LAN as the printer. From the repo:
+
+```powershell
+npm run print-bridge
+```
+
+Leave that process running. It listens on `127.0.0.1:47321` only and forwards jobs to the printer on port **9100**. Chrome may ask once to allow local-network access for `service.yesweigh.in`. Reload the site after a hosting deploy so the page knows about the bridge.
+
+The bridge is not deployed. Hosting only needs the page change that calls it. The APK path is unchanged.
+
 ## Notes
 
 - Test print sends a small TSPL label over TCP port **9100**.

@@ -8,7 +8,7 @@ import {
   buildCanvasTsplBitmapJob,
 } from './localPrinterLabelBitmap';
 import {
-  isNativePrintAvailable,
+  isLanPrintAvailable,
   logisticsLastHostStorageKey,
   pickReachablePrinter,
   sendRawToPrinter,
@@ -165,11 +165,11 @@ export async function resolveLogisticsPrinterOrThrow(): Promise<{ host: string; 
   });
 }
 
-/** Native thermal print when APK + IP available; otherwise returns false for browser fallback. */
+/** Thermal print when the APK or the local print bridge can reach a printer. */
 export async function tryPrintShippingLabelsThermal(
   labels: ShippingLabelViewModel[],
 ): Promise<{ usedThermal: boolean; bytesSent: number }> {
-  if (!isNativePrintAvailable() || !labels.length) {
+  if (!labels.length || !(await isLanPrintAvailable())) {
     return { usedThermal: false, bytesSent: 0 };
   }
   const printer = await resolveLogisticsPrinterOrThrow();
@@ -192,7 +192,7 @@ export async function tryPrintCourierLabelThermal(input: {
   pieces: string;
   weightKg: number;
 }): Promise<{ usedThermal: boolean; bytesSent: number }> {
-  if (!isNativePrintAvailable()) {
+  if (!(await isLanPrintAvailable())) {
     return { usedThermal: false, bytesSent: 0 };
   }
   const printer = await resolveLogisticsPrinterOrThrow();
@@ -616,7 +616,7 @@ export async function renderImageToLogisticsLabelCanvas(
 export async function tryPrintLabelImagesThermal(
   imageUrls: string[],
 ): Promise<{ usedThermal: boolean; bytesSent: number }> {
-  if (!isNativePrintAvailable() || !imageUrls.length) {
+  if (!imageUrls.length || !(await isLanPrintAvailable())) {
     return { usedThermal: false, bytesSent: 0 };
   }
   const printer = await resolveLogisticsPrinterOrThrow();
